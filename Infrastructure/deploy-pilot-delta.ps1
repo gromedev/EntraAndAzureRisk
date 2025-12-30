@@ -19,7 +19,7 @@
 .PARAMETER ResourceGroupName
     Resource group name (default: rg-entrarisk-pilot-001)
 .PARAMETER Location
-    Azure region (default: eastus)
+    Azure region (default: northeurope)
 .PARAMETER Environment
     Environment name (default: dev)
 .PARAMETER BlobRetentionDays
@@ -49,7 +49,7 @@ param(
     [string]$ResourceGroupName = "rg-entrarisk-pilot-001",
     
     [Parameter(Mandatory=$false)]
-    [string]$Location = "eastus",
+    [string]$Location = "northeurope",
     
     [Parameter(Mandatory=$false)]
     [ValidateSet('dev', 'test', 'prod')]

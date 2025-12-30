@@ -536,7 +536,7 @@ All resource names, endpoints, principal IDs for verification
     -SubscriptionId "<subscription-id>" `
     -TenantId "<tenant-id>" `
     -ResourceGroupName "rg-entrarisk-pilot-001" `
-    -Location "eastus" `
+    -Location "northeurope" `
     -Environment "dev" `
     -BlobRetentionDays 7
 ```
@@ -545,7 +545,7 @@ All resource names, endpoints, principal IDs for verification
 - `SubscriptionId` - Required
 - `TenantId` - Required
 - `ResourceGroupName` - Default: rg-entrarisk-pilot-001
-- `Location` - Default: eastus
+- `Location` - Default: northeurope
 - `Environment` - Default: dev (dev/test/prod)
 - `BlobRetentionDays` - Default: 7 (1-365)
 - `WorkloadName` - Default: entrarisk
