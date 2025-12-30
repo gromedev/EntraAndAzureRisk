@@ -532,18 +532,33 @@ function Add-BlobContent {
             return
         }
         catch {
-            $attempt++
             $statusCode = $_.Exception.Response.StatusCode.value__
             
+            # 429 doesn't count against retry limit
+            if ($statusCode -ne 429) {
+                $attempt++
+            }
+            
             # Retry on transient errors: 5xx, 408 (timeout), 429 (throttle)
+            $isRetryable = ($statusCode -ge 500) -or ($statusCode -eq 408) -or ($statusCode -eq 429)
+            
             if ($isRetryable -and $attempt -lt $MaxRetries) {
                 $delay = $BaseRetryDelaySeconds * [Math]::Pow(2, $attempt - 1)
+                
                 if ($statusCode -eq 429) {
                     $retryAfterHeader = $_.Exception.Response.Headers.'Retry-After'
-                    if ($retryAfterHeader -and $retryAfterHeader -match '^\d+$') {
-                        $delay = [int]$retryAfterHeader
+                    if ($retryAfterHeader) {
+                        if ($retryAfterHeader -match '^\d+$') {
+                            $delay = [int]$retryAfterHeader
+                        } else {
+                            try {
+                                $retryDate = [DateTime]::ParseExact($retryAfterHeader, 'r', [System.Globalization.CultureInfo]::InvariantCulture)
+                                $delay = [Math]::Max([Math]::Ceiling(($retryDate - (Get-Date).ToUniversalTime()).TotalSeconds), 1)
+                            } catch {}
+                        }
                     }
                 }
+                
                 Write-Warning "Blob append failed (HTTP $statusCode). Retry $attempt of $MaxRetries in $delay seconds..."
                 Start-Sleep -Seconds $delay
                 continue
@@ -630,10 +645,6 @@ function Write-BlobContent {
 
 
 function Write-CosmosDocument {
-    <#
-    .SYNOPSIS
-        Writes a single document to Cosmos DB using REST API
-    #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -649,29 +660,59 @@ function Write-CosmosDocument {
         [hashtable]$Document,
         
         [Parameter(Mandatory)]
-        [string]$AccessToken
+        [string]$AccessToken,
+        
+        [int]$MaxRetries = 3
     )
     
     $uri = "$Endpoint/dbs/$Database/colls/$Container/docs"
     
-$headers = @{
-        'Authorization' = "Bearer $AccessToken"
-        'Content-Type' = 'application/json'
-        'x-ms-date' = [DateTime]::UtcNow.ToString('r')
-        'x-ms-version' = '2018-12-31'
-        'x-ms-documentdb-partitionkey' = "[`"$($Document.objectId)`"]"
+    $attempt = 0
+    while ($attempt -lt $MaxRetries) {
+        $headers = @{
+            'Authorization' = "Bearer $AccessToken"
+            'Content-Type' = 'application/json'
+            'x-ms-date' = [DateTime]::UtcNow.ToString('r')
+            'x-ms-version' = '2018-12-31'
+            'x-ms-documentdb-partitionkey' = "[`"$($Document.objectId)`"]"
+        }
+        
+        $body = $Document | ConvertTo-Json -Depth 10 -Compress
+        
+        try {
+            $response = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body $body -ErrorAction Stop
+            return $response
+        }
+        catch {
+            $statusCode = $_.Exception.Response.StatusCode.value__
+            
+            # 429 doesn't count against retry limit
+            if ($statusCode -eq 429) {
+                $delay = 5
+                $retryAfterHeader = $_.Exception.Response.Headers.'x-ms-retry-after-ms'
+                if ($retryAfterHeader -and $retryAfterHeader -match '^\d+$') {
+                    $delay = [Math]::Ceiling([int]$retryAfterHeader / 1000)
+                }
+                Write-Warning "Cosmos throttled (429). Waiting $delay seconds..."
+                Start-Sleep -Seconds $delay
+                continue
+            }
+            
+            # 5xx errors count against retries
+            $attempt++
+            if ($statusCode -ge 500 -and $attempt -lt $MaxRetries) {
+                $delay = 2 * [Math]::Pow(2, $attempt - 1)
+                Write-Warning "Cosmos error ($statusCode). Retry $attempt/$MaxRetries in $delay seconds..."
+                Start-Sleep -Seconds $delay
+                continue
+            }
+            
+            Write-Error "Cosmos write failed: $_"
+            throw
+        }
     }
     
-    $body = $Document | ConvertTo-Json -Depth 10 -Compress
-    
-    try {
-        $response = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body $body
-        return $response
-    }
-    catch {
-        Write-Error "Cosmos write failed: $_"
-        throw
-    }
+    throw "Cosmos write failed after $MaxRetries retries"
 }
 
 function Write-CosmosBatch {
@@ -882,7 +923,7 @@ function Write-CosmosParallelBatch {
             catch {
                 $statusCode = $_.Exception.Response.StatusCode.value__
                 
-                # 429 doesn't count against retry limit (like Graph API pattern)
+                # 429 doesn't count against retry limit
                 if ($statusCode -ne 429) {
                     $attempt++
                 }
