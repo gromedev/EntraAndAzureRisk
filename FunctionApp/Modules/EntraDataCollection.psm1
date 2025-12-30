@@ -641,12 +641,12 @@ function Write-CosmosDocument {
     
     $uri = "$Endpoint/dbs/$Database/colls/$Container/docs"
     
-    $headers = @{
+$headers = @{
         'Authorization' = "Bearer $AccessToken"
         'Content-Type' = 'application/json'
         'x-ms-date' = [DateTime]::UtcNow.ToString('r')
         'x-ms-version' = '2018-12-31'
-        'x-ms-documentdb-partitionkey' = "[$($Document.id)]"
+        'x-ms-documentdb-partitionkey' = "[`"$($Document.objectId)`"]"
     }
     
     $body = $Document | ConvertTo-Json -Depth 10 -Compress
@@ -777,7 +777,8 @@ function Get-CosmosDocuments {
         }
         
         try {
-            $response = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body $body
+            $responseHeaders = $null
+            $response = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body $body -ResponseHeadersVariable responseHeaders
             
             if ($response.Documents -and $response.Documents.Count -gt 0) {
                 # Process page immediately, don't accumulate
@@ -785,7 +786,7 @@ function Get-CosmosDocuments {
                 $totalDocs += $response.Documents.Count
             }
             
-            $continuation = $response.Headers['x-ms-continuation']
+            $continuation = $responseHeaders['x-ms-continuation']
         }
         catch {
             Write-Error "Cosmos query failed: $_"
@@ -852,7 +853,7 @@ function Write-CosmosParallelBatch {
             'Content-Type' = 'application/json'
             'x-ms-date' = [DateTime]::UtcNow.ToString('r')
             'x-ms-version' = '2018-12-31'
-            'x-ms-documentdb-partitionkey' = "[$($doc.id)]"
+            'x-ms-documentdb-partitionkey' = "[`"$($doc.objectId)`"]"
         }
         
         $body = $doc | ConvertTo-Json -Depth 10 -Compress

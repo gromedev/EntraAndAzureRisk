@@ -36,7 +36,7 @@ foreach ($varName in $requiredEnvVars.Keys) {
 
 if ($missingVars) {
     $errorMsg = "Missing required environment variables:`n" + ($missingVars -join "`n")
-    Write-Error $errorMsg
+    Write-Warning $errorMsg
     return @{
         Success = $false
         Error = $errorMsg
@@ -90,9 +90,11 @@ try {
     $usersBlobName = "$timestamp/$timestamp-users.jsonl"
     Write-Verbose "Initializing append blob: $usersBlobName"
     
+    $containerName = if ($env:STORAGE_CONTAINER_RAW_DATA) { $env:STORAGE_CONTAINER_RAW_DATA } else { 'raw-data' }
+    
     try {
         Initialize-AppendBlob -StorageAccountName $storageAccountName `
-                              -ContainerName 'raw-data' `
+                              -ContainerName $containerName `
                               -BlobName $usersBlobName `
                               -AccessToken $storageToken
     }
@@ -161,7 +163,7 @@ try {
         if ($usersJsonL.Length -ge ($writeThreshold * 200)) {
             try {
                 Add-BlobContent -StorageAccountName $storageAccountName `
-                                -ContainerName 'raw-data' `
+                                -ContainerName $containerName `
                                 -BlobName $usersBlobName `
                                 -Content $usersJsonL.ToString() `
                                 -AccessToken $storageToken `
@@ -172,7 +174,7 @@ try {
                 $usersJsonL.Clear()
             }
             catch {
-                Write-Error "CRITICAL: Blob write failed after retries at batch $batchNumber: $_"
+                Write-Error "CRITICAL: Blob write failed after retries at batch $batchNumber $_"
                 throw "Cannot continue - data loss would occur"
             }
         }

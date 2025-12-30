@@ -327,11 +327,11 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
       appSettings: [
         {
           name: 'AzureWebJobsStorage'
-          value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccount.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
+          value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccount.listKeys().keys[0].value};EndpointSuffix=${az.environment().suffixes.storage}'
         }
         {
           name: 'WEBSITE_CONTENTAZUREFILECONNECTIONSTRING'
-          value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccount.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
+          value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccount.listKeys().keys[0].value};EndpointSuffix=${az.environment().suffixes.storage}'
         }
         {
           name: 'WEBSITE_CONTENTSHARE'
@@ -494,7 +494,7 @@ resource functionAppStorageRoleAssignment 'Microsoft.Authorization/roleAssignmen
 
 resource functionAppCosmosRoleAssignment 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2023-04-15' = {
   parent: cosmosDbAccount
-  name: guid(functionApp.identity.principalId, cosmosDbAccount.id, '00000000-0000-0000-0000-000000000002')
+  name: guid(functionApp.id, cosmosDbAccount.id, '00000000-0000-0000-0000-000000000002')
   properties: {
     roleDefinitionId: '${cosmosDbAccount.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002'
     principalId: functionApp.identity.principalId
@@ -524,7 +524,7 @@ resource aiFoundryStorageRoleAssignment 'Microsoft.Authorization/roleAssignments
 
 resource aiFoundryCosmosRoleAssignment 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2023-04-15' = {
   parent: cosmosDbAccount
-  name: guid(aiFoundryHub.identity.principalId, cosmosDbAccount.id, '00000000-0000-0000-0000-000000000001')
+  name: guid(aiFoundryHub.id, cosmosDbAccount.id, '00000000-0000-0000-0000-000000000001')
   properties: {
     roleDefinitionId: '${cosmosDbAccount.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000001'
     principalId: aiFoundryHub.identity.principalId

@@ -254,13 +254,15 @@ try {
         }
         
         # Parallel batch write (v3 optimization)
+        $parallelThrottle = if ($env:PARALLEL_THROTTLE) { [int]$env:PARALLEL_THROTTLE } else { 10 }
+        
         $writtenCount = Write-CosmosParallelBatch `
             -Endpoint $cosmosEndpoint `
             -Database $cosmosDatabase `
             -Container $containerUsersRaw `
             -Documents $docsToWrite `
             -AccessToken $cosmosToken `
-            -ParallelThrottle 10
+            -ParallelThrottle $parallelThrottle
         
         Write-Verbose "Written $writtenCount users to $containerUsersRaw"
     }

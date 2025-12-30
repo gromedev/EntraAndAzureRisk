@@ -288,10 +288,18 @@ Write-Host "   - Run pipeline and wait for completion"
 Write-Host ""
 
 Write-Host "3. DEPLOY FUNCTION APP CODE" -ForegroundColor Yellow
-Write-Host "   Run the application deployment pipeline:"
-Write-Host "   - Azure DevOps → Pipelines"
+Write-Host "   Prerequisites:"
+Write-Host "   a. Install Azure Functions Core Tools:"
+Write-Host "      npm install -g azure-functions-core-tools@4"
+Write-Host "   b. Authenticate to Azure:"
+Write-Host "      az login"
+Write-Host ""
+Write-Host "   Then deploy code:"
+Write-Host "      cd FunctionApp"
+Write-Host "      func azure functionapp publish $($deployment.Outputs.functionAppName.Value)"
+Write-Host ""
+Write-Host "   Alternative: Run Azure DevOps pipeline"
 Write-Host "   - Select: .azure-pipelines/pilot-pipeline.yml"
-Write-Host "   - Approve deployment when prompted"
 Write-Host ""
 
 Write-Host "4. (OPTIONAL) DEPLOY AI MODEL" -ForegroundColor Gray

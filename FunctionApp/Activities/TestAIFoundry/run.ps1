@@ -51,7 +51,7 @@ try {
     
     # Get token
     try {
-        $token = Get-ManagedIdentityToken -Resource "https://ml.azure.com"
+        $token = Get-ManagedIdentityToken -Resource "https://cognitiveservices.azure.com"
     }
     catch {
         Write-Warning "Could not acquire AI Foundry token: $_"
@@ -102,7 +102,7 @@ try {
     
     # Construct test prompt
     $testPrompt = @"
-Quick verification test for data collection at timestamp $timestamp:
+Quick verification test for data collection at timestamp $timestamp
 
 Data sources available:
 1. Cosmos DB: Document ID '$cosmosDocumentId' in database 'EntraData'

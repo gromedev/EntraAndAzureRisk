@@ -74,7 +74,7 @@ try {
             -FunctionName 'IndexInCosmosDB' `
             -Input $indexInput
         
-        if ($indexResult.Success) {
+        if ($indexResult -and $indexResult.Success) {
             $indexSuccess = $true
             Write-Verbose "Indexing complete:"
             Write-Verbose "  Total users: $($indexResult.TotalUsers)"
