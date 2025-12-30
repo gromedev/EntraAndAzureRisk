@@ -17,7 +17,7 @@
 .PARAMETER TenantId
     Entra ID tenant ID
 .PARAMETER ResourceGroupName
-    Resource group name (default: rg-entrarisk-pilot-001)
+    Resource group name (default: rg-entrarisk-pilot)
 .PARAMETER Location
     Azure region (default: westeurope)
 .PARAMETER Environment
@@ -46,7 +46,7 @@ param(
     [string]$TenantId,
     
     [Parameter(Mandatory=$false)]
-    [string]$ResourceGroupName = "rg-entrarisk-pilot-001",
+    [string]$ResourceGroupName = "rg-entrarisk-pilot",
     
     [Parameter(Mandatory=$false)]
     [string]$Location = "westeurope",

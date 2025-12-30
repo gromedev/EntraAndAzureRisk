@@ -535,7 +535,7 @@ All resource names, endpoints, principal IDs for verification
 .\deploy-pilot-delta.ps1 `
     -SubscriptionId "<subscription-id>" `
     -TenantId "<tenant-id>" `
-    -ResourceGroupName "rg-entrarisk-pilot-001" `
+    -ResourceGroupName "rg-entrarisk-pilot" `
     -Location "westeurope" `
     -Environment "dev" `
     -BlobRetentionDays 7
@@ -544,7 +544,7 @@ All resource names, endpoints, principal IDs for verification
 **Parameters:**
 - `SubscriptionId` - Required
 - `TenantId` - Required
-- `ResourceGroupName` - Default: rg-entrarisk-pilot-001
+- `ResourceGroupName` - Default: rg-entrarisk-pilot
 - `Location` - Default: westeurope
 - `Environment` - Default: dev (dev/test/prod)
 - `BlobRetentionDays` - Default: 7 (1-365)
@@ -705,7 +705,7 @@ cd Infrastructure
 Wait 5-10 minutes for deployment to complete.
 
 ***Error: 8.25 PM***
-VERBOSE: Performing the operation "Creating Deployment" on target "rg-entrarisk-pilot-001".
+VERBOSE: Performing the operation "Creating Deployment" on target "rg-entrarisk-pilot".
 Write-Error: Deployment failed: 20.24.13 - Error: Code=InvalidTemplateDeployment; Message=The template deployment 'delta-pilot-20251230-202335' is not valid according to the validation procedure. The tracking id is 'c65f4b4c-b216-4b31-9148-b280ed653c1b'. See inner errors for details.
 
 *** Missing Resource Provider Registration
