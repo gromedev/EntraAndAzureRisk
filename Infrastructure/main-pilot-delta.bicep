@@ -142,12 +142,8 @@ resource cosmosDbAccount 'Microsoft.DocumentDB/databaseAccounts@2023-04-15' = {
         isZoneRedundant: false
       }
     ]
-    capabilities: [
-      {
-        name: 'EnableServerless'
-      }
-    ]
-    enableFreeTier: true
+    capabilities: [] // REMOVE 'EnableServerless' FROM HERE
+    enableFreeTier: true // KEEP THIS
     backupPolicy: {
       type: 'Continuous'
       continuousModeProperties: {
@@ -507,6 +503,16 @@ resource functionAppKeyVaultRoleAssignment 'Microsoft.Authorization/roleAssignme
   scope: keyVault
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
+    principalId: functionApp.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource functionAppAiRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(aiFoundryHub.id, functionApp.id, '5e0bd9bd-c13a-43c8-bc48-b3a7585da610')
+  scope: aiFoundryHub
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '5e0bd9bd-c13a-43c8-bc48-b3a7585da610') // Cognitive Services User
     principalId: functionApp.identity.principalId
     principalType: 'ServicePrincipal'
   }

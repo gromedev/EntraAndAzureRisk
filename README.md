@@ -536,7 +536,7 @@ All resource names, endpoints, principal IDs for verification
     -SubscriptionId "<subscription-id>" `
     -TenantId "<tenant-id>" `
     -ResourceGroupName "rg-entrarisk-pilot-001" `
-    -Location "northeurope" `
+    -Location "westeurope" `
     -Environment "dev" `
     -BlobRetentionDays 7
 ```
@@ -545,7 +545,7 @@ All resource names, endpoints, principal IDs for verification
 - `SubscriptionId` - Required
 - `TenantId` - Required
 - `ResourceGroupName` - Default: rg-entrarisk-pilot-001
-- `Location` - Default: northeurope
+- `Location` - Default: westeurope
 - `Environment` - Default: dev (dev/test/prod)
 - `BlobRetentionDays` - Default: 7 (1-365)
 - `WorkloadName` - Default: entrarisk
@@ -703,6 +703,43 @@ cd Infrastructure
 ```
 
 Wait 5-10 minutes for deployment to complete.
+
+***Error: 8.25 PM***
+VERBOSE: Performing the operation "Creating Deployment" on target "rg-entrarisk-pilot-001".
+Write-Error: Deployment failed: 20.24.13 - Error: Code=InvalidTemplateDeployment; Message=The template deployment 'delta-pilot-20251230-202335' is not valid according to the validation procedure. The tracking id is 'c65f4b4c-b216-4b31-9148-b280ed653c1b'. See inner errors for details.
+
+*** Missing Resource Provider Registration
+Because you are using AI Foundry (Machine Learning Services) and Cosmos DB, your subscription must have those providers registered. If they aren't, the template is considered "Invalid."
+Run these commands to ensure your subscription is ready:
+
+```powershell
+az login
+az provider register --namespace Microsoft.MachineLearningServices
+az provider register --namespace Microsoft.DocumentDB
+az provider register --namespace Microsoft.Insights
+```
+
+***Cosmos DB***
+az cosmosdb list --query "[?enableFreeTier=='true'].{Name:name, ResourceGroup:resourceGroup}"
+
+WTF???? Severless isnt supported on the free tier??? This breaks the entire solution????
+    You have to remove "EnableServerless" because Azure views Free Tier and Serverless as two completely different ways of "renting" the database. They are fundamentally incompatible.
+    Think of it like choosing a pricing plan for a gym:
+    Provisioned Throughput (Standard): You pay a monthly membership fee to have access to the equipment whenever you want.
+    Free Tier: This is a "First-month free" coupon for that Standard membership.
+    Serverless: You don't have a membership; you just pay $5 every time you walk through the door.
+    Azure does not allow you to apply a "membership coupon" (Free Tier) to a "pay-as-you-go" (Serverless) plan.
+
+
+***The Potential Conflict: ***Storage Keys vs. RBAC
+In your functionApp resource, you are using the Storage Account Access Key to build the connection string:
+
+value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccount.listKeys().keys[0].value}...'
+
+The Risk: If your organization has a policy that "Disables Storage Account Key Access" (which is common for security), storageAccount.listKeys() will fail during deployment.
+
+The Fix: Since you already gave the Function App the Storage Blob Data Contributor role, you can change your Function App to use Identity-based connections. This is cleaner and doesn't require keys.
+
 
 ### Step 4: Grant Graph API Permissions
 
