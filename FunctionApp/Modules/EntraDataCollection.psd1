@@ -7,7 +7,7 @@
     Copyright = '(c) 2024. All rights reserved.'
     Description = 'PowerShell module for Microsoft Entra ID data collection and Cosmos DB operations'
     
-    PowerShellVersion = '7.2'
+    PowerShellVersion = '7.4'
     
     FunctionsToExport = @(
         'Get-ManagedIdentityToken',

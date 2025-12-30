@@ -175,12 +175,21 @@ function Invoke-GraphWithRetry {
             # Handle rate limiting (429) - doesn't count against retry attempts
             if ($statusCode -eq 429) {
                 $retryAfter = 60
-                if ($_.Exception.Response.Headers.'Retry-After') {
-                    $retryAfter = [int]$_.Exception.Response.Headers.'Retry-After'
+                $retryAfterHeader = $_.Exception.Response.Headers.'Retry-After'
+                if ($retryAfterHeader) {
+                    if ($retryAfterHeader -match '^\d+$') {
+                        $retryAfter = [int]$retryAfterHeader
+                    } else {
+                        try {
+                            $retryDate = [DateTime]::ParseExact($retryAfterHeader, 'r', [System.Globalization.CultureInfo]::InvariantCulture)
+                            $retryAfter = [Math]::Max([Math]::Ceiling(($retryDate - (Get-Date).ToUniversalTime()).TotalSeconds), 1)
+                        } catch {
+                            Write-Warning "Could not parse Retry-After: $retryAfterHeader"
+                        }
+                    }
                 }
-                Write-Warning "Rate limited (429) on $Uri. Waiting $retryAfter seconds (Retry-After header)..."
+                Write-Warning "Rate limited (429) on $Uri. Waiting $retryAfter seconds..."
                 Start-Sleep -Seconds $retryAfter
-                # Don't increment attempt counter for rate limiting
                 continue
             }
             
@@ -527,10 +536,14 @@ function Add-BlobContent {
             $statusCode = $_.Exception.Response.StatusCode.value__
             
             # Retry on transient errors: 5xx, 408 (timeout), 429 (throttle)
-            $isRetryable = ($statusCode -ge 500) -or ($statusCode -eq 408) -or ($statusCode -eq 429)
-            
             if ($isRetryable -and $attempt -lt $MaxRetries) {
                 $delay = $BaseRetryDelaySeconds * [Math]::Pow(2, $attempt - 1)
+                if ($statusCode -eq 429) {
+                    $retryAfterHeader = $_.Exception.Response.Headers.'Retry-After'
+                    if ($retryAfterHeader -and $retryAfterHeader -match '^\d+$') {
+                        $delay = [int]$retryAfterHeader
+                    }
+                }
                 Write-Warning "Blob append failed (HTTP $statusCode). Retry $attempt of $MaxRetries in $delay seconds..."
                 Start-Sleep -Seconds $delay
                 continue
@@ -858,7 +871,7 @@ function Write-CosmosParallelBatch {
         
         $body = $doc | ConvertTo-Json -Depth 10 -Compress
         
-        $maxRetries = 3
+ $maxRetries = 3
         $attempt = 0
         
         while ($attempt -lt $maxRetries) {
@@ -867,11 +880,21 @@ function Write-CosmosParallelBatch {
                 break
             }
             catch {
-                $attempt++
                 $statusCode = $_.Exception.Response.StatusCode.value__
+                
+                # 429 doesn't count against retry limit (like Graph API pattern)
+                if ($statusCode -ne 429) {
+                    $attempt++
+                }
                 
                 if (($statusCode -eq 429 -or $statusCode -ge 500) -and $attempt -lt $maxRetries) {
                     $delay = 2 * [Math]::Pow(2, $attempt - 1)
+                    if ($statusCode -eq 429) {
+                        $retryAfterHeader = $_.Exception.Response.Headers.'x-ms-retry-after-ms'
+                        if ($retryAfterHeader -and $retryAfterHeader -match '^\d+$') {
+                            $delay = [Math]::Ceiling([int]$retryAfterHeader / 1000)
+                        }
+                    }
                     Start-Sleep -Seconds $delay
                     continue
                 }
