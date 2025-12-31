@@ -375,6 +375,10 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
           value: cosmosContainerSnapshots.name
         }
         {
+          name: 'CosmosDbConnectionString'
+          value: cosmosDbAccount.listConnectionStrings().connectionStrings[0].connectionString
+        }
+        {
           name: 'KEY_VAULT_URI'
           value: keyVault.properties.vaultUri
         }

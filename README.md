@@ -906,6 +906,52 @@ func azure functionapp publish func-entrarisk-data-dev-36jut3xd6y2so --powershel
 - https://func-entrarisk-data-dev-36jut3xd6y2so.scm.azurewebsites.net/DebugConsole
 - az functionapp config show --name func-entrarisk-data-dev-36jut3xd6y2so --resource-group rg-entrarisk-pilot-001 --query "powerShellVersion"
 
+# Check snapshots container
+az cosmosdb sql container query --account-name cosno-entrarisk-dev-36jut3xd6y2so --database-name EntraData --name snapshots --resource-group rg-entrarisk-pilot-001 --query-text "SELECT * FROM c ORDER BY c.collectionTimestamp DESC OFFSET 0 LIMIT 1"
+
+**The CLI command structure is wrong. Use the Azure Portal instead:**
+
+**Option 1: Azure Portal (Easiest)**
+
+1. Go to: https://portal.azure.com
+2. Navigate to: `cosno-entrarisk-dev-36jut3xd6y2so` (Cosmos DB account)
+3. Click "Data Explorer" in left menu
+4. Expand: `EntraData` → `snapshots`
+5. Click "Items"
+6. You should see 1 document with your timestamp
+
+---
+
+**Option 2: Check blob storage (also confirms data collected):**
+
+```bash
+az storage blob list \
+  --account-name stentrariskdev36jut3xd6y2so \
+  --container-name raw-data \
+  --auth-mode login \
+  --output table
+```
+
+This will show the blob file created: `2025-12-31T08-43-58Z/2025-12-31T08-43-58Z-users.jsonl`
+
+---
+
+**Option 3: Trigger another run to test delta detection:**
+
+```powershell
+$f="VATqkmerGDlLnJcKAlGs8-lIBwiv50c3dDcJBzjcMe-rAzFuiw7Guw=="
+$r = Invoke-RestMethod -Uri "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger?code=$f" -Method Post
+Start-Sleep -Seconds 10
+Invoke-RestMethod -Uri $r.statusQueryGetUri
+```
+
+**The second run should show:**
+- Total users: 52
+- New users: 0
+- Modified users: 0-5 (depending on changes)
+- **Cosmos writes: 0-5 (instead of 52)** ← This proves delta detection works
+
+Try Option 2 (blob storage) - that's the easiest to verify.
 
 ### Powershell 7.2 to 7.4
 ```powershell

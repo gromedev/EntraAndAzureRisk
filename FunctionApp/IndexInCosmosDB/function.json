@@ -4,6 +4,45 @@
       "name": "ActivityInput",
       "type": "activityTrigger",
       "direction": "in"
+    },
+    {
+      "name": "usersRawOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "users_raw",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/objectId"
+    },
+    {
+      "name": "userChangesOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "user_changes",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/snapshotId"
+    },
+    {
+      "name": "snapshotsOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "snapshots",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/id"
+    },
+    {
+      "name": "usersRawIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "users_raw",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT c.objectId, c.userPrincipalName, c.accountEnabled, c.userType, c.lastSignInDateTime, c.lastModified FROM c"
     }
   ]
 }

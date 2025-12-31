@@ -170,7 +170,11 @@ try {
             UnchangedUsers = $indexResult.UnchangedUsers
             DataInBlob = $true
             DataInCosmos = $indexResult.Success
-            WriteEfficiency = "$($indexResult.CosmosWriteCount) writes instead of $($indexResult.TotalUsers) ($(100 - [math]::Round(($indexResult.CosmosWriteCount / $indexResult.TotalUsers) * 100, 2))% reduction)"
+            WriteEfficiency = if ($indexResult.TotalUsers -gt 0 -and $indexResult.Success) {
+            "$($indexResult.CosmosWriteCount) writes instead of $($indexResult.TotalUsers) ($(100 - [math]::Round(($indexResult.CosmosWriteCount / $indexResult.TotalUsers) * 100, 2))% reduction)"
+            } else {
+                "No writes completed"
+            }
         }
     }
     
