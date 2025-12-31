@@ -887,18 +887,34 @@ properties: {
 
 
 ### Function App Deployment Issues
-- If URL shows "Function host is not running" error means the Function App is failing to start
-- Streaming logs: func azure functionapp logstream func-entrarisk-data-dev-36jut3xd6y2so
-- Reploy: ./FunctionApp/ func azure functionapp publish func-entrarisk-data-dev-36jut3xd6y2so --powershell --no-build
 - Verification: curl -X POST "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger" -v
-  - Trigger new orchestration: curl -X POST "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger?code=YOUR_FUNCTION_KEY"
-  - Get Function Key: az functionapp keys list --name func-entrarisk-data-dev-36jut3xd6y2so --resource-group rg-entrarisk-pilot-001 --query "functionKeys.default" -o tsv
   - curl -X POST "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger?code=FUNCTION_KEY"
+  - Get status: curl "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/runtime/webhooks/durabletask/instances/8bd9e551-419e-41cc-aa6b-1b3733e2d0c5?taskHub=EntraRiskHub&connection=AzureWebJobsStorage&code=mZpFY9B_MVZ6x2qDE8W0EeuoBov0xGLFNF3XPOmjXg14AzFuHIOU8w=="
 
+```powershell
+# Deploy function app code
+cd ../FunctionApp
+func azure functionapp publish func-entrarisk-data-dev-36jut3xd6y2so --powershell
 
-- Trigger new orchestration: curl -X POST "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger?code=FUNCTION_KEY"
+# Trigger orchestration
+$response = Invoke-RestMethod -Uri "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger?code=<function-key>" -Method Post
 
+# Check status
+Invoke-RestMethod -Uri $response.statusQueryGetUri
 
+# Monitor logs
+func azure functionapp logstream func-entrarisk-data-dev-36jut3xd6y2so
+
+# Verify deployed functions
+az functionapp function list --name func-entrarisk-data-dev-36jut3xd6y2so --resource-group rg-entrarisk-pilot-001 --query "[].name" -o table
+
+# Get function key
+az functionapp keys list --name func-entrarisk-data-dev-36jut3xd6y2so --resource-group rg-entrarisk-pilot-001 --query "functionKeys.default" -o tsv
+
+$functionKey = "<paste-key-here>"; $response = Invoke-RestMethod -Uri "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger?code=$functionKey" -Method Post; $response | ConvertTo-Json
+
+Invoke-RestMethod -Uri $response.statusQueryGetUri
+```
 
 ### "Failed to acquire tokens"
 - Verify managed identity is enabled on Function App
