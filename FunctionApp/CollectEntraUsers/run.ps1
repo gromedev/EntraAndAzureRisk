@@ -16,8 +16,9 @@
 
 param($ActivityInput)
 
-#region Import and Validate
-Import-Module EntraDataCollection
+# Import module with absolute path (activities run in isolated context)
+$modulePath = Join-Path $PSScriptRoot "..\Modules\EntraDataCollection"
+Import-Module $modulePath -Force -ErrorAction Stop
 
 # Validate required environment variables
 $requiredEnvVars = @{

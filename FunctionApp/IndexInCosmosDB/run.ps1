@@ -17,7 +17,9 @@
 
 param($ActivityInput)
 
-Import-Module EntraDataCollection
+# Import module with absolute path (activities run in isolated context)
+$modulePath = Join-Path $PSScriptRoot "..\Modules\EntraDataCollection"
+Import-Module $modulePath -Force -ErrorAction Stop
 
 try {
     Write-Verbose "Starting Cosmos DB indexing with delta detection (v3 optimizations)"
