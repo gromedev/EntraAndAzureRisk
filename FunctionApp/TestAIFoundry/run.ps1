@@ -22,9 +22,17 @@
 
 param($ActivityInput)
 
-# Import module with absolute path (activities run in isolated context)
-$modulePath = Join-Path $PSScriptRoot "..\Modules\EntraDataCollection"
-Import-Module $modulePath -Force -ErrorAction Stop
+try {
+    $modulePath = Join-Path $PSScriptRoot "..\Modules\EntraDataCollection"
+    Import-Module $modulePath -Force -ErrorAction Stop
+}
+catch {
+    return @{
+        Success = $true
+        Message = "AI Foundry test skipped (module import failed)"
+        Error = $_.Exception.Message
+    }
+}
 
 try {
     Write-Verbose "Starting AI Foundry connectivity test (optional)"

@@ -5,21 +5,29 @@
     - Queries Graph API with pagination
     - Streams JSONL output to Blob Storage (memory-efficient)
     - Returns summary statistics for orchestrator
-    - Optimized for large tenants (250K+ users)
-    
-    V2 Changes:
     - Token caching (eliminates redundant IMDS calls)
-    - Removed Test-MemoryPressure calls (cargo cult - 2.5% usage monitoring)
-    - Removed parallel processing (82% slower for small per-item work)
 #>
 #endregion
 
 param($ActivityInput)
 
-# Import module with absolute path (activities run in isolated context)
-$modulePath = Join-Path $PSScriptRoot "..\Modules\EntraDataCollection"
-Import-Module $modulePath -Force -ErrorAction Stop
+#region Import Module
+try {
+    $modulePath = Join-Path $PSScriptRoot "..\Modules\EntraDataCollection"
+    Import-Module $modulePath -Force -ErrorAction Stop
+    Write-Verbose "Module imported successfully from: $modulePath"
+}
+catch {
+    $errorMsg = "Failed to import EntraDataCollection module: $($_.Exception.Message)"
+    Write-Error $errorMsg
+    return @{
+        Success = $false
+        Error = $errorMsg
+    }
+}
+#endregion
 
+#region Import and Validate
 # Validate required environment variables
 $requiredEnvVars = @{
     'STORAGE_ACCOUNT_NAME' = 'Storage account for data collection'

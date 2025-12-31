@@ -17,9 +17,24 @@
 
 param($ActivityInput)
 
-# Import module with absolute path (activities run in isolated context)
-$modulePath = Join-Path $PSScriptRoot "..\Modules\EntraDataCollection"
-Import-Module $modulePath -Force -ErrorAction Stop
+try {
+    $modulePath = Join-Path $PSScriptRoot "..\Modules\EntraDataCollection"
+    Import-Module $modulePath -Force -ErrorAction Stop
+    Write-Verbose "Module imported successfully"
+}
+catch {
+    return @{
+        Success = $false
+        Error = "Failed to import module: $($_.Exception.Message)"
+        TotalUsers = 0
+        NewUsers = 0
+        ModifiedUsers = 0
+        DeletedUsers = 0
+        UnchangedUsers = 0
+        CosmosWriteCount = 0
+        SnapshotId = $ActivityInput.Timestamp
+    }
+}
 
 try {
     Write-Verbose "Starting Cosmos DB indexing with delta detection (v3 optimizations)"

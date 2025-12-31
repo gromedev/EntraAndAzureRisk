@@ -487,7 +487,7 @@ Get-CosmosDocuments `
 
 #### Function App
 - Plan: Consumption (Dynamic, Y1 SKU)
-- Runtime: PowerShell 7.4
+- Runtime: PowerShell 7.2
 - Identity: System-assigned managed identity
 - HTTPS: Enforced
 - All environment variables pre-configured
@@ -889,7 +889,7 @@ properties: {
 ### Function App Deployment Issues
 - If URL shows "Function host is not running" error means the Function App is failing to start
 - Streaming logs: func azure functionapp logstream func-entrarisk-data-dev-36jut3xd6y2so
-- Reploy: ./FunctionApp/ func azure functionapp publish func-entrarisk-data-dev-36jut3xd6y2so --powershell --no-build
+
 - Verification: curl -X POST "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger" -v
   - Trigger new orchestration: curl -X POST "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger?code=YOUR_FUNCTION_KEY"
   - Get Function Key: az functionapp keys list --name func-entrarisk-data-dev-36jut3xd6y2so --resource-group rg-entrarisk-pilot-001 --query "functionKeys.default" -o tsv
@@ -900,6 +900,109 @@ properties: {
 - Trigger new orchestration: curl -X POST "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger?code=VATqkmerGDlLnJcKAlGs8-lIBwiv50c3dDcJBzjcMe-rAzFuiw7Guw=="
 
 
+func azure functionapp publish func-entrarisk-data-dev-36jut3xd6y2so --powershell
+func azure functionapp publish func-entrarisk-data-dev-36jut3xd6y2so --powershell --no-build
+
+- https://func-entrarisk-data-dev-36jut3xd6y2so.scm.azurewebsites.net/DebugConsole
+- az functionapp config show --name func-entrarisk-data-dev-36jut3xd6y2so --resource-group rg-entrarisk-pilot-001 --query "powerShellVersion"
+
+
+### Powershell 7.2 to 7.4
+```powershell
+# Run the upgrade
+Set-AzResource `
+  -ResourceId "/subscriptions/4e5adb24-09e8-4a01-adbb-c6cee339f639/resourceGroups/rg-entrarisk-pilot-001/providers/Microsoft.Web/sites/func-entrarisk-data-dev-36jut3xd6y2so/config/web" `
+  -UsePatchSemantics `
+  -Properties @{ powerShellVersion = '7.4' } `
+  -Force
+
+# Wait for restart (2-3 minutes)
+Start-Sleep -Seconds 180
+
+# Verify the version changed
+az functionapp config show `
+  --name func-entrarisk-data-dev-36jut3xd6y2so `
+  --resource-group rg-entrarisk-pilot-001 `
+  --query "powerShellVersion"
+
+# Test immediately
+$f="VATqkmerGDlLnJcKAlGs8-lIBwiv50c3dDcJBzjcMe-rAzFuiw7Guw=="
+$r = Invoke-RestMethod -Uri "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger?code=$f" -Method Post
+Start-Sleep -Seconds 10
+Invoke-RestMethod -Uri $r.statusQueryGetUri
+```
+
+Hopefully it shows:
+name            : Orchestrator
+instanceId      : 71680239-e7af-4aa8-b62c-be23c36c7713
+runtimeStatus   : Running
+input           : 
+customStatus    : 
+output          : 
+createdTime     : 31/12/2025 02.08.34
+lastUpdatedTime : 31/12/2025 02.08.35
+
+***Test to see if its working***
+```powershell
+# Keep checking until completion (run multiple times)
+Invoke-RestMethod -Uri $r.statusQueryGetUri
+
+# Stream live logs (run in separate terminal)
+func azure functionapp logstream func-entrarisk-data-dev-36jut3xd6y2so
+
+# After completion, check blob storage
+az storage blob list --account-name stentrariskdev36jut3xd6y2so --container-name raw-data --auth-mode login --output table
+
+# Check Cosmos DB for data
+az cosmosdb sql container show --account-name cosno-entrarisk-dev-36jut3xd6y2so --database-name EntraData --name users_raw --resource-group rg-entrarisk-pilot-001
+```
+
+```powershell
+# Check status (keep running until Completed/Failed)
+Invoke-RestMethod -Uri $r.statusQueryGetUri
+
+# Application Insights - Recent traces
+az monitor app-insights query `
+  --app appi-entrarisk-dev-001 `
+  --resource-group rg-entrarisk-pilot-001 `
+  --analytics-query "traces | where timestamp > ago(10m) | order by timestamp desc | take 50" `
+  --output table
+
+# Application Insights - Errors
+az monitor app-insights query `
+  --app appi-entrarisk-dev-001 `
+  --resource-group rg-entrarisk-pilot-001 `
+  --analytics-query "exceptions | where timestamp > ago(10m) | project timestamp, message, outerMessage" `
+  --output table
+
+# Application Insights - Function executions
+az monitor app-insights query `
+  --app appi-entrarisk-dev-001 `
+  --resource-group rg-entrarisk-pilot-001 `
+  --analytics-query "requests | where timestamp > ago(10m) | project timestamp, name, duration, success" `
+  --output table
+
+# Stream live logs
+func azure functionapp logstream func-entrarisk-data-dev-36jut3xd6y2so
+
+# Check blob storage
+az storage blob list `
+  --account-name stentrariskdev36jut3xd6y2so `
+  --container-name raw-data `
+  --auth-mode login `
+  --output table
+
+# Check Cosmos DB document count
+az cosmosdb sql container throughput show `
+  --account-name cosno-entrarisk-dev-36jut3xd6y2so `
+  --database-name EntraData `
+  --name users_raw `
+  --resource-group rg-entrarisk-pilot-001
+
+# View function app logs (Azure Portal)
+# https://portal.azure.com -> func-entrarisk-data-dev-36jut3xd6y2so -> Log stream
+
+```
 
 ### "Failed to acquire tokens"
 - Verify managed identity is enabled on Function App
@@ -1004,7 +1107,7 @@ properties: {
 - **Azure Functions Documentation:** https://docs.microsoft.com/azure/azure-functions/
 - **Microsoft Graph API:** https://docs.microsoft.com/graph/
 - **Cosmos DB Documentation:** https://docs.microsoft.com/azure/cosmos-db/
-- **PowerShell 7.4:** https://docs.microsoft.com/powershell/
+- **PowerShell 7.2:** https://docs.microsoft.com/powershell/
 
 **Portals:**
 - Azure Portal: https://portal.azure.com
