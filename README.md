@@ -1001,7 +1001,91 @@ az cosmosdb sql container throughput show `
 
 # View function app logs (Azure Portal)
 # https://portal.azure.com -> func-entrarisk-data-dev-36jut3xd6y2so -> Log stream
+```
+```kusto
+traces
+| where timestamp > ago(30m)
+| where message contains "Orchestr" 
+    or message contains "Collection" 
+    or message contains "Module" 
+    or message contains "Token"
+    or message contains "Cosmos"
+    or message contains "failed"
+    or message contains "success"
+| project timestamp, message, severityLevel
+| order by timestamp desc
+| take 50
+```
 
+
+**In Application Insights Portal - Click these in order:**
+
+**1. LEFT MENU → "Logs" (under Monitoring)**
+
+Run this query to see recent activity:
+```kusto
+traces
+| where timestamp > ago(10m)
+| order by timestamp desc
+| take 100
+```
+
+**What you're looking for:**
+- Lines with "Module imported successfully"
+- Lines with "Starting Entra user data collection"
+- Lines with "Collection complete: X users"
+- Lines with "Cosmos DB indexing complete"
+
+**2. Check for Errors:**
+
+Run this query:
+```kusto
+exceptions
+| where timestamp > ago(10m)
+| project timestamp, operation_Name, outerMessage, problemId
+```
+
+**What you DON'T want to see:**
+- "Module import failed"
+- "Token acquisition failed"
+- Any red error messages
+
+**3. Check Function Success:**
+
+Run this query:
+```kusto
+requests
+| where timestamp > ago(10m)
+| project timestamp, name, duration, success, resultCode
+| order by timestamp desc
+```
+
+**What success looks like:**
+- `success = true`
+- `resultCode = 200`
+- Duration in milliseconds (should complete)
+
+**4. Quick Success Check:**
+
+Run this single query:
+```kusto
+traces
+| where message contains "complete" or message contains "success"
+| where timestamp > ago(10m)
+| order by timestamp desc
+```
+
+**If you see messages like:**
+- "Collection complete: 250000 users" = WORKING
+- "Cosmos DB indexing complete" = WORKING
+- "Orchestration complete successfully" = WORKING
+
+**If you see nothing or errors:**
+- Go back to PowerShell and check: `Invoke-RestMethod -Uri $r.statusQueryGetUri`
+- If status is "Failed", the output field will show the error
+
+
+```kql
 ```
 
 ### "Failed to acquire tokens"
