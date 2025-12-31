@@ -893,11 +893,7 @@ properties: {
 - Verification: curl -X POST "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger" -v
   - Trigger new orchestration: curl -X POST "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger?code=YOUR_FUNCTION_KEY"
   - Get Function Key: az functionapp keys list --name func-entrarisk-data-dev-36jut3xd6y2so --resource-group rg-entrarisk-pilot-001 --query "functionKeys.default" -o tsv
-  - curl -X POST "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger?code=FUNCTION_KEY"
-  - Get status: curl "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/runtime/webhooks/durabletask/instances/8bd9e551-419e-41cc-aa6b-1b3733e2d0c5?taskHub=EntraRiskHub&connection=AzureWebJobsStorage&code=mZpFY9B_MVZ6x2qDE8W0EeuoBov0xGLFNF3XPOmjXg14AzFuHIOU8w=="
 
-
-- Trigger new orchestration: curl -X POST "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger?code=VATqkmerGDlLnJcKAlGs8-lIBwiv50c3dDcJBzjcMe-rAzFuiw7Guw=="
 
 
 
