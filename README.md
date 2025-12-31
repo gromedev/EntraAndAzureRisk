@@ -893,7 +893,10 @@ properties: {
 - Verification: curl -X POST "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger" -v
   - Trigger new orchestration: curl -X POST "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger?code=YOUR_FUNCTION_KEY"
   - Get Function Key: az functionapp keys list --name func-entrarisk-data-dev-36jut3xd6y2so --resource-group rg-entrarisk-pilot-001 --query "functionKeys.default" -o tsv
+  - curl -X POST "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger?code=FUNCTION_KEY"
 
+
+- Trigger new orchestration: curl -X POST "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger?code=FUNCTION_KEY"
 
 
 
