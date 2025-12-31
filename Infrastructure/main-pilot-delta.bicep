@@ -36,7 +36,7 @@ var storageAccountName = take('st${workloadName}${environment}${uniqueSuffix}', 
 var cosmosDbAccountName = 'cosno-${workloadName}-${environment}-${uniqueSuffix}'
 var functionAppName = 'func-${workloadName}-data-${environment}-${uniqueSuffix}'
 var appServicePlanName = 'asp-${workloadName}-${environment}-001'
-var keyVaultName = take('kv${workloadName}${environment}${uniqueSuffix}', 24)
+var keyVaultName = take('keyvault${workloadName}${environment}${uniqueSuffix}', 24)
 var appInsightsName = 'appi-${workloadName}-${environment}-001'
 var logAnalyticsName = 'log-${workloadName}-${environment}-001'
 var aiFoundryHubName = 'hub-${workloadName}-${environment}-${uniqueSuffix}'
@@ -132,6 +132,7 @@ resource cosmosDbAccount 'Microsoft.DocumentDB/databaseAccounts@2023-04-15' = {
   kind: 'GlobalDocumentDB'
   properties: {
     databaseAccountOfferType: 'Standard'
+    enableAutomaticFailover: false
     consistencyPolicy: {
       defaultConsistencyLevel: 'Session'
     }
@@ -142,8 +143,8 @@ resource cosmosDbAccount 'Microsoft.DocumentDB/databaseAccounts@2023-04-15' = {
         isZoneRedundant: false
       }
     ]
-    capabilities: [] // REMOVE 'EnableServerless' FROM HERE
-    enableFreeTier: true // KEEP THIS
+    capabilities: [] 
+    enableFreeTier: false 
     backupPolicy: {
       type: 'Continuous'
       continuousModeProperties: {
@@ -319,7 +320,7 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
     serverFarmId: appServicePlan.id
     httpsOnly: true
     siteConfig: {
-      powerShellVersion: '7.2'
+      powerShellVersion: '7.4'
       appSettings: [
         {
           name: 'AzureWebJobsStorage'
@@ -509,21 +510,11 @@ resource functionAppKeyVaultRoleAssignment 'Microsoft.Authorization/roleAssignme
 }
 
 resource functionAppAiRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(aiFoundryHub.id, functionApp.id, '5e0bd9bd-c13a-43c8-bc48-b3a7585da610')
+  name: guid(aiFoundryHub.id, functionApp.id, '64702f94-c441-49e6-a78b-ef80e0188fee')
   scope: aiFoundryHub
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '5e0bd9bd-c13a-43c8-bc48-b3a7585da610') // Cognitive Services User
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '64702f94-c441-49e6-a78b-ef80e0188fee') // Azure AI Developer
     principalId: functionApp.identity.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource aiFoundryStorageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccount.id, aiFoundryHub.id, 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
-  scope: storageAccount
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
-    principalId: aiFoundryHub.identity.principalId
     principalType: 'ServicePrincipal'
   }
 }
@@ -535,6 +526,16 @@ resource aiFoundryCosmosRoleAssignment 'Microsoft.DocumentDB/databaseAccounts/sq
     roleDefinitionId: '${cosmosDbAccount.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000001'
     principalId: aiFoundryHub.identity.principalId
     scope: cosmosDbAccount.id
+  }
+}
+
+resource aiFoundryStorageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storageAccount.id, aiFoundryHub.id, 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+  scope: storageAccount
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+    principalId: aiFoundryHub.identity.principalId
+    principalType: 'ServicePrincipal'
   }
 }
 

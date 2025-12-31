@@ -392,7 +392,7 @@ Get-CosmosDocuments `
 ```json
 {
   "version": "2.0",
-  "functionTimeout": "01:30:00",
+  "functionTimeout": "00:10:00",
   "extensions": {
     "durableTask": {
       "hubName": "EntraRiskHub"
@@ -487,7 +487,7 @@ Get-CosmosDocuments `
 
 #### Function App
 - Plan: Consumption (Dynamic, Y1 SKU)
-- Runtime: PowerShell 7.2
+- Runtime: PowerShell 7.4
 - Identity: System-assigned managed identity
 - HTTPS: Enforced
 - All environment variables pre-configured
@@ -535,8 +535,8 @@ All resource names, endpoints, principal IDs for verification
 .\deploy-pilot-delta.ps1 `
     -SubscriptionId "<subscription-id>" `
     -TenantId "<tenant-id>" `
-    -ResourceGroupName "rg-entrarisk-pilot" `
-    -Location "westeurope" `
+    -ResourceGroupName "rg-entrarisk-pilot-001" `
+    -Location "eastus" `
     -Environment "dev" `
     -BlobRetentionDays 7
 ```
@@ -544,8 +544,8 @@ All resource names, endpoints, principal IDs for verification
 **Parameters:**
 - `SubscriptionId` - Required
 - `TenantId` - Required
-- `ResourceGroupName` - Default: rg-entrarisk-pilot
-- `Location` - Default: westeurope
+- `ResourceGroupName` - Default: rg-entrarisk-pilot-001
+- `Location` - Default: eastus
 - `Environment` - Default: dev (dev/test/prod)
 - `BlobRetentionDays` - Default: 7 (1-365)
 - `WorkloadName` - Default: entrarisk
@@ -705,7 +705,7 @@ cd Infrastructure
 Wait 5-10 minutes for deployment to complete.
 
 ***Error: 8.25 PM***
-VERBOSE: Performing the operation "Creating Deployment" on target "rg-entrarisk-pilot".
+VERBOSE: Performing the operation "Creating Deployment" on target "rg-entrarisk-pilot-001".
 Write-Error: Deployment failed: 20.24.13 - Error: Code=InvalidTemplateDeployment; Message=The template deployment 'delta-pilot-20251230-202335' is not valid according to the validation procedure. The tracking id is 'c65f4b4c-b216-4b31-9148-b280ed653c1b'. See inner errors for details.
 
 *** Missing Resource Provider Registration
@@ -836,6 +836,71 @@ Monitor these values to ensure healthy operation:
 
 ## Troubleshooting
 
+### Write-Error: Deployment failed: 21.58.38 - Error: Code=InvalidTemplateDeployment; Message=The template deployment 'delta-pilot-20251230-215832' is not valid according to the validation procedure. The tracking id is 'dfac410c-e2f8-452a-a3f4-65c978628480'. See inner errors for details.
+- Write-Error: Deployment failed: 21.58.38 - Error: Code=InvalidTemplateDeployment; Message=The template deployment 'delta-pilot-20251230-215832' is not valid according to the validation procedure. The tracking id is 'dfac410c-e2f8-452a-a3f4-65c978628480'. See inner errors for details.
+- The issue: Key Vault soft delete. When you deleted the resource group, the Key Vault entered a soft-deleted state (7-day retention). The new deployment uses the same name (generated from resource group ID via uniqueString()), causing validation to fail.
+- Verify: az keyvault list-deleted --query "[].{Name:name, Location:location, DeletionDate:properties.deletionDate}"
+- Fix: az keyvault purge --name kventrariskdevhnaffeukql --location eastus
+
+### Resource group
+- az group delete --name rg-entra-risk-analysis --yes --no-wait  
+
+### See inner errors / deployment errors
+- az deployment group show --resource-group rg-entrarisk-pilot-001 --name delta-pilot-20251230-223727 --query properties.error --output json
+- most likely it is not a template bug. It is a hard subscription quota block. So try a different region since quota is per region.
+
+### Status Message: A vault with the same name already exists in deleted state.
+- Key Vault names are globally unique. When you deleted the resource group, the Key Vault entered soft-deleted state. The name is still reserved at the platform level. ARM refuses to recreate it.
+- Go to KeyVault -> Manage Soft deletes -> Purge. Or;
+
+```
+az keyvault purge \ --name <vault-name> \
+```
+
+### Status Message: The specified role definition with ID 
+- az role assignment list --all -o table
+
+Delete the conflicting Azure AI Developer role assignment
+
+```
+az role assignment delete --assignee e74a483a-24eb-455e-94b2-e12e560ffa84 --role "Azure AI Developer" --scope /subscriptions/4e5adb24-09e8-4a01-adbb-c6cee339f639/resourcegroups/rg-entrarisk-pilot-001/providers/Microsoft.MachineLearningServices/workspaces/hub-entrarisk-dev-36jut3xd6y2so
+
+az role assignment delete --assignee 033e5f71-6a53-444b-aecb-4c31395e2716 --role "Storage Blob Data Contributor" --scope /subscriptions/4e5adb24-09e8-4a01-adbb-c6cee339f639/resourceGroups/rg-entrarisk-pilot-001/providers/Microsoft.Storage/storageAccounts/stentrariskdev36jut3xd6y
+```
+
+### Status Message: Database account creation failed.
+- You requested a zone-redundant Cosmos DB account West Europe is capacity constrained This is not a quota issue and not transient retry noise ARM execution reached Cosmos control plane and was refused The deployment cannot succeed as written in that region.
+- Option A: Disable zone redundancy (recommended for dev)
+```bicep
+properties: {
+  enableAutomaticFailover: false
+  locations: [
+    {
+      locationName: location
+      failoverPriority: 0
+      isZoneRedundant: false
+    }
+  ]
+}
+```
+- Option B: Choose another region
+
+
+### Function App Deployment Issues
+- If URL shows "Function host is not running" error means the Function App is failing to start
+- Streaming logs: func azure functionapp logstream func-entrarisk-data-dev-36jut3xd6y2so
+- Reploy: ./FunctionApp/ func azure functionapp publish func-entrarisk-data-dev-36jut3xd6y2so --powershell --no-build
+- Verification: curl -X POST "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger" -v
+  - Trigger new orchestration: curl -X POST "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger?code=YOUR_FUNCTION_KEY"
+  - Get Function Key: az functionapp keys list --name func-entrarisk-data-dev-36jut3xd6y2so --resource-group rg-entrarisk-pilot-001 --query "functionKeys.default" -o tsv
+  - curl -X POST "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger?code=FUNCTION_KEY"
+  - Get status: curl "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/runtime/webhooks/durabletask/instances/8bd9e551-419e-41cc-aa6b-1b3733e2d0c5?taskHub=EntraRiskHub&connection=AzureWebJobsStorage&code=mZpFY9B_MVZ6x2qDE8W0EeuoBov0xGLFNF3XPOmjXg14AzFuHIOU8w=="
+
+
+- Trigger new orchestration: curl -X POST "https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/httptrigger?code=VATqkmerGDlLnJcKAlGs8-lIBwiv50c3dDcJBzjcMe-rAzFuiw7Guw=="
+
+
+
 ### "Failed to acquire tokens"
 - Verify managed identity is enabled on Function App
 - Verify Graph API permissions granted with admin consent
@@ -939,7 +1004,7 @@ Monitor these values to ensure healthy operation:
 - **Azure Functions Documentation:** https://docs.microsoft.com/azure/azure-functions/
 - **Microsoft Graph API:** https://docs.microsoft.com/graph/
 - **Cosmos DB Documentation:** https://docs.microsoft.com/azure/cosmos-db/
-- **PowerShell 7.2:** https://docs.microsoft.com/powershell/
+- **PowerShell 7.4:** https://docs.microsoft.com/powershell/
 
 **Portals:**
 - Azure Portal: https://portal.azure.com

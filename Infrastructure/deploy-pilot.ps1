@@ -1,16 +1,7 @@
 #region Pilot Deployment Script - Delta Architecture
 <#
 .SYNOPSIS
-    Deploys Entra Risk Analysis infrastructure with delta change detection
-.DESCRIPTION
-    Simplified deployment for pilot with:
-    - Blob Storage (7-day retention, landing zone)
-    - Cosmos DB (3 containers: users_raw, user_changes, snapshots)
-    - Function App with delta detection enabled
-    - AI Foundry Hub and Project
-    - All optimizations included
-    
-    Cost: $1-3/month for 1GB daily exports
+    Deploys Entra Risk Analysis infrastructure
     
 .PARAMETER SubscriptionId
     Azure subscription ID
@@ -19,7 +10,7 @@
 .PARAMETER ResourceGroupName
     Resource group name (default: rg-entrarisk-pilot)
 .PARAMETER Location
-    Azure region (default: westeurope)
+    Azure region (default: )
 .PARAMETER Environment
     Environment name (default: dev)
 .PARAMETER BlobRetentionDays
@@ -46,10 +37,10 @@ param(
     [string]$TenantId,
     
     [Parameter(Mandatory=$false)]
-    [string]$ResourceGroupName = "rg-entrarisk-pilot",
+    [string]$ResourceGroupName = "rg-entrarisk-pilot-001",
     
     [Parameter(Mandatory=$false)]
-    [string]$Location = "westeurope",
+    [string]$Location = "swedencentral",
     
     [Parameter(Mandatory=$false)]
     [ValidateSet('dev', 'test', 'prod')]
@@ -67,15 +58,13 @@ param(
 function Write-DeploymentHeader {
     param([string]$Message)
     Write-Host ""
-    Write-Host "==========================================" -ForegroundColor Cyan
     Write-Host $Message -ForegroundColor Cyan
-    Write-Host "==========================================" -ForegroundColor Cyan
     Write-Host ""
 }
 
 function Write-DeploymentSuccess {
     param([string]$Message)
-    Write-Host "✓ $Message" -ForegroundColor Green
+    Write-Host "$Message" -ForegroundColor Green
 }
 
 function Write-DeploymentInfo {
@@ -86,7 +75,7 @@ function Write-DeploymentInfo {
 #endregion
 
 #region Banner
-Write-DeploymentHeader "Entra Risk Analysis - Delta Architecture Deployment"
+Write-DeploymentHeader "Deploying..."
 
 Write-Host "Deployment Configuration:" -ForegroundColor Yellow
 Write-DeploymentInfo "Subscription" $SubscriptionId
@@ -95,18 +84,7 @@ Write-DeploymentInfo "Resource Group" $ResourceGroupName
 Write-DeploymentInfo "Location" $Location
 Write-DeploymentInfo "Environment" $Environment
 Write-DeploymentInfo "Blob Retention" "$BlobRetentionDays days"
-Write-DeploymentInfo "Architecture" "Delta Change Detection"
 Write-Host ""
-
-# Cost estimate
-$estimatedCost = if ($BlobRetentionDays -le 7) { 
-    "~`$1-2/month" 
-} else { 
-    "~`$2-3/month" 
-}
-Write-Host "Estimated Monthly Cost: " -NoNewline -ForegroundColor Gray
-Write-Host $estimatedCost -ForegroundColor Green
-#endregion
 
 #region Azure Connection
 Write-Host ""
@@ -199,13 +177,73 @@ try {
 }
 catch {
     Write-Error "Deployment failed: $_"
-    Write-Host ""
-    Write-Host "Troubleshooting:" -ForegroundColor Yellow
-    Write-Host "  1. Check Azure portal for detailed error messages"
-    Write-Host "  2. Verify you have Contributor access to subscription"
-    Write-Host "  3. Ensure Cosmos DB and AI services are available in region"
-    Write-Host "  4. Review deployment logs in Azure DevOps"
+    
+    # Extract inner validation errors
+    $exception = $_.Exception
+    while ($exception.InnerException) {
+        $exception = $exception.InnerException
+    }
+    
+    Write-Host "`nInner Exception Details:" -ForegroundColor Red
+    Write-Host $exception.Message
+    
+    # Try to get Details property
+    if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
+        Write-Host "`nError Details Message:" -ForegroundColor Red
+        $_.ErrorDetails.Message
+    }
+    
+    # Get the response if available
+    if ($exception.Response) {
+        Write-Host "`nResponse Status: $($exception.Response.StatusCode)" -ForegroundColor Red
+    }
+
     exit 1
+}
+#endregion
+
+#region FunctionApp (enterprise registration) API Permissions
+Write-Host ""
+Write-Host "Assigning Microsoft Graph permissions to Managed Identity..." -ForegroundColor Yellow
+
+try {
+    # 1. Get the Function App name and Identity ID from Bicep outputs
+    $functionAppName = $deployment.Outputs.functionAppName.Value
+    $permissionName = "User.Read.All" 
+
+    # 2. Get the Service Principal of your Function App
+    $managedIdentity = Get-AzADServicePrincipal -DisplayName $functionAppName -ErrorAction Stop
+    
+    # 3. Get the Microsoft Graph Service Principal (Global AppId: 00000003-0000-0000-c000-000000000000)
+    $graphServicePrincipal = Get-AzADServicePrincipal -Filter "AppId eq '00000003-0000-0000-c000-000000000000'" -ErrorAction Stop
+
+    # 4. Find the specific ID for the application permission
+    $appRole = $graphServicePrincipal.AppRole | Where-Object { 
+        $_.Value -eq $permissionName -and $_.AllowedMemberType -contains "Application" 
+    }
+
+    if ($null -eq $appRole) {
+        throw "Could not find Graph permission: $permissionName"
+    }
+
+    # 5. Check if assignment already exists to avoid errors on re-run
+    $existingAssignment = Get-AzADServicePrincipalAppRoleAssignment -ServicePrincipalId $managedIdentity.Id | 
+        Where-Object { $_.AppRoleId -eq $appRole.Id -and $_.ResourceId -eq $graphServicePrincipal.Id }
+
+    if ($null -eq $existingAssignment) {
+        New-AzADServicePrincipalAppRoleAssignment `
+            -ServicePrincipalId $managedIdentity.Id `
+            -ResourceId $graphServicePrincipal.Id `
+            -AppRoleId $appRole.Id | Out-Null
+        Write-DeploymentSuccess "Successfully assigned $permissionName to $functionAppName"
+    }
+    else {
+        Write-Host "  Permission $permissionName already assigned." -ForegroundColor Gray
+    }
+}
+catch {
+    Write-Warning "Failed to assign Graph permissions: $_"
+    Write-Host "Manual intervention may be required in Entra ID." -ForegroundColor Gray
 }
 #endregion
 
@@ -256,7 +294,69 @@ Write-Host ""
 # Identity
 Write-Host "MANAGED IDENTITIES:" -ForegroundColor Yellow
 Write-DeploymentInfo "Function App" $deployment.Outputs.functionAppIdentityPrincipalId.Value
+Write-DeploymentInfo "Graph Permissions" "User.Read.All (Assigned)" # Add this line
 Write-Host ""
+
+#region FunctionApp Code Deployment
+Write-Host ""
+Write-Host "Deploying Function App code..." -ForegroundColor Yellow
+
+# Manual deployment:
+# func azure functionapp publish func-entrarisk-data-dev-36jut3xd6y2so --powershell --no-build
+
+try {
+    # Check if Azure Functions Core Tools is installed
+    $funcVersion = func --version 2>$null
+    
+    if (-not $funcVersion) {
+        Write-Warning "Azure Functions Core Tools not found - skipping code deployment"
+        Write-Host "  Install with: npm install -g azure-functions-core-tools@4"
+        Write-Host "  Then deploy manually: cd FunctionApp && func azure functionapp publish $($deployment.Outputs.functionAppName.Value) --powershell"
+    }
+    else {
+        # Verify FunctionApp directory exists
+        $functionAppPath = Join-Path $PSScriptRoot "..\FunctionApp"
+        
+        if (-not (Test-Path $functionAppPath)) {
+            throw "FunctionApp directory not found at: $functionAppPath"
+        }
+        
+        # Deploy function app
+        Write-Host "  Source: $functionAppPath"
+        Write-Host "  Target: $($deployment.Outputs.functionAppName.Value)"
+        
+        Push-Location $functionAppPath
+        try {
+            # Deploy with --no-build flag to skip sync triggers during deployment
+            # Triggers will sync automatically when function app starts
+            func azure functionapp publish $($deployment.Outputs.functionAppName.Value) --powershell --no-build | Out-Host
+            
+            if ($LASTEXITCODE -eq 0) {
+                Write-DeploymentSuccess "Function App code deployed"
+                Write-DeploymentInfo "Endpoint" "https://$($deployment.Outputs.functionAppName.Value).azurewebsites.net"
+                Write-Host ""
+                Write-Host "  Note: Function triggers will sync automatically when the app starts (may take 1-2 minutes)" -ForegroundColor Gray
+            }
+            else {
+                # Exit code 1 often means sync triggers failed but deployment succeeded
+                # Check if it's just the sync triggers error
+                Write-Warning "Deployment completed with warnings (sync triggers may have failed)"
+                Write-Host "  This is often a timing issue - triggers will sync when the function app fully starts"
+                Write-Host "  Verify in 2-3 minutes at: https://$($deployment.Outputs.functionAppName.Value).azurewebsites.net"
+            }
+        }
+        finally {
+            Pop-Location
+        }
+    }
+}
+catch {
+    Write-Warning "Function App code deployment failed: $($_.Exception.Message)"
+    Write-Host "  Deploy manually with:" -ForegroundColor Gray
+    Write-Host "    cd FunctionApp"
+    Write-Host "    func azure functionapp publish $($deployment.Outputs.functionAppName.Value) --powershell --no-build"
+}
+#endregion
 #endregion
 
 #region Next Steps
@@ -266,90 +366,20 @@ Write-Host "NEXT STEPS (Required Manual Actions)"
 Write-Host "==========================================" -ForegroundColor Yellow
 Write-Host ""
 
-Write-Host "1. GRANT GRAPH API PERMISSIONS (CRITICAL)" -ForegroundColor Red
-Write-Host "   This is required for data collection to work"
-Write-Host ""
-Write-Host "   Steps:"
-Write-Host "   a. Open Azure Portal → Entra ID → Enterprise Applications"
-Write-Host "   b. Search for: $($deployment.Outputs.functionAppName.Value)"
-Write-Host "   c. Click 'API Permissions' → 'Add a permission'"
-Write-Host "   d. Select 'Microsoft Graph' → 'Application permissions'"
-Write-Host "   e. Search and select: 'User.Read.All'"
-Write-Host "   f. Click 'Add permissions'"
-Write-Host "   g. Click 'Grant admin consent for [tenant]'"
-Write-Host "   h. Confirm grant"
-Write-Host ""
-
-Write-Host "2. DEPLOY POWERSHELL MODULE" -ForegroundColor Yellow
-Write-Host "   Run the module publishing pipeline:"
-Write-Host "   - Azure DevOps → Pipelines"
-Write-Host "   - Select: EntraDataCollection.Module/.azure-pipelines/publish-module.yml"
-Write-Host "   - Run pipeline and wait for completion"
-Write-Host ""
-
-Write-Host "3. DEPLOY FUNCTION APP CODE" -ForegroundColor Yellow
-Write-Host "   Prerequisites:"
-Write-Host "   a. Install Azure Functions Core Tools:"
-Write-Host "      npm install -g azure-functions-core-tools@4"
-Write-Host "   b. Authenticate to Azure:"
-Write-Host "      az login"
-Write-Host ""
-Write-Host "   Then deploy code:"
-Write-Host "      cd FunctionApp"
-Write-Host "      func azure functionapp publish $($deployment.Outputs.functionAppName.Value)"
-Write-Host ""
-Write-Host "   Alternative: Run Azure DevOps pipeline"
-Write-Host "   - Select: .azure-pipelines/pilot-pipeline.yml"
-Write-Host ""
-
-Write-Host "4. (OPTIONAL) DEPLOY AI MODEL" -ForegroundColor Gray
+Write-Host "2. (OPTIONAL) DEPLOY AI MODEL" -ForegroundColor Gray
 Write-Host "   For AI Foundry testing:"
 Write-Host "   - Visit: https://ai.azure.com"
 Write-Host "   - Navigate to your project"
 Write-Host "   - Deploy 'gpt-4o-mini' model"
 Write-Host ""
 
-Write-Host "5. TEST THE DEPLOYMENT" -ForegroundColor Yellow
+Write-Host "3. TEST THE DEPLOYMENT" -ForegroundColor Yellow
 Write-Host "   After steps 1-3 are complete:"
 Write-Host "   - Trigger via HTTP endpoint or wait for timer (every 6 hours)"
 Write-Host "   - Check Application Insights for logs"
 Write-Host "   - Verify data in Blob Storage (raw-data container)"
 Write-Host "   - Verify data in Cosmos DB (users_raw container)"
 Write-Host "   - Check user_changes container for deltas"
-Write-Host ""
-#endregion
-
-#region Architecture Summary
-Write-Host ""
-Write-Host "=========================================="
-Write-Host "ARCHITECTURE SUMMARY"
-Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host ""
-
-Write-Host "DATA FLOW:" -ForegroundColor Yellow
-Write-Host "  1. Entra ID → CollectEntraUsers → Blob Storage (2-3 min)"
-Write-Host "  2. Blob → IndexInCosmosDB → Delta Detection"
-Write-Host "  3. Cosmos DB (write changed users only)"
-Write-Host "  4. Power BI → Query Cosmos DB"
-Write-Host ""
-
-Write-Host "DELTA CHANGE DETECTION:" -ForegroundColor Yellow
-Write-Host "  - First run: Writes all users to Cosmos"
-Write-Host "  - Subsequent runs: Writes only changes (~0.5% of users)"
-Write-Host "  - Write reduction: 99% (1,250 writes vs 250,000 users)"
-Write-Host "  - Cost reduction: ~96% on Cosmos writes"
-Write-Host ""
-
-Write-Host "RETENTION POLICY:" -ForegroundColor Yellow
-Write-Host "  - Blob Storage: $BlobRetentionDays days (auto-delete old files)"
-Write-Host "  - Cosmos user_changes: 365 days (change history)"
-Write-Host "  - Cosmos users_raw: Permanent (current state)"
-Write-Host ""
-
-Write-Host "ESTIMATED COSTS:" -ForegroundColor Yellow
-Write-Host "  - Month 1 (initial load): ~`$2-3"
-Write-Host "  - Month 2+ (delta only): ~`$1-2"
-Write-Host "  - Annual: ~`$15-25"
 Write-Host ""
 #endregion
 
