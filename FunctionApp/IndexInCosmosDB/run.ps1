@@ -113,8 +113,22 @@ try {
             $changed = $false
             $delta = @{}
             
-            $fieldsToCompare = @('accountEnabled', 'userType', 'lastSignInDateTime', 'userPrincipalName')
-            
+            $fieldsToCompare = @(
+                'accountEnabled',
+                'userType',
+                'lastSignInDateTime',
+                'userPrincipalName',
+                'displayName',
+                'passwordPolicies',
+                'usageLocation',
+                'externalUserState',
+                'externalUserStateChangeDateTime',
+                'onPremisesSyncEnabled',
+                'onPremisesSamAccountName',
+                'onPremisesUserPrincipalName',
+                'onPremisesSecurityIdentifier'
+            )
+
             foreach ($field in $fieldsToCompare) {
                 $currentValue = $currentUser.$field
                 $existingValue = $existingUser.$field
@@ -201,6 +215,15 @@ try {
                 userType = $user.userType
                 createdDateTime = $user.createdDateTime
                 lastSignInDateTime = $user.lastSignInDateTime
+                displayName = $user.displayName
+                passwordPolicies = $user.passwordPolicies
+                usageLocation = $user.usageLocation
+                externalUserState = $user.externalUserState
+                externalUserStateChangeDateTime = $user.externalUserStateChangeDateTime
+                onPremisesSyncEnabled = $user.onPremisesSyncEnabled
+                onPremisesSamAccountName = $user.onPremisesSamAccountName
+                onPremisesUserPrincipalName = $user.onPremisesUserPrincipalName
+                onPremisesSecurityIdentifier = $user.onPremisesSecurityIdentifier
                 collectionTimestamp = $user.collectionTimestamp
                 lastModified = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
                 snapshotId = $timestamp

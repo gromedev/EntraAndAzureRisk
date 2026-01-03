@@ -116,7 +116,7 @@ try {
     }
     
     # Query users with field selection
-    $selectFields = "userPrincipalName,id,accountEnabled,userType,createdDateTime,signInActivity"
+    $selectFields = "userPrincipalName,id,accountEnabled,userType,createdDateTime,signInActivity,displayName,passwordPolicies,usageLocation,externalUserState,externalUserStateChangeDateTime,onPremisesSyncEnabled,onPremisesSamAccountName,onPremisesUserPrincipalName,onPremisesSecurityIdentifier"
     $nextLink = "https://graph.microsoft.com/v1.0/users?`$select=$selectFields&`$top=$batchSize"
     
     Write-Verbose "Starting batch processing with streaming writes"
@@ -143,19 +143,34 @@ try {
         # Sequential process batch (82% faster than parallel for small per-item work)
         foreach ($user in $userBatch) {
             # Transform to consistent camelCase structure with objectId
-            $userObj = @{
-                objectId = $user.id ?? ""
-                userPrincipalName = $user.userPrincipalName ?? ""
-                accountEnabled = if ($null -ne $user.accountEnabled) { $user.accountEnabled } else { $null }
-                userType = $user.userType ?? ""
-                createdDateTime = $user.createdDateTime ?? ""
-                lastSignInDateTime = if ($user.signInActivity.lastSignInDateTime) { 
-                    $user.signInActivity.lastSignInDateTime 
-                } else { 
-                    $null 
-                }
-                collectionTimestamp = $timestampFormatted
-            }
+$userObj = @{
+    # Properties from Graph API user object
+    objectId = $user.id ?? ""
+    userPrincipalName = $user.userPrincipalName ?? ""
+    accountEnabled = if ($null -ne $user.accountEnabled) { $user.accountEnabled } else { $null }
+    userType = $user.userType ?? ""
+    createdDateTime = $user.createdDateTime ?? ""
+    lastSignInDateTime = if ($user.signInActivity.lastSignInDateTime) { 
+        $user.signInActivity.lastSignInDateTime 
+    } else { 
+        $null 
+    }
+    
+    # NEW properties from Graph API (AFTER lastSignInDateTime closes)
+    displayName = $user.displayName ?? $null
+    passwordPolicies = $user.passwordPolicies ?? $null
+    usageLocation = $user.usageLocation ?? $null
+    externalUserState = $user.externalUserState ?? $null
+    externalUserStateChangeDateTime = $user.externalUserStateChangeDateTime ?? $null
+    onPremisesSyncEnabled = if ($null -ne $user.onPremisesSyncEnabled) { $user.onPremisesSyncEnabled } else { $null }
+    onPremisesSamAccountName = $user.onPremisesSamAccountName ?? $null
+    onPremisesUserPrincipalName = $user.onPremisesUserPrincipalName ?? $null
+    onPremisesSecurityIdentifier = $user.onPremisesSecurityIdentifier ?? $null
+    
+    # Locally-generated property (collection metadata)
+    collectionTimestamp = $timestampFormatted
+}
+
             
             [void]$usersJsonL.AppendLine(($userObj | ConvertTo-Json -Compress))
             $userCount++
