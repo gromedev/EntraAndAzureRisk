@@ -810,7 +810,7 @@ function Get-CosmosDocuments {
     $uri = "$Endpoint/dbs/$Database/colls/$Container/docs"
     
     $headers = @{
-        'Authorization' = "Bearer $AccessToken"
+        'Authorization' = if ($AccessToken.StartsWith("type=aad")) { $AccessToken } else { "Bearer $AccessToken" } #If an attacker tries to pass a fake token, Cosmos DB will still validate the signature against Microsoft Entra ID (for AAD) or its own internal keys. If the token is invalid, it is rejected regardless of whether it started with "Bearer" or "type=aad".
         'Content-Type' = 'application/query+json'
         'x-ms-date' = [DateTime]::UtcNow.ToString('r')
         'x-ms-version' = '2018-12-31'
