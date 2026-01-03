@@ -1,0 +1,16 @@
+# Ignore VS Code configuration folder
+.vscode/
+Test/
+
+# Ignore local secrets and settings (Crucial for safety)
+local.settings.json
+
+# Ignore Azurite runtime data (the local storage files)
+__blobstorage__/
+__queuestorage__/
+__tablestorage__/
+azurite_db_*.json
+
+# Ignore temporary logs or build outputs
+bin/
+obj/
