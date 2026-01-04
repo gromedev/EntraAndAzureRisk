@@ -2,6 +2,9 @@ using namespace System.Net
 
 param($Request, $TriggerMetadata, $usersRawIn)
 
+# Load System.Web for HTML encoding
+Add-Type -AssemblyName System.Web
+
 # Import the module
 $modulePath = Join-Path $PSScriptRoot "..\Modules\EntraDataCollection\EntraDataCollection.psm1"
 Import-Module $modulePath -Force
@@ -82,6 +85,15 @@ try {
     for ($i = 0; $i -lt $displayCount; $i++) {
         $user = $dataArray[$i]
 
+        # Helper function to format values
+        $formatValue = {
+            param($value)
+            if ($null -eq $value -or $value -eq "") {
+                return "<span class='no-data'>N/A</span>"
+            }
+            return [System.Web.HttpUtility]::HtmlEncode($value)
+        }
+
         # Status badge for accountEnabled
         $statusBadge = if ($user.accountEnabled -eq $true) {
             "<span class='badge badge-enabled'>Enabled</span>"
@@ -100,18 +112,6 @@ try {
             "<span class='badge badge-unknown'>$($user.userType)</span>"
         }
 
-        # Format last sign-in
-        $lastSignIn = if ($user.lastSignInDateTime) {
-            try {
-                $dt = [DateTime]::Parse($user.lastSignInDateTime)
-                $dt.ToString("yyyy-MM-dd HH:mm")
-            } catch {
-                $user.lastSignInDateTime
-            }
-        } else {
-            "<span class='no-data'>Never</span>"
-        }
-
         # Sync status
         $syncStatus = if ($user.onPremisesSyncEnabled -eq $true) {
             "<span class='badge badge-synced'>Synced</span>"
@@ -119,17 +119,64 @@ try {
             "<span class='badge badge-cloud'>Cloud-only</span>"
         }
 
-        $upn = if ($user.userPrincipalName) { $user.userPrincipalName } else { "<span class='no-data'>N/A</span>" }
-        $displayName = if ($user.displayName) { $user.displayName } else { "<span class='no-data'>N/A</span>" }
+        # External user state badge
+        $externalStateBadge = if ($user.externalUserState) {
+            if ($user.externalUserState -eq 'Accepted') {
+                "<span class='badge badge-enabled'>$($user.externalUserState)</span>"
+            } else {
+                "<span class='badge badge-warning'>$($user.externalUserState)</span>"
+            }
+        } else {
+            "<span class='no-data'>N/A</span>"
+        }
+
+        # Format dates
+        $formatDate = {
+            param($dateString)
+            if ($dateString) {
+                try {
+                    $dt = [DateTime]::Parse($dateString)
+                    return $dt.ToString("yyyy-MM-dd HH:mm")
+                } catch {
+                    return $dateString
+                }
+            }
+            return "<span class='no-data'>Never</span>"
+        }
+
+        $createdDate = & $formatDate $user.createdDateTime
+        $lastSignIn = & $formatDate $user.lastSignInDateTime
+        $externalStateChange = & $formatDate $user.externalUserStateChangeDateTime
+        $collectionTime = & $formatDate $user.collectionTimestamp
+
+        # Format other fields
+        $objectId = & $formatValue $user.objectId
+        $upn = & $formatValue $user.userPrincipalName
+        $displayName = & $formatValue $user.displayName
+        $usageLocation = & $formatValue $user.usageLocation
+        $passwordPolicies = & $formatValue $user.passwordPolicies
+        $onPremSam = & $formatValue $user.onPremisesSamAccountName
+        $onPremUpn = & $formatValue $user.onPremisesUserPrincipalName
+        $onPremSid = & $formatValue $user.onPremisesSecurityIdentifier
 
         [void]$tableRows.AppendLine(@"
         <tr>
+            <td class='id-cell'>$objectId</td>
             <td>$displayName</td>
             <td class='upn'>$upn</td>
             <td class='centered'>$statusBadge</td>
             <td class='centered'>$typeBadge</td>
             <td class='centered'>$syncStatus</td>
+            <td>$createdDate</td>
             <td>$lastSignIn</td>
+            <td class='centered'>$usageLocation</td>
+            <td>$passwordPolicies</td>
+            <td class='centered'>$externalStateBadge</td>
+            <td>$externalStateChange</td>
+            <td class='small-text'>$onPremSam</td>
+            <td class='small-text'>$onPremUpn</td>
+            <td class='small-text'>$onPremSid</td>
+            <td class='small-text'>$collectionTime</td>
         </tr>
 "@)
     }
@@ -239,6 +286,25 @@ try {
             color: #999;
             font-style: italic;
         }
+        .id-cell {
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 0.75em;
+            color: #666;
+            max-width: 120px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .small-text {
+            font-size: 0.85em;
+            max-width: 150px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .badge-warning {
+            background: #fff3cd;
+            color: #856404;
+        }
 
         /* Responsive table container */
         .table-container {
@@ -281,12 +347,22 @@ try {
             <table class="data-table">
                 <thead>
                     <tr>
+                        <th>Object ID</th>
                         <th>Display Name</th>
                         <th>User Principal Name</th>
                         <th style="text-align: center;">Status</th>
                         <th style="text-align: center;">Type</th>
                         <th style="text-align: center;">Sync</th>
+                        <th>Created Date</th>
                         <th>Last Sign-In</th>
+                        <th style="text-align: center;">Location</th>
+                        <th>Password Policies</th>
+                        <th style="text-align: center;">External State</th>
+                        <th>External State Changed</th>
+                        <th>On-Prem SAM Account</th>
+                        <th>On-Prem UPN</th>
+                        <th>On-Prem SID</th>
+                        <th>Collection Time</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -295,7 +371,7 @@ $($tableRows.ToString())
             </table>
         </div>
         <div class="info-note">
-            Showing $displayCount of $recordCount records
+            Showing $displayCount of $recordCount records (scroll horizontally to see all columns)
         </div>
     </div>
 </body>
