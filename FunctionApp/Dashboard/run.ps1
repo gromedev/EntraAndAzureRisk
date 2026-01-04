@@ -1,6 +1,6 @@
 using namespace System.Net
 
-param($Request, $TriggerMetadata, $usersRawIn, $groupsRawIn, $userChangesIn, $groupChangesIn)
+param($Request, $TriggerMetadata, $usersRawIn, $groupsRawIn, $servicePrincipalsRawIn, $userChangesIn, $groupChangesIn, $servicePrincipalChangesIn)
 
 Add-Type -AssemblyName System.Web
 $modulePath = Join-Path $PSScriptRoot "..\Modules\EntraDataCollection\EntraDataCollection.psm1"
@@ -175,18 +175,22 @@ try {
     # Get raw data and de-duplicate by objectId (keeping only latest version)
     $userDataRaw = if ($usersRawIn) { $usersRawIn } else { @() }
     $groupDataRaw = if ($groupsRawIn) { $groupsRawIn } else { @() }
+    $spDataRaw = if ($servicePrincipalsRawIn) { $servicePrincipalsRawIn } else { @() }
 
     # DEBUG: Log what we're receiving before deduplication
     Write-Verbose "User data count (before dedup): $($userDataRaw.Count)"
     Write-Verbose "Group data count (before dedup): $($groupDataRaw.Count)"
+    Write-Verbose "Service Principal data count (before dedup): $($spDataRaw.Count)"
 
-    # De-duplicate to show only the latest version of each user/group
+    # De-duplicate to show only the latest version of each user/group/service principal
     $userDataArray = @(& $deduplicateByObjectId $userDataRaw)
     $groupDataArray = @(& $deduplicateByObjectId $groupDataRaw)
+    $spDataArray = @(& $deduplicateByObjectId $spDataRaw)
 
     # DEBUG: Log after deduplication
     Write-Verbose "User data count (after dedup): $($userDataArray.Count)"
     Write-Verbose "Group data count (after dedup): $($groupDataArray.Count)"
+    Write-Verbose "Service Principal data count (after dedup): $($spDataArray.Count)"
     
     if ($userDataArray.Count -gt 0) {
         Write-Verbose "First user object type: $($userDataArray[0].GetType().FullName)"
@@ -237,11 +241,33 @@ try {
         [void]$groupRows.AppendLine("</tr>")
     }
 
-    # Build Change Rows (Combined Users and Groups) - NOW DYNAMIC
+    # Get dynamic properties for service principals
+    $spProps = & $getDynamicProperties $spDataArray
+    Write-Verbose "Detected service principal properties: $($spProps -join ', ')"
+
+    # Build Service Principal Headers
+    $spHeaders = New-Object System.Text.StringBuilder
+    for ($i = 0; $i -lt $spProps.Count; $i++) {
+        [void]$spHeaders.Append("<th onclick=`"sortTable($i, 'sp-table')`">$($spProps[$i])</th>")
+    }
+
+    # Build Service Principal Rows
+    $spRows = New-Object System.Text.StringBuilder
+    foreach ($sp in $spDataArray) {
+        [void]$spRows.Append("<tr>")
+        foreach ($prop in $spProps) {
+            $value = $sp.$prop
+            $displayValue = & $formatValue $value $prop
+            [void]$spRows.Append("<td>$displayValue</td>")
+        }
+        [void]$spRows.AppendLine("</tr>")
+    }
+
+    # Build Change Rows (Combined Users, Groups, and Service Principals) - NOW DYNAMIC
     $changeRows = New-Object System.Text.StringBuilder
     $allChanges = @()
 
-    # Add Category property to identify User vs Group changes
+    # Add Category property to identify User vs Group vs Service Principal changes
     # Handle both hashtables (from Cosmos DB) and PSCustomObjects
     if ($userChangesIn) {
         $userChangesIn | ForEach-Object {
@@ -259,6 +285,16 @@ try {
                 $_['Category'] = 'Group'
             } else {
                 $_ | Add-Member -NotePropertyName "Category" -NotePropertyValue "Group" -Force
+            }
+            $allChanges += $_
+        }
+    }
+    if ($servicePrincipalChangesIn) {
+        $servicePrincipalChangesIn | ForEach-Object {
+            if ($_ -is [System.Collections.IDictionary]) {
+                $_['Category'] = 'ServicePrincipal'
+            } else {
+                $_ | Add-Member -NotePropertyName "Category" -NotePropertyValue "ServicePrincipal" -Force
             }
             $allChanges += $_
         }
@@ -307,10 +343,11 @@ try {
     # Simple debug info
     $debugInfo = @"
         <div style='background:#e8f4fd;padding:10px;margin:10px 0;border-left:4px solid #0078d4;border-radius:5px;font-size:0.9em;'>
-            <b>Data Summary:</b> 
-            Users: <b>$($userDataArray.Count)</b> records ($($userProps.Count) properties) | 
-            Groups: <b>$($groupDataArray.Count)</b> records ($($groupProps.Count) properties) | 
-            Changes: <b>$($allChanges.Count)</b> records ($($changeProps.Count) properties) | 
+            <b>Data Summary:</b>
+            Users: <b>$($userDataArray.Count)</b> records ($($userProps.Count) properties) |
+            Groups: <b>$($groupDataArray.Count)</b> records ($($groupProps.Count) properties) |
+            Service Principals: <b>$($spDataArray.Count)</b> records ($($spProps.Count) properties) |
+            Changes: <b>$($allChanges.Count)</b> records ($($changeProps.Count) properties) |
             Generated: <b>$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')</b>
         </div>
 "@
@@ -373,6 +410,7 @@ try {
         <div class="tabs">
             <button class="tab active" onclick="showTab('u-tab', this)">Users ($($userDataArray.Count))</button>
             <button class="tab" onclick="showTab('g-tab', this)">Groups ($($groupDataArray.Count))</button>
+            <button class="tab" onclick="showTab('sp-tab', this)">Service Principals ($($spDataArray.Count))</button>
             <button class="tab" onclick="showTab('c-tab', this)">Recent Changes ($($allChanges.Count))</button>
         </div>
 
@@ -390,6 +428,15 @@ try {
                 <table id="g-table">
                     <thead><tr>$($groupHeaders.ToString())</tr></thead>
                     <tbody>$($groupRows.ToString())</tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="sp-tab" class="tab-content">
+            <div class="table-container">
+                <table id="sp-table">
+                    <thead><tr>$($spHeaders.ToString())</tr></thead>
+                    <tbody>$($spRows.ToString())</tbody>
                 </table>
             </div>
         </div>

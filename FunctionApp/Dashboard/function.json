@@ -48,6 +48,24 @@
       "containerName": "group_changes",
       "connection": "CosmosDbConnectionString",
       "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
+    },
+    {
+      "name": "servicePrincipalsRawIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "service_principals_raw",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+    },
+    {
+      "name": "servicePrincipalChangesIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "service_principal_changes",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
     }
   ]
 }
