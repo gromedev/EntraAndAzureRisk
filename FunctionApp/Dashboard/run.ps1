@@ -75,12 +75,63 @@ try {
         $dataSource = "Blob Storage ($blobPath)"
     }
 
-    # Render HTML
-    $jsonOutput = $dataArray | ConvertTo-Json -Depth 5 -Compress
+    # Build HTML table rows
+    $tableRows = New-Object System.Text.StringBuilder
+    $displayCount = [Math]::Min($dataArray.Count, 100)
 
-    # Truncate if too large
-    if ($jsonOutput.Length -gt 50000) {
-        $jsonOutput = $jsonOutput.Substring(0, 50000) + "`n... (truncated)"
+    for ($i = 0; $i -lt $displayCount; $i++) {
+        $user = $dataArray[$i]
+
+        # Status badge for accountEnabled
+        $statusBadge = if ($user.accountEnabled -eq $true) {
+            "<span class='badge badge-enabled'>Enabled</span>"
+        } elseif ($user.accountEnabled -eq $false) {
+            "<span class='badge badge-disabled'>Disabled</span>"
+        } else {
+            "<span class='badge badge-unknown'>Unknown</span>"
+        }
+
+        # User type badge
+        $typeBadge = if ($user.userType -eq 'Member') {
+            "<span class='badge badge-member'>Member</span>"
+        } elseif ($user.userType -eq 'Guest') {
+            "<span class='badge badge-guest'>Guest</span>"
+        } else {
+            "<span class='badge badge-unknown'>$($user.userType)</span>"
+        }
+
+        # Format last sign-in
+        $lastSignIn = if ($user.lastSignInDateTime) {
+            try {
+                $dt = [DateTime]::Parse($user.lastSignInDateTime)
+                $dt.ToString("yyyy-MM-dd HH:mm")
+            } catch {
+                $user.lastSignInDateTime
+            }
+        } else {
+            "<span class='no-data'>Never</span>"
+        }
+
+        # Sync status
+        $syncStatus = if ($user.onPremisesSyncEnabled -eq $true) {
+            "<span class='badge badge-synced'>Synced</span>"
+        } else {
+            "<span class='badge badge-cloud'>Cloud-only</span>"
+        }
+
+        $upn = if ($user.userPrincipalName) { $user.userPrincipalName } else { "<span class='no-data'>N/A</span>" }
+        $displayName = if ($user.displayName) { $user.displayName } else { "<span class='no-data'>N/A</span>" }
+
+        [void]$tableRows.AppendLine(@"
+        <tr>
+            <td>$displayName</td>
+            <td class='upn'>$upn</td>
+            <td class='centered'>$statusBadge</td>
+            <td class='centered'>$typeBadge</td>
+            <td class='centered'>$syncStatus</td>
+            <td>$lastSignIn</td>
+        </tr>
+"@)
     }
 
     $html = @"
@@ -88,15 +139,123 @@ try {
 <head>
     <title>Entra Risk Dashboard</title>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 25px; background: #f5f5f5; }
-        h1 { color: #0078d4; }
-        .card { background: #fff; padding: 20px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 25px;
+            background: #f5f5f5;
+            margin: 0;
+        }
+        h1 { color: #0078d4; margin-bottom: 10px; }
+        .card {
+            background: #fff;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
         .stat { display: inline-block; margin-right: 30px; }
         .stat-label { color: #666; font-size: 0.9em; }
         .stat-value { font-size: 1.5em; font-weight: bold; color: #0078d4; }
-        pre { background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 5px; overflow: auto; max-height: 600px; }
         .success { color: #107c10; }
         .warning { color: #ff8c00; }
+
+        /* Table styles */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            font-size: 0.9em;
+        }
+        .data-table thead {
+            background: #0078d4;
+            color: white;
+        }
+        .data-table th {
+            padding: 12px 10px;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 2px solid #005a9e;
+        }
+        .data-table td {
+            padding: 10px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .data-table tr:hover {
+            background-color: #f8f8f8;
+        }
+        .data-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* Badge styles */
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .badge-enabled {
+            background: #d4edda;
+            color: #155724;
+        }
+        .badge-disabled {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .badge-member {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        .badge-guest {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .badge-synced {
+            background: #e7e7ff;
+            color: #4a4a8a;
+        }
+        .badge-cloud {
+            background: #e0f2ff;
+            color: #004578;
+        }
+        .badge-unknown {
+            background: #e2e3e5;
+            color: #383d41;
+        }
+
+        /* Utility styles */
+        .centered {
+            text-align: center;
+        }
+        .upn {
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 0.85em;
+            color: #333;
+        }
+        .no-data {
+            color: #999;
+            font-style: italic;
+        }
+
+        /* Responsive table container */
+        .table-container {
+            overflow-x: auto;
+            max-height: 700px;
+            overflow-y: auto;
+        }
+
+        .info-note {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 10px 15px;
+            margin-top: 15px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            color: #856404;
+        }
     </style>
 </head>
 <body>
@@ -106,9 +265,6 @@ try {
         <h3>Connection Status</h3>
         <p class="success">✓ Successfully connected to Azure resources</p>
         <p><b>Data Source:</b> $dataSource</p>
-        <p><b>Cosmos DB Endpoint:</b> $cosmosEndpoint</p>
-        <p><b>Database:</b> $cosmosDatabase</p>
-        <p><b>Container:</b> $cosmosContainer</p>
     </div>
 
     <div class="card">
@@ -120,8 +276,27 @@ try {
     </div>
 
     <div class="card">
-        <h3>Sample Data (Top Records)</h3>
-        <pre>$jsonOutput</pre>
+        <h3>User Data</h3>
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Display Name</th>
+                        <th>User Principal Name</th>
+                        <th style="text-align: center;">Status</th>
+                        <th style="text-align: center;">Type</th>
+                        <th style="text-align: center;">Sync</th>
+                        <th>Last Sign-In</th>
+                    </tr>
+                </thead>
+                <tbody>
+$($tableRows.ToString())
+                </tbody>
+            </table>
+        </div>
+        <div class="info-note">
+            Showing $displayCount of $recordCount records
+        </div>
     </div>
 </body>
 </html>
