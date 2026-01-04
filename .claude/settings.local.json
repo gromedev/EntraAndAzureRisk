@@ -8,7 +8,10 @@
       "Bash(curl:*)",
       "Bash(git restore:*)",
       "Bash(az cosmosdb sql query:*)",
-      "Bash(az cosmosdb sql container query:*)"
+      "Bash(az cosmosdb sql container query:*)",
+      "Bash(az account show:*)",
+      "Bash(az functionapp function keys list:*)",
+      "Bash(python3:*)"
     ]
   }
 }

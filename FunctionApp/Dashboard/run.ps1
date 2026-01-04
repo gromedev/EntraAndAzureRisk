@@ -134,13 +134,59 @@ $renderDelta = {
     return $sb.ToString()
 }
 
-try {
-    $userDataArray = if ($usersRawIn) { $usersRawIn } else { @() }
-    $groupDataArray = if ($groupsRawIn) { $groupsRawIn } else { @() }
+# Helper to de-duplicate objects by objectId, keeping only the latest version
+$deduplicateByObjectId = {
+    param($dataArray)
 
-    # DEBUG: Log what we're receiving
-    Write-Verbose "User data count: $($userDataArray.Count)"
-    Write-Verbose "Group data count: $($groupDataArray.Count)"
+    if ($null -eq $dataArray -or $dataArray.Count -eq 0) { return @() }
+
+    # Use a hashtable to track the latest version of each objectId
+    $uniqueObjects = @{}
+
+    foreach ($item in $dataArray) {
+        $objectId = if ($item -is [System.Collections.IDictionary]) { $item['objectId'] } else { $item.objectId }
+
+        if ($null -eq $objectId) { continue }
+
+        # Get timestamp for comparison (prefer _ts, fallback to lastModified)
+        $timestamp = if ($item -is [System.Collections.IDictionary]) {
+            if ($item.ContainsKey('_ts')) { $item['_ts'] } else { $item['lastModified'] }
+        } else {
+            if ($item._ts) { $item._ts } else { $item.lastModified }
+        }
+
+        # If this objectId hasn't been seen, or if this version is newer, keep it
+        if (-not $uniqueObjects.ContainsKey($objectId)) {
+            $uniqueObjects[$objectId] = @{ Item = $item; Timestamp = $timestamp }
+        }
+        else {
+            $existingTimestamp = $uniqueObjects[$objectId].Timestamp
+            if ($timestamp -gt $existingTimestamp) {
+                $uniqueObjects[$objectId] = @{ Item = $item; Timestamp = $timestamp }
+            }
+        }
+    }
+
+    # Return just the items (not the wrapper objects)
+    return $uniqueObjects.Values | ForEach-Object { $_.Item }
+}
+
+try {
+    # Get raw data and de-duplicate by objectId (keeping only latest version)
+    $userDataRaw = if ($usersRawIn) { $usersRawIn } else { @() }
+    $groupDataRaw = if ($groupsRawIn) { $groupsRawIn } else { @() }
+
+    # DEBUG: Log what we're receiving before deduplication
+    Write-Verbose "User data count (before dedup): $($userDataRaw.Count)"
+    Write-Verbose "Group data count (before dedup): $($groupDataRaw.Count)"
+
+    # De-duplicate to show only the latest version of each user/group
+    $userDataArray = @(& $deduplicateByObjectId $userDataRaw)
+    $groupDataArray = @(& $deduplicateByObjectId $groupDataRaw)
+
+    # DEBUG: Log after deduplication
+    Write-Verbose "User data count (after dedup): $($userDataArray.Count)"
+    Write-Verbose "Group data count (after dedup): $($groupDataArray.Count)"
     
     if ($userDataArray.Count -gt 0) {
         Write-Verbose "First user object type: $($userDataArray[0].GetType().FullName)"

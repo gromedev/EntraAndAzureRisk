@@ -212,9 +212,10 @@ try {
     $groupsToWrite = @()
     $groupsToWrite += $newGroups
     $groupsToWrite += $modifiedGroups
+    $groupsToWrite += $deletedGroups
 
     if ($groupsToWrite.Count -gt 0 -or (-not $enableDelta)) {
-        Write-Verbose "Preparing $($groupsToWrite.Count) changed groups for Cosmos..."
+        Write-Verbose "Preparing $($groupsToWrite.Count) changed groups for Cosmos (including $($deletedGroups.Count) deleted)..."
 
         # If delta disabled, write all groups
         if (-not $enableDelta) {
@@ -225,7 +226,10 @@ try {
         # Prepare documents
         $docsToWrite = @()
         foreach ($group in $groupsToWrite) {
-            $docsToWrite += @{
+            # Check if this is a deleted group
+            $isDeleted = $deletedGroups | Where-Object { $_.objectId -eq $group.objectId }
+
+            $doc = @{
                 id = $group.objectId
                 objectId = $group.objectId
                 displayName = $group.displayName
@@ -246,6 +250,17 @@ try {
                 lastModified = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
                 snapshotId = $timestamp
             }
+
+            # Add soft delete markers
+            if ($isDeleted) {
+                $doc['deleted'] = $true
+                $doc['deletedTimestamp'] = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            }
+            else {
+                $doc['deleted'] = $false
+            }
+
+            $docsToWrite += $doc
         }
 
         # Write using output binding

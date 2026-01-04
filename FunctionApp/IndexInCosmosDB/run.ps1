@@ -194,9 +194,10 @@ try {
     $usersToWrite = @()
     $usersToWrite += $newUsers
     $usersToWrite += $modifiedUsers
-    
+    $usersToWrite += $deletedUsers
+
     if ($usersToWrite.Count -gt 0 -or (-not $enableDelta)) {
-        Write-Verbose "Preparing $($usersToWrite.Count) changed users for Cosmos..."
+        Write-Verbose "Preparing $($usersToWrite.Count) changed users for Cosmos (including $($deletedUsers.Count) deleted)..."
         
         # If delta disabled, write all users
         if (-not $enableDelta) {
@@ -207,7 +208,10 @@ try {
         # Prepare documents
         $docsToWrite = @()
         foreach ($user in $usersToWrite) {
-            $docsToWrite += @{
+            # Check if this is a deleted user
+            $isDeleted = $deletedUsers | Where-Object { $_.objectId -eq $user.objectId }
+
+            $doc = @{
                 id = $user.objectId
                 objectId = $user.objectId
                 userPrincipalName = $user.userPrincipalName
@@ -228,6 +232,17 @@ try {
                 lastModified = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
                 snapshotId = $timestamp
             }
+
+            # Add soft delete markers
+            if ($isDeleted) {
+                $doc['deleted'] = $true
+                $doc['deletedTimestamp'] = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            }
+            else {
+                $doc['deleted'] = $false
+            }
+
+            $docsToWrite += $doc
         }
         
         # Write using output binding
