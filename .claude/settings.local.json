@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(az monitor app-insights query:*)",
+      "Bash(az resource list:*)",
+      "Bash(az functionapp logs tail:*)",
+      "Bash(func azure functionapp publish func-entrarisk-data-dev-36jut3xd6y2so --build remote)",
+      "Bash(curl:*)",
+      "Bash(git restore:*)",
+      "Bash(az cosmosdb sql query:*)",
+      "Bash(az cosmosdb sql container query:*)"
+    ]
+  }
+}
