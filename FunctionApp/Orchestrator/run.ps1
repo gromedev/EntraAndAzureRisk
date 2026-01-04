@@ -12,7 +12,7 @@
     Benefits of this flow:
     - Fast parallel collection (streaming to Blob)
     - Decoupled indexing (can retry independently)
-    - Delta detection reduces Cosmos writes by 99%
+    - Delta detection reduces Cosmos writes
     - Blob acts as checkpoint/buffer
 
     Partial Success Pattern:
