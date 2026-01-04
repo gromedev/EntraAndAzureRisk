@@ -142,7 +142,7 @@ try {
 
         if ($groupBatch.Count -eq 0) { break }
 
-        # Sequential process batch (82% faster than parallel for small per-item work)
+        # Sequential process batch
         foreach ($group in $groupBatch) {
             # Transform to consistent camelCase structure with objectId
             $groupObj = @{

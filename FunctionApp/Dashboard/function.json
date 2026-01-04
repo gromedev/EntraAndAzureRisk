@@ -23,6 +23,15 @@
       "containerName": "users_raw",
       "connection": "CosmosDbConnectionString",
       "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c._ts DESC"
+    },
+    {
+      "name": "groupsRawIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "groups_raw",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c._ts DESC"
     }
   ]
 }

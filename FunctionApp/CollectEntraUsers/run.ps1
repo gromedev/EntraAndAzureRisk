@@ -140,7 +140,7 @@ try {
         
         if ($userBatch.Count -eq 0) { break }
         
-        # Sequential process batch (82% faster than parallel for small per-item work)
+        # Sequential process batch
         foreach ($user in $userBatch) {
             # Transform to consistent camelCase structure with objectId
 $userObj = @{
@@ -156,7 +156,7 @@ $userObj = @{
         $null 
     }
     
-    # NEW properties from Graph API (AFTER lastSignInDateTime closes)
+    # Properties that might be null
     displayName = $user.displayName ?? $null
     passwordPolicies = $user.passwordPolicies ?? $null
     usageLocation = $user.usageLocation ?? $null
