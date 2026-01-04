@@ -11,7 +11,13 @@
       "Bash(az cosmosdb sql container query:*)",
       "Bash(az account show:*)",
       "Bash(az functionapp function keys list:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(az cosmosdb list:*)",
+      "Bash(az cosmosdb sql container list:*)",
+      "Bash(az cosmosdb sql container update:*)",
+      "Bash(az storage account management-policy:*)",
+      "Bash(az cosmosdb sql role definition list:*)",
+      "Bash(az resource show:*)"
     ]
   }
 }

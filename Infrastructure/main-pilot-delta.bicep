@@ -42,9 +42,7 @@ var logAnalyticsName = 'log-${workloadName}-${environment}-001'
 var aiFoundryHubName = 'hub-${workloadName}-${environment}-${uniqueSuffix}'
 var aiFoundryProjectName = 'proj-${workloadName}-${environment}-${uniqueSuffix}'
 
-//==============================================================================
 // STORAGE ACCOUNT WITH LIFECYCLE MANAGEMENT
-//==============================================================================
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
   name: storageAccountName
@@ -99,7 +97,7 @@ resource blobLifecyclePolicy 'Microsoft.Storage/storageAccounts/managementPolici
     policy: {
       rules: [
         {
-          name: 'delete-old-raw-data'
+          name: 'tier-and-delete-raw-data'
           enabled: true
           type: 'Lifecycle'
           definition: {
@@ -109,8 +107,14 @@ resource blobLifecyclePolicy 'Microsoft.Storage/storageAccounts/managementPolici
             }
             actions: {
               baseBlob: {
+                tierToCool: {
+                  daysAfterModificationGreaterThan: 7  // Move to cool tier after 7 days
+                }
+                tierToArchive: {
+                  daysAfterModificationGreaterThan: 30  // Move to archive after 30 days
+                }
                 delete: {
-                  daysAfterModificationGreaterThan: blobRetentionDays
+                  daysAfterModificationGreaterThan: 90  // Delete after 90 days (data is in Cosmos DB)
                 }
               }
             }
@@ -121,9 +125,7 @@ resource blobLifecyclePolicy 'Microsoft.Storage/storageAccounts/managementPolici
   }
 }
 
-//==============================================================================
 // COSMOS DB - THREE CONTAINERS
-//==============================================================================
 
 resource cosmosDbAccount 'Microsoft.DocumentDB/databaseAccounts@2023-04-15' = {
   name: cosmosDbAccountName
@@ -227,7 +229,7 @@ resource cosmosContainerUserChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDa
           { path: '/*' }
         ]
       }
-      defaultTtl: 31536000  // 365 days
+      defaultTtl: -1  // Keep forever - complete audit trail
     }
   }
 }
@@ -252,9 +254,88 @@ resource cosmosContainerSnapshots 'Microsoft.DocumentDB/databaseAccounts/sqlData
   }
 }
 
-//==============================================================================
+// NOTE: groups_raw and group_changes containers already exist
+// They were created manually and have TTL configured via Azure CLI
+// Container 4: groups_raw - Current state with soft delete support (defaultTtl: -1)
+// Container 5: group_changes - Audit trail (defaultTtl: -1)
+
+// COSMOS DB AUDIT PROTECTION
+
+// Diagnostic settings - Log ALL Cosmos DB operations to Log Analytics
+resource cosmosDiagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
+  name: 'cosmos-audit-logs'
+  scope: cosmosDbAccount
+  properties: {
+    workspaceId: logAnalytics.id
+    logs: [
+      {
+        category: 'DataPlaneRequests'  // All read/write/delete operations
+        enabled: true
+      }
+      {
+        category: 'QueryRuntimeStatistics'
+        enabled: true
+      }
+      {
+        category: 'PartitionKeyStatistics'
+        enabled: true
+      }
+      {
+        category: 'ControlPlaneRequests'  // Admin operations (container create/delete)
+        enabled: true
+      }
+    ]
+    metrics: [
+      {
+        category: 'Requests'
+        enabled: true
+      }
+    ]
+  }
+}
+
+// Custom Cosmos DB RBAC Role: Can write but CANNOT delete from *_changes containers
+resource cosmosAuditWriterRole 'Microsoft.DocumentDB/databaseAccounts/sqlRoleDefinitions@2023-04-15' = {
+  parent: cosmosDbAccount
+  name: guid(cosmosDbAccount.id, 'audit-writer-role')
+  properties: {
+    roleName: 'Audit Trail Writer (No Delete)'
+    type: 'CustomRole'
+    assignableScopes: [
+      cosmosDbAccount.id
+    ]
+    permissions: [
+      {
+        dataActions: [
+          // Read permissions (for delta detection)
+          'Microsoft.DocumentDB/databaseAccounts/readMetadata'
+          'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers/items/read'
+          'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers/executeQuery'
+
+          // Write permissions (create/upsert/replace)
+          'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers/items/create'
+          'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers/items/upsert'
+          'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers/items/replace'
+
+          // NOTE: NO delete permission - cannot delete audit trail records
+        ]
+      }
+    ]
+  }
+}
+
+// Assign Function App to the custom role
+resource functionAppCosmosRoleAssignment 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2023-04-15' = {
+  parent: cosmosDbAccount
+  name: guid(cosmosDbAccount.id, functionApp.id, 'audit-writer-assignment')
+  properties: {
+    roleDefinitionId: cosmosAuditWriterRole.id
+    principalId: functionApp.identity.principalId
+    scope: cosmosDbAccount.id
+  }
+}
+
 // KEY VAULT, MONITORING, FUNCTION APP (Same as before)
-//==============================================================================
 
 resource keyVault 'Microsoft.KeyVault/vaults@2023-02-01' = {
   name: keyVaultName
@@ -466,9 +547,7 @@ resource aiFoundryProject 'Microsoft.MachineLearningServices/workspaces@2024-04-
   }
 }
 
-//==============================================================================
 // RBAC ASSIGNMENTS
-//==============================================================================
 
 resource functionAppStorageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(storageAccount.id, functionApp.id, 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
@@ -480,15 +559,8 @@ resource functionAppStorageRoleAssignment 'Microsoft.Authorization/roleAssignmen
   }
 }
 
-resource functionAppCosmosRoleAssignment 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2023-04-15' = {
-  parent: cosmosDbAccount
-  name: guid(functionApp.id, cosmosDbAccount.id, '00000000-0000-0000-0000-000000000002')
-  properties: {
-    roleDefinitionId: '${cosmosDbAccount.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002'
-    principalId: functionApp.identity.principalId
-    scope: cosmosDbAccount.id
-  }
-}
+// OLD ROLE REMOVED: Was using built-in Cosmos DB Data Contributor (allows delete)
+// NOW USING: Custom "Audit Trail Writer (No Delete)" role defined above
 
 resource functionAppKeyVaultRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(keyVault.id, functionApp.id, '4633458b-17de-408a-b874-0445c86b69e6')
@@ -530,9 +602,7 @@ resource aiFoundryStorageRoleAssignment 'Microsoft.Authorization/roleAssignments
   }
 }
 
-//==============================================================================
 // OUTPUTS
-//==============================================================================
 
 output storageAccountName string = storageAccount.name
 output functionAppName string = functionApp.name

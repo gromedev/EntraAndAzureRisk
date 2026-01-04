@@ -237,6 +237,7 @@ try {
             if ($isDeleted) {
                 $doc['deleted'] = $true
                 $doc['deletedTimestamp'] = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+                $doc['ttl'] = 7776000  # 90 days in seconds - auto-delete from Cosmos DB
             }
             else {
                 $doc['deleted'] = $false
