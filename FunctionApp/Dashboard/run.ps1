@@ -127,11 +127,14 @@ try {
 </html>
 "@
 
-    Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
-        StatusCode = [HttpStatusCode]::OK
-        Headers = @{ "Content-Type" = "text/html" }
-        Body = $html
-    })
+Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+    StatusCode = [HttpStatusCode]::OK
+    # Use lowercase 'headers' and ensure Content-Type is exact
+    headers = @{ 
+        "content-type" = "text/html; charset=utf-8" 
+    }
+    Body = $html
+})
 
 } catch {
     $errorMessage = $_.Exception.Message
@@ -139,7 +142,8 @@ try {
 
     Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
         StatusCode = 500
-        Headers = @{ "Content-Type" = "text/html" }
+        # Change this to lowercase 'headers' as well
+        headers = @{ "content-type" = "text/html; charset=utf-8" }
         Body = @"
 <html>
 <head>
