@@ -313,76 +313,6 @@ function Get-GraphPagedResults {
 
 #endregion
 
-#region Memory Management Functions
-
-function Test-MemoryPressure {
-    <#
-    .SYNOPSIS
-        Monitors memory usage and triggers garbage collection if needed
-    
-    .DESCRIPTION
-        Prevents memory exhaustion in large tenants by monitoring working set and triggering
-        garbage collection when thresholds are exceeded.
-        
-        The .NET garbage collector is generally efficient, but in long-running processes
-        collecting large datasets, explicit GC can prevent out-of-memory conditions.
-        
-        Typical usage: Call every N batches during data collection loops.
-    
-    .PARAMETER ThresholdGB
-        Critical memory threshold in GB. GC is forced when exceeded. Default: 12.0
-    
-    .PARAMETER WarningGB
-        Warning threshold in GB. Warning logged but no action taken. Default: 10.0
-    
-    .EXAMPLE
-        if (Test-MemoryPressure -ThresholdGB 12.0 -WarningGB 10.0) {
-            Write-Verbose "Memory cleanup triggered"
-        }
-        
-    .EXAMPLE
-        # Check every 10 batches
-        if ($batchNumber % 10 -eq 0) {
-            Test-MemoryPressure
-        }
-    #>
-    [CmdletBinding()]
-    param(
-        [double]$ThresholdGB = 12.0,
-        [double]$WarningGB = 10.0
-    )
-    
-    $currentMemory = (Get-Process -Id $pid).WorkingSet64 / 1GB
-    
-    if ($currentMemory -gt $ThresholdGB) {
-        Write-Warning "Memory usage CRITICAL: $([Math]::Round($currentMemory, 2))GB (threshold: $ThresholdGB GB)"
-        Write-Verbose "Forcing garbage collection..."
-        
-        # Full GC collection across all generations
-        [System.GC]::Collect()
-        [System.GC]::WaitForPendingFinalizers()
-        [System.GC]::Collect()
-        
-        # Brief pause to allow GC to complete
-        Start-Sleep -Milliseconds 500
-        
-        $newMemory = (Get-Process -Id $pid).WorkingSet64 / 1GB
-        $freed = $currentMemory - $newMemory
-        Write-Verbose "Garbage collection complete. Memory: $([Math]::Round($newMemory, 2))GB (freed: $([Math]::Round($freed, 2))GB)"
-        
-        return $true
-    }
-    elseif ($currentMemory -gt $WarningGB) {
-        Write-Warning "Memory usage elevated: $([Math]::Round($currentMemory, 2))GB (warning threshold: $WarningGB GB)"
-        return $false
-    }
-    
-    Write-Verbose "Memory usage normal: $([Math]::Round($currentMemory, 2))GB"
-    return $false
-}
-
-#endregion
-
 #region Azure Storage Functions
 
 function Initialize-AppendBlob {
@@ -952,7 +882,6 @@ Export-ModuleMember -Function @(
     'Get-ManagedIdentityToken',
     'Get-CachedManagedIdentityToken',
     'Invoke-GraphWithRetry',
-    'Test-MemoryPressure',
     'Initialize-AppendBlob',
     'Add-BlobContent',
     'Write-CosmosDocument',
