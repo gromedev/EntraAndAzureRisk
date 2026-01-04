@@ -13,7 +13,6 @@
         'Get-ManagedIdentityToken',
         'Get-CachedManagedIdentityToken',
         'Invoke-GraphWithRetry',
-        'Test-MemoryPressure',
         'Initialize-AppendBlob',
         'Add-BlobContent',
         'Write-CosmosDocument',

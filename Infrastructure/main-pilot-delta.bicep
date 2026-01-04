@@ -407,19 +407,6 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
           name: 'PARALLEL_THROTTLE'
           value: '10'
         }
-        // Memory Configuration (Consumption Plan)
-        {
-          name: 'MEMORY_THRESHOLD_GB'
-          value: '1.0'
-        }
-        {
-          name: 'MEMORY_WARNING_GB'
-          value: '0.8'
-        }
-        {
-          name: 'MEMORY_CHECK_INTERVAL'
-          value: '5'
-        }
         // Cosmos DB Configuration
         {
           name: 'COSMOS_BATCH_SIZE'

@@ -14,6 +14,15 @@
       "type": "http",
       "direction": "out",
       "name": "Response"
+    },
+    {
+      "name": "usersRawIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "users_raw",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c._ts DESC"
     }
   ]
 }

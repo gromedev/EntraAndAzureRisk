@@ -1,3 +1,12 @@
+<html><body style='padding:50px; font-family:sans-serif;'><h1>Data Fetch Error</h1><p style='color:red;'>Storage API Error Details:
+- Status Code: 404 ()
+- URI: https://stentrariskdev36jut3xd6y.blob.core.windows.net/=container&comp=list
+- Storage Account: stentrariskdev36jut3xd6y
+- Container: raw-data
+- Token Present: True
+- Token Length: 1802
+- Exception: Response status code does not indicate success: 404 (The specified container does not exist.).</p></body></html>
+
 # Dashboard Function
 
 ## Overview
