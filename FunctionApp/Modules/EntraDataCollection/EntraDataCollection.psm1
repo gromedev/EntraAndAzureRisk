@@ -891,6 +891,358 @@ function Write-CosmosParallelBatch {
     return $totalDocs
 }
 
+#region Delta Indexing
+
+function Invoke-DeltaIndexing {
+    <#
+    .SYNOPSIS
+        Generic delta indexing function for any entity type (users, groups, service principals)
+
+    .DESCRIPTION
+        Shared logic for delta change detection and indexing to Cosmos DB.
+        - Reads entities from Blob Storage (JSONL format)
+        - Compares with existing Cosmos DB data (via input binding)
+        - Identifies new, modified, deleted, and unchanged entities
+        - Returns documents ready for output bindings
+
+        This function consolidates the common logic from IndexInCosmosDB,
+        IndexGroupsInCosmosDB, and IndexServicePrincipalsInCosmosDB.
+
+    .PARAMETER BlobName
+        Path to the blob containing JSONL data
+
+    .PARAMETER Timestamp
+        Snapshot timestamp/ID for this indexing run
+
+    .PARAMETER ExistingData
+        Array of existing documents from Cosmos DB input binding
+
+    .PARAMETER Config
+        Hashtable containing entity-specific configuration:
+        - EntityType: 'users', 'groups', or 'servicePrincipals'
+        - EntityNameSingular: 'user', 'group', or 'servicePrincipal' (for logging)
+        - EntityNamePlural: 'users', 'groups', or 'servicePrincipals' (for logging)
+        - CompareFields: Array of scalar field names to compare for changes
+        - ArrayFields: Array of field names that require JSON comparison (arrays)
+        - DocumentFields: Hashtable mapping field names to source property paths
+        - WriteDeletes: Boolean - whether to include deleted entities in raw output
+        - IncludeDeleteMarkers: Boolean - whether to add soft delete markers (deleted, deletedTimestamp, ttl)
+
+    .OUTPUTS
+        Hashtable containing:
+        - RawDocuments: Array of documents to write to *_raw container
+        - ChangeDocuments: Array of change events for *_changes container
+        - SnapshotDocument: Summary document for snapshots container
+        - Statistics: Hashtable with counts (Total, New, Modified, Deleted, Unchanged, WriteCount)
+
+    .EXAMPLE
+        $config = @{
+            EntityType = 'users'
+            EntityNameSingular = 'user'
+            EntityNamePlural = 'users'
+            CompareFields = @('accountEnabled', 'userType', 'displayName')
+            ArrayFields = @()
+            DocumentFields = @{
+                userPrincipalName = 'userPrincipalName'
+                accountEnabled = 'accountEnabled'
+            }
+            WriteDeletes = $true
+            IncludeDeleteMarkers = $true
+        }
+
+        $result = Invoke-DeltaIndexing -BlobName $blobName -Timestamp $timestamp `
+            -ExistingData $usersRawIn -Config $config
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$BlobName,
+
+        [Parameter(Mandatory)]
+        [string]$Timestamp,
+
+        [Parameter()]
+        [array]$ExistingData,
+
+        [Parameter(Mandatory)]
+        [hashtable]$Config
+    )
+
+    # Extract config
+    $entityType = $Config.EntityType
+    $entitySingular = $Config.EntityNameSingular
+    $entityPlural = $Config.EntityNamePlural
+    $compareFields = $Config.CompareFields
+    $arrayFields = $Config.ArrayFields
+    $documentFields = $Config.DocumentFields
+    $writeDeletes = $Config.WriteDeletes
+    $includeDeleteMarkers = $Config.IncludeDeleteMarkers
+
+    # Get configuration from environment
+    $storageAccountName = $env:STORAGE_ACCOUNT_NAME
+    $enableDelta = $env:ENABLE_DELTA_DETECTION -eq 'true'
+    $containerName = if ($env:STORAGE_CONTAINER_RAW_DATA) { $env:STORAGE_CONTAINER_RAW_DATA } else { 'raw-data' }
+
+    Write-Verbose "Starting delta indexing for $entityPlural"
+    Write-Verbose "  Blob: $BlobName"
+    Write-Verbose "  Delta detection: $enableDelta"
+
+    # Get storage token (cached)
+    $storageToken = Get-CachedManagedIdentityToken -Resource "https://storage.azure.com"
+
+    #region Step 1: Read entities from Blob
+    Write-Verbose "Reading $entityPlural from Blob Storage..."
+
+    $blobUri = "https://$storageAccountName.blob.core.windows.net/$containerName/$BlobName"
+    $headers = @{
+        'Authorization' = "Bearer $storageToken"
+        'x-ms-version' = '2021-08-06'
+        'x-ms-blob-type' = 'AppendBlob'
+    }
+
+    $blobContent = Invoke-RestMethod -Uri $blobUri -Method Get -Headers $headers
+
+    # Parse JSONL into HashMap
+    $currentEntities = @{}
+    $lineNumber = 0
+
+    foreach ($line in ($blobContent -split "`n")) {
+        $lineNumber++
+        if ($line.Trim()) {
+            try {
+                $entity = $line | ConvertFrom-Json
+                $currentEntities[$entity.objectId] = $entity
+            }
+            catch {
+                Write-Warning "Failed to parse line $lineNumber`: $_"
+            }
+        }
+    }
+
+    Write-Verbose "Parsed $($currentEntities.Count) $entityPlural from Blob"
+    #endregion
+
+    #region Step 2: Build existing entities hashtable from input binding
+    $existingEntities = @{}
+
+    if ($enableDelta -and $ExistingData) {
+        Write-Verbose "Processing existing $entityPlural from Cosmos DB (input binding)..."
+
+        foreach ($doc in $ExistingData) {
+            $existingEntities[$doc.objectId] = $doc
+        }
+
+        Write-Verbose "Found $($existingEntities.Count) existing $entityPlural in Cosmos"
+    }
+    #endregion
+
+    #region Step 3: Delta detection
+    $newEntities = @()
+    $modifiedEntities = @()
+    $unchangedEntities = @()
+    $deletedEntities = @()
+    $changeLog = @()
+
+    # Check current entities
+    foreach ($objectId in $currentEntities.Keys) {
+        $currentEntity = $currentEntities[$objectId]
+
+        if (-not $existingEntities.ContainsKey($objectId)) {
+            # NEW entity
+            $newEntities += $currentEntity
+
+            $changeLog += @{
+                id = [Guid]::NewGuid().ToString()
+                objectId = $objectId
+                changeType = 'new'
+                changeTimestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+                snapshotId = $Timestamp
+                newValue = $currentEntity
+            }
+        }
+        else {
+            # Check if modified
+            $existingEntity = $existingEntities[$objectId]
+
+            $changed = $false
+            $delta = @{}
+
+            foreach ($field in $compareFields) {
+                if ($field -in $arrayFields) {
+                    # Array comparison using JSON serialization
+                    $currentArray = $currentEntity.$field | Sort-Object
+                    $existingArray = $existingEntity.$field | Sort-Object
+
+                    $currentJson = $currentArray | ConvertTo-Json -Compress
+                    $existingJson = $existingArray | ConvertTo-Json -Compress
+
+                    if ($currentJson -ne $existingJson) {
+                        $changed = $true
+                        $delta[$field] = @{
+                            old = $existingArray
+                            new = $currentArray
+                        }
+                    }
+                }
+                else {
+                    # Standard scalar comparison
+                    $currentValue = $currentEntity.$field
+                    $existingValue = $existingEntity.$field
+
+                    if ($currentValue -ne $existingValue) {
+                        $changed = $true
+                        $delta[$field] = @{
+                            old = $existingValue
+                            new = $currentValue
+                        }
+                    }
+                }
+            }
+
+            if ($changed) {
+                # MODIFIED entity
+                $modifiedEntities += $currentEntity
+
+                $changeLog += @{
+                    id = [Guid]::NewGuid().ToString()
+                    objectId = $objectId
+                    changeType = 'modified'
+                    changeTimestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+                    snapshotId = $Timestamp
+                    previousValue = $existingEntity
+                    newValue = $currentEntity
+                    delta = $delta
+                }
+            }
+            else {
+                # UNCHANGED
+                $unchangedEntities += $objectId
+            }
+        }
+    }
+
+    # Check for deleted entities
+    if ($enableDelta) {
+        foreach ($objectId in $existingEntities.Keys) {
+            if (-not $currentEntities.ContainsKey($objectId)) {
+                # DELETED entity
+                $deletedEntities += $existingEntities[$objectId]
+
+                $changeLog += @{
+                    id = [Guid]::NewGuid().ToString()
+                    objectId = $objectId
+                    changeType = 'deleted'
+                    changeTimestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+                    snapshotId = $Timestamp
+                    previousValue = $existingEntities[$objectId]
+                }
+            }
+        }
+    }
+
+    Write-Verbose "Delta summary:"
+    Write-Verbose "  New: $($newEntities.Count)"
+    Write-Verbose "  Modified: $($modifiedEntities.Count)"
+    Write-Verbose "  Deleted: $($deletedEntities.Count)"
+    Write-Verbose "  Unchanged: $($unchangedEntities.Count)"
+    #endregion
+
+    #region Step 4: Prepare documents for output
+    $entitiesToWrite = @()
+    $entitiesToWrite += $newEntities
+    $entitiesToWrite += $modifiedEntities
+
+    if ($writeDeletes) {
+        $entitiesToWrite += $deletedEntities
+    }
+
+    $docsToWrite = @()
+
+    if ($entitiesToWrite.Count -gt 0 -or (-not $enableDelta)) {
+        Write-Verbose "Preparing $($entitiesToWrite.Count) changed $entityPlural for Cosmos..."
+
+        # If delta disabled, write all entities
+        if (-not $enableDelta) {
+            $entitiesToWrite = $currentEntities.Values
+            Write-Verbose "Delta detection disabled - writing all $($entitiesToWrite.Count) $entityPlural"
+        }
+
+        foreach ($entity in $entitiesToWrite) {
+            # Build document from field mappings
+            $doc = @{
+                id = $entity.objectId
+                objectId = $entity.objectId
+                lastModified = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+                snapshotId = $Timestamp
+            }
+
+            # Add all configured fields
+            foreach ($fieldName in $documentFields.Keys) {
+                $sourcePath = $documentFields[$fieldName]
+                $doc[$fieldName] = $entity.$sourcePath
+            }
+
+            # Add soft delete markers if configured
+            if ($includeDeleteMarkers) {
+                $isDeleted = $deletedEntities | Where-Object { $_.objectId -eq $entity.objectId }
+
+                if ($isDeleted) {
+                    $doc['deleted'] = $true
+                    $doc['deletedTimestamp'] = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+                    $doc['ttl'] = 7776000  # 90 days in seconds
+                }
+                else {
+                    $doc['deleted'] = $false
+                }
+            }
+
+            $docsToWrite += $doc
+        }
+    }
+    else {
+        Write-Verbose "No changes detected - skipping $entitySingular writes"
+    }
+    #endregion
+
+    #region Step 5: Build snapshot document
+    $snapshotDoc = @{
+        id = $Timestamp
+        snapshotId = $Timestamp
+        collectionTimestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        collectionType = $entityType
+        blobPath = $BlobName
+        deltaDetectionEnabled = $enableDelta
+        cosmosWriteCount = $docsToWrite.Count
+    }
+
+    # Add entity-specific counts with proper naming
+    $snapshotDoc["total$($entityNamePlural.Substring(0,1).ToUpper() + $entityNamePlural.Substring(1))"] = $currentEntities.Count
+    $snapshotDoc["new$($entityNamePlural.Substring(0,1).ToUpper() + $entityNamePlural.Substring(1))"] = $newEntities.Count
+    $snapshotDoc["modified$($entityNamePlural.Substring(0,1).ToUpper() + $entityNamePlural.Substring(1))"] = $modifiedEntities.Count
+    $snapshotDoc["deleted$($entityNamePlural.Substring(0,1).ToUpper() + $entityNamePlural.Substring(1))"] = $deletedEntities.Count
+    $snapshotDoc["unchanged$($entityNamePlural.Substring(0,1).ToUpper() + $entityNamePlural.Substring(1))"] = $unchangedEntities.Count
+    #endregion
+
+    Write-Verbose "Delta indexing complete for $entityPlural"
+
+    # Return all results
+    return @{
+        RawDocuments = $docsToWrite
+        ChangeDocuments = $changeLog
+        SnapshotDocument = $snapshotDoc
+        Statistics = @{
+            Total = $currentEntities.Count
+            New = $newEntities.Count
+            Modified = $modifiedEntities.Count
+            Deleted = $deletedEntities.Count
+            Unchanged = $unchangedEntities.Count
+            WriteCount = $docsToWrite.Count
+        }
+    }
+}
+
+#endregion
+
 Export-ModuleMember -Function @(
     'Get-ManagedIdentityToken',
     'Get-CachedManagedIdentityToken',
@@ -900,5 +1252,6 @@ Export-ModuleMember -Function @(
     'Write-CosmosDocument',
     'Write-CosmosBatch',
     'Write-CosmosParallelBatch',
-    'Get-CosmosDocuments'
+    'Get-CosmosDocuments',
+    'Invoke-DeltaIndexing'
 )
