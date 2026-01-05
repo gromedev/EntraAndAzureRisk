@@ -1,51 +1,58 @@
-```markdown
+# Prompt ideas
+
+Groups: Public vs Private visibility -> nested -> inherited roles
+
+
+
+# Section
+ 
 Below is a **concrete, end-to-end recommendation** for how to leverage **Azure AI Foundry specifically for dashboard output**, aligned to the architecture you described and without re-litigating earlier points.
-
+ 
 This is written as an **implementation guide**, not theory.
-
+ 
 ---
-
+ 
 ## 1. First principle (dashboard-driven design)
-
+ 
 Your dashboard dictates everything.
-
+ 
 Therefore:
-
+ 
 * Foundry **does not** drive workflow
 * Foundry **does not** drive discovery
 * Foundry **does not** drive joins
 * Foundry **does** drive **final representation and scoring**
-
+ 
 Foundry’s only durable output is:
-
+ 
 > **Rows in a dashboard-optimized “findings” dataset**
-
+ 
 ---
-
+ 
 ## 2. Add a dedicated “Findings” layer
-
+ 
 Introduce a new persistence layer that **only Foundry writes to**.
-
+ 
 ### New Cosmos container (or table)
-
+ 
 ```
 findings
 ```
-
+ 
 Partition key:
-
+ 
 ```
 /analysisType
 ```
-
+ 
 Each document = **one dashboard row**
-
+ 
 No nested blobs. No raw records.
-
+ 
 ---
-
+ 
 ## 3. Revised execution flow (with Foundry)
-
+ 
 ```
 Trigger
   ↓
@@ -63,227 +70,227 @@ Findings Container
   ↓
 Dashboard (read-only)
 ```
-
+ 
 Foundry is **after** detection and **before** presentation.
-
+ 
 ---
-
+ 
 ## 4. What your Function App sends to Foundry
-
+ 
 Your detectors already know:
-
+ 
 * principal
 * path
 * role / license / privilege
 * scope
 * timestamps
 * snapshotId
-
+ 
 You send **one candidate at a time**.
-
+ 
 This is important:
-
+ 
 * single input → single output
 * no batching
 * no aggregation
-
+ 
 ---
-
+ 
 ## 5. What Foundry produces (dashboard contract)
-
+ 
 Foundry produces a **normalized finding record**.
-
+ 
 This record is:
-
+ 
 * flat
 * stable
 * sortable
 * filterable
 * renderable without transformation
-
+ 
 ### Canonical “finding” shape
-
+ 
 ```
 {
   "findingId": "uuid",
   "analysisType": "privilege_escalation_dynamic_group",
   "detectedAt": "2026-01-03T12:02:10Z",
-
+ 
   "principalKind": "user",
   "principalId": "user-111",
-
+ 
   "effectivePrivilege": "Compliance Administrator",
   "privilegeScope": "/subscriptions/...",
-
+ 
   "pathDepth": 4,
   "riskClass": "identity_privilege_escalation",
-
+ 
   "confidence": 0.95,
   "severity": 8,
-
+ 
   "status": "confirmed",
-
+ 
   "remediationAction": "remove_role_assignment",
   "remediationCommand": "az role assignment delete ...",
-
+ 
   "snapshotId": "snap-2026-01-03-1200"
 }
 ```
-
+ 
 This is the **dashboard schema**.
 Not the AI schema.
-
+ 
 ---
-
+ 
 ## 6. Why Foundry is useful *here*
-
+ 
 ### Foundry does things your code should not hard-code:
-
+ 
 1. **Severity normalization**
-
+ 
    * Different detectors produce comparable severity
    * A “7” means the same thing everywhere
-
+ 
 2. **Confidence calibration**
-
+ 
    * Rule-based vs inferred cases
    * Dynamic group vs explicit assignment
    * Recent vs old change
-
+ 
 3. **Risk classification**
-
+ 
    * `identity_privilege_escalation`
    * `rbac_excess`
    * `cost_exposure`
    * `governance_gap`
-
+ 
 4. **Remediation synthesis**
-
+ 
    * Produces *consistent* commands
    * Enforces least-privilege defaults
    * Keeps logic out of UI and detectors
-
+ 
 These are **policy-level concerns**, not data-engineering tasks.
-
+ 
 ---
-
+ 
 ## 7. What Foundry must NOT emit
-
+ 
 Foundry output must **never** contain:
-
+ 
 * Raw directory objects
 * Group membership arrays
 * JSON snippets
 * Cosmos queries
 * Explanatory prose
 * Variable schemas
-
+ 
 Those belong to:
-
+ 
 * audit logs
 * drill-down APIs
 * offline analysis
-
+ 
 ---
-
+ 
 ## 8. Dashboard consumption pattern
-
+ 
 Your dashboard reads **only** from `findings`.
-
+ 
 Typical queries:
-
+ 
 * All findings with severity ≥ 7
 * Findings by riskClass
 * Findings introduced since last snapshot
 * Findings affecting a given principalId
 * Findings grouped by analysisType
-
+ 
 No joins.
 No interpretation.
 No AI logic in the UI.
-
+ 
 ---
-
+ 
 ## 9. Drill-down (optional, but clean)
-
+ 
 When a user clicks a row:
-
+ 
 1. Dashboard calls:
-
+ 
    ```
    GET /findings/{findingId}
    ```
 2. Backend resolves:
-
+ 
    * snapshotId
    * evidence object IDs
 3. Backend fetches raw data from Cosmos / Blob
-
+ 
 Foundry is **not involved** in drill-down.
-
+ 
 ---
-
+ 
 ## 10. Why this works with your architecture
-
+ 
 This design:
-
+ 
 * Respects your durable-function orchestration
 * Preserves delta-based correctness
 * Avoids AI-driven nondeterminism
 * Scales horizontally
 * Keeps RU spend predictable
 * Makes the dashboard trivial
-
+ 
 Most importantly:
-
+ 
 > **Foundry becomes replaceable**
-
+ 
 If you ever:
-
+ 
 * change models
 * change vendors
 * re-score history
-
+ 
 Your data model survives intact.
-
+ 
 ---
-
+ 
 ## 11. Summary (one sentence)
-
+ 
 Use Foundry as a **final, deterministic evaluation and normalization layer whose only responsibility is to emit dashboard-ready findings**, never as a detector, correlator, or data authority.
-
+ 
 That is the correct way to leverage Foundry in *this* solution.
-
+ 
 Below are **practical, concrete use cases** for leveraging **Azure AI Foundry** *inside your described architecture*, with **explicit examples of inputs, outputs, and value**. No theory. No abstraction.
-
+ 
 ---
-
+ 
 ## 1. Severity normalization across heterogeneous detectors
-
+ 
 ### Problem
-
+ 
 You have multiple detectors:
-
+ 
 * Dynamic group → role
 * Nested group → role
 * Direct role assignment
 * License-driven implicit privilege
 * Legacy assignments
-
+ 
 Each detector has its own internal notion of “badness”.
-
+ 
 Hard-coding cross-detector severity equivalence becomes unmaintainable.
-
+ 
 ---
-
+ 
 ### Foundry role
-
+ 
 Foundry acts as a **severity normalization engine**.
-
+ 
 ---
-
+ 
 ### Input to Foundry
-
+ 
 ```
 {
   "analysisType": "dynamic_group_privilege_path",
@@ -295,11 +302,11 @@ Foundry acts as a **severity normalization engine**.
   "isHumanPrincipal": true
 }
 ```
-
+ 
 ---
-
+ 
 ### Output from Foundry
-
+ 
 ```
 {
   "severity": 9,
@@ -307,42 +314,42 @@ Foundry acts as a **severity normalization engine**.
   "riskClass": "identity_privilege_escalation"
 }
 ```
-
+ 
 ---
-
+ 
 ### Why this matters
-
+ 
 * A “9” always means the same thing
 * You can add new detectors without rebalancing the dashboard
 * UI sorting becomes meaningful
-
+ 
 ---
-
+ 
 ## 2. Confidence scoring for inferred vs explicit privilege
-
+ 
 ### Problem
-
+ 
 Some findings are **provable**:
-
+ 
 * Direct role assignment
-
+ 
 Others are **inferred**:
-
+ 
 * Dynamic rule → nested group → role
 * License enabling privileged API surface
-
+ 
 Binary true/false is misleading.
-
+ 
 ---
-
+ 
 ### Foundry role
-
+ 
 Foundry produces **confidence**, not truth.
-
+ 
 ---
-
+ 
 ### Input
-
+ 
 ```
 {
   "analysisType": "license_implied_privilege",
@@ -352,11 +359,11 @@ Foundry produces **confidence**, not truth.
   "directAssignment": false
 }
 ```
-
+ 
 ---
-
+ 
 ### Output
-
+ 
 ```
 {
   "confidence": 0.72,
@@ -364,37 +371,37 @@ Foundry produces **confidence**, not truth.
   "riskClass": "governance_gap"
 }
 ```
-
+ 
 ---
-
+ 
 ### Dashboard behavior enabled
-
+ 
 * Filter: “Show only confidence ≥ 0.85”
 * Visual distinction between inferred vs explicit risk
 * Avoids alert fatigue
-
+ 
 ---
-
+ 
 ## 3. Risk classification for aggregation and reporting
-
+ 
 ### Problem
-
+ 
 Raw findings are too granular:
-
+ 
 * “User X has role Y via group Z”
-
+ 
 Executives and dashboards need **risk categories**, not mechanics.
-
+ 
 ---
-
+ 
 ### Foundry role
-
+ 
 Foundry maps findings into **stable risk classes**.
-
+ 
 ---
-
+ 
 ### Input
-
+ 
 ```
 {
   "analysisType": "nested_group_role_assignment",
@@ -403,46 +410,46 @@ Foundry maps findings into **stable risk classes**.
   "changeVelocity": "high"
 }
 ```
-
+ 
 ---
-
+ 
 ### Output
-
+ 
 ```
 {
   "riskClass": "identity_lateral_movement",
   "severity": 7
 }
 ```
-
+ 
 ---
-
+ 
 ### Enables
-
+ 
 * “Top risks by category”
 * Trend analysis across snapshots
 * SLA tracking by risk class
-
+ 
 ---
-
+ 
 ## 4. Remediation synthesis (not decision-making)
-
+ 
 ### Problem
-
+ 
 Detectors should not encode remediation logic.
 UI should not generate commands.
 You still want **actionable output**.
-
+ 
 ---
-
+ 
 ### Foundry role
-
+ 
 Foundry synthesizes **standardized remediation artifacts**.
-
+ 
 ---
-
+ 
 ### Input
-
+ 
 ```
 {
   "analysisType": "excessive_role_assignment",
@@ -451,11 +458,11 @@ Foundry synthesizes **standardized remediation artifacts**.
   "scope": "/"
 }
 ```
-
+ 
 ---
-
+ 
 ### Output
-
+ 
 ```
 {
   "remediationAction": "remove_role_assignment",
@@ -463,33 +470,33 @@ Foundry synthesizes **standardized remediation artifacts**.
   "remediationRisk": "low"
 }
 ```
-
+ 
 ---
-
+ 
 ### Key constraint
-
+ 
 Foundry suggests.
 Humans or automation execute.
-
+ 
 ---
-
+ 
 ## 5. Drift-aware scoring across snapshots
-
+ 
 ### Problem
-
+ 
 A role present for 2 years ≠ a role added yesterday.
 Your detectors see deltas, but dashboards need context.
-
+ 
 ---
-
+ 
 ### Foundry role
-
+ 
 Foundry incorporates **temporal semantics**.
-
+ 
 ---
-
+ 
 ### Input
-
+ 
 ```
 {
   "analysisType": "role_assignment",
@@ -498,11 +505,11 @@ Foundry incorporates **temporal semantics**.
   "snapshotDelta": "added"
 }
 ```
-
+ 
 ---
-
+ 
 ### Output
-
+ 
 ```
 {
   "severity": 8,
@@ -510,38 +517,38 @@ Foundry incorporates **temporal semantics**.
   "riskClass": "privilege_change_event"
 }
 ```
-
+ 
 ---
-
+ 
 ### Result
-
+ 
 * “New critical risks since last snapshot”
 * Change-driven dashboards without custom logic
-
+ 
 ---
-
+ 
 ## 6. De-duplication and finding consolidation
-
+ 
 ### Problem
-
+ 
 Multiple detectors flag the *same effective risk*:
-
+ 
 * Dynamic group path
 * Nested group expansion
 * Role inheritance
-
+ 
 Naive dashboards explode with duplicates.
-
+ 
 ---
-
+ 
 ### Foundry role
-
+ 
 Foundry performs **semantic consolidation**, not joins.
-
+ 
 ---
-
+ 
 ### Input
-
+ 
 ```
 {
   "principalId": "user-999",
@@ -552,11 +559,11 @@ Foundry performs **semantic consolidation**, not joins.
   ]
 }
 ```
-
+ 
 ---
-
+ 
 ### Output
-
+ 
 ```
 {
   "status": "confirmed",
@@ -565,36 +572,36 @@ Foundry performs **semantic consolidation**, not joins.
   "findingCountConsolidated": 2
 }
 ```
-
+ 
 ---
-
+ 
 ### Dashboard impact
-
+ 
 One row. One risk. Multiple evidences.
-
+ 
 ---
-
+ 
 ## 7. Dashboard-ready language normalization
-
+ 
 ### Problem
-
+ 
 Raw technical labels leak into UI:
-
+ 
 * `dynamic_group_privilege_path_v3`
 * `nested_assignment_detector`
-
+ 
 Unreadable.
-
+ 
 ---
-
+ 
 ### Foundry role
-
+ 
 Foundry emits **stable display metadata**.
-
+ 
 ---
-
+ 
 ### Output fields
-
+ 
 ```
 {
   "displayTitle": "Privilege escalation via dynamic group",
@@ -602,67 +609,66 @@ Foundry emits **stable display metadata**.
   "displayImpact": "User gains administrative access indirectly"
 }
 ```
-
+ 
 ---
-
+ 
 ### Constraint
-
+ 
 This is metadata, not explanation.
 No prose blobs. No AI chatter.
-
+ 
 ---
-
+ 
 ## 8. Policy evolution without redeploying code
-
+ 
 ### Problem
-
+ 
 Risk posture changes:
-
+ 
 * A role becomes more sensitive
 * A license becomes less relevant
 * Org risk tolerance shifts
-
+ 
 Redeploying detectors is expensive.
-
+ 
 ---
-
+ 
 ### Foundry role
-
+ 
 Policy-driven scoring without touching collectors or detectors.
-
+ 
 ---
-
+ 
 ### Result
-
+ 
 * Same raw data
 * Different severity outputs
 * Historical re-scoring possible
-
+ 
 ---
-
+ 
 ## Final synthesis
-
+ 
 In *your* solution, Foundry is used to:
-
+ 
 * Normalize severity
 * Calibrate confidence
 * Classify risk
 * Consolidate findings
 * Synthesize remediation
 * Encode policy, not mechanics
-
+ 
 Foundry **never**:
-
+ 
 * Collects data
 * Detects conditions
 * Queries Cosmos
 * Drives workflow
 * Feeds the dashboard directly
-
+ 
 It emits **dashboard-grade findings**.
-
+ 
 That is the practical leverage point.
-```
 
 
 # Tutorial: Using Azure AI Foundry Correctly in a Deterministic Security Analysis Pipeline
