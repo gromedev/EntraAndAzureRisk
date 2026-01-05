@@ -6,348 +6,159 @@ Add-Type -AssemblyName System.Web
 $modulePath = Join-Path $PSScriptRoot "..\Modules\EntraDataCollection\EntraDataCollection.psm1"
 Import-Module $modulePath -Force
 
-# Helper to get all unique properties from an array, with objectId and displayName first
-$getDynamicProperties = {
+# Helper: Get dynamic properties with smart ordering
+function Get-DynamicProperties {
     param($dataArray, [string]$dataType = "")
     
     if ($null -eq $dataArray -or $dataArray.Count -eq 0) { return @() }
     
-    # Collect all unique property names from all objects
-    $allPropsHash = @{}
+    # Collect all unique property names (excluding Cosmos DB internals)
+    $allProps = $dataArray | ForEach-Object {
+        if ($_ -is [System.Collections.IDictionary]) { $_.Keys }
+        else { $_.PSObject.Properties.Name }
+    } | Where-Object { $_ -notmatch '^_' } | Select-Object -Unique | Sort-Object
     
-    foreach ($item in $dataArray) {
-        # Handle both PSCustomObject and Hashtable
-        if ($item -is [System.Collections.IDictionary]) {
-            foreach ($key in $item.Keys) {
-                $allPropsHash[$key] = $true
-            }
-        }
-        else {
-            # Get all properties from the object
-            $item.PSObject.Properties | ForEach-Object {
-                $allPropsHash[$_.Name] = $true
-            }
-        }
+    # Smart ordering based on data type
+    $priority = if ($dataType -eq "changes") { 
+        @('Category', 'objectId', 'displayName') 
+    } else { 
+        @('objectId', 'displayName') 
     }
     
-    # Convert to sorted array, excluding Cosmos DB internal properties
-    $allProps = $allPropsHash.Keys | Where-Object { 
-        $_ -notmatch '^_' # Exclude _rid, _self, _etag, _attachments, _ts
-    } | Sort-Object
-    
-    # Build ordered properties based on data type
-    $orderedProps = @()
-    
-    if ($dataType -eq "changes") {
-        # For changes: Category first, then objectId, displayName, then rest
-        if ($allProps -contains 'Category') { $orderedProps += 'Category' }
-        if ($allProps -contains 'objectId') { $orderedProps += 'objectId' }
-        if ($allProps -contains 'displayName') { $orderedProps += 'displayName' }
-        
-        foreach ($p in $allProps) {
-            if ($p -notin @('Category', 'objectId', 'displayName')) {
-                $orderedProps += $p
-            }
-        }
-    }
-    else {
-        # For users/groups: objectId first, then displayName, then rest
-        if ($allProps -contains 'objectId') { $orderedProps += 'objectId' }
-        if ($allProps -contains 'displayName') { $orderedProps += 'displayName' }
-        
-        foreach ($p in $allProps) {
-            if ($p -ne 'objectId' -and $p -ne 'displayName') {
-                $orderedProps += $p
-            }
-        }
-    }
-    
-    return $orderedProps
+    return ($priority | Where-Object { $_ -in $allProps }) + ($allProps | Where-Object { $_ -notin $priority })
 }
 
-# Helper to format a value for display
-$formatValue = {
+# Helper: Format value for display
+function Format-DisplayValue {
     param($value, $propertyName)
     
-    if ($null -eq $value) {
-        return "<span class='no-data'>null</span>"
-    }
-    elseif ($value -is [bool]) {
-        return $value.ToString()
-    }
-    elseif ($value -is [array]) {
-        if ($value.Count -eq 0) { return "[]" }
-        return "[" + ($value -join ", ") + "]"
-    }
-    elseif ($value -is [System.Collections.IDictionary] -or $value -is [PSCustomObject]) {
-        # Handle hashtables and PSCustomObjects (like newValue, previousValue)
-        $sb = New-Object System.Text.StringBuilder
-        [void]$sb.Append("<div style='font-size:0.85em;'>")
-        
-        # Get properties
-        $props = if ($value -is [System.Collections.IDictionary]) {
-            $value.Keys
-        } else {
-            $value.PSObject.Properties.Name
-        }
-        
-        # Display key properties in compact format
-        $displayedCount = 0
-        $maxDisplay = 5
-        foreach ($p in $props) {
-            if ($displayedCount -ge $maxDisplay) { 
-                [void]$sb.Append("<div style='color:#666;font-style:italic;'>... +$($props.Count - $maxDisplay) more</div>")
-                break 
-            }
-            
-            $pValue = if ($value -is [System.Collections.IDictionary]) { $value[$p] } else { $value.$p }
+    if ($null -eq $value) { return "<span class='no-data'>null</span>" }
+    if ($value -is [bool]) { return $value.ToString() }
+    if ($value -is [array]) { return ($value.Count -eq 0) ? "[]" : ("[" + ($value -join ", ") + "]") }
+    
+    # Handle objects/hashtables
+    if ($value -is [System.Collections.IDictionary] -or $value -is [PSCustomObject]) {
+        $props = if ($value -is [System.Collections.IDictionary]) { $value.Keys } else { $value.PSObject.Properties.Name }
+        $maxDisplay = 888
+        $items = $props | Select-Object -First $maxDisplay | ForEach-Object {
+            $pValue = if ($value -is [System.Collections.IDictionary]) { $value[$_] } else { $value.$_ }
             $displayValue = if ($null -eq $pValue) { "null" } else { [System.Web.HttpUtility]::HtmlEncode($pValue.ToString()) }
-            
-            [void]$sb.Append("<div><b>$p </b> $displayValue</div>")
-            $displayedCount++
+            "<div><b>$_ </b> $displayValue</div>"
         }
-        [void]$sb.Append("</div>")
-        return $sb.ToString()
+        if ($props.Count -gt $maxDisplay) { $items += "<div style='color:#666;font-style:italic;'>... +$($props.Count - $maxDisplay) more</div>" }
+        return "<div style='font-size:0.85em;'>$($items -join '')</div>"
     }
-    elseif ($propertyName -match 'DateTime' -or $propertyName -match 'Timestamp') {
-        try {
-            return ([DateTime]::Parse($value)).ToString("yyyy-MM-dd HH:mm")
-        } catch {
-            return [System.Web.HttpUtility]::HtmlEncode($value)
-        }
+    
+    # Handle dates
+    if ($propertyName -match 'DateTime|Timestamp') {
+        try { return ([DateTime]::Parse($value)).ToString("yyyy-MM-dd HH:mm") }
+        catch { }
     }
-    else {
-        return [System.Web.HttpUtility]::HtmlEncode($value)
-    }
+    
+    return [System.Web.HttpUtility]::HtmlEncode($value)
 }
 
-# Helper to render delta changes
-$renderDelta = {
+# Helper: Render delta changes
+function Format-Delta {
     param($delta)
     if ($null -eq $delta -or $delta.PSObject.Properties.Count -eq 0) { return "---" }
-    $sb = New-Object System.Text.StringBuilder
-    foreach ($prop in $delta.PSObject.Properties) {
-        $oldVal = if ($null -eq $prop.Value.old) { "null" } else { $prop.Value.old }
-        $newVal = if ($null -eq $prop.Value.new) { "null" } else { $prop.Value.new }
-        [void]$sb.AppendLine("<div class='delta-item'><b>$($prop.Name)</b>: <span class='delta-old'>$oldVal</span> → <span class='delta-new'>$newVal</span></div>")
-    }
-    return $sb.ToString()
+    ($delta.PSObject.Properties | ForEach-Object {
+        $old = if ($null -eq $_.Value.old) { "null" } else { $_.Value.old }
+        $new = if ($null -eq $_.Value.new) { "null" } else { $_.Value.new }
+        "<div class='delta-item'><b>$($_.Name)</b>: <span class='delta-old'>$old</span> → <span class='delta-new'>$new</span></div>"
+    }) -join ''
 }
 
-# Helper to de-duplicate objects by objectId, keeping only the latest version
-$deduplicateByObjectId = {
+# Helper: De-duplicate by objectId (keep latest)
+function Remove-Duplicates {
     param($dataArray)
-
     if ($null -eq $dataArray -or $dataArray.Count -eq 0) { return @() }
-
-    # Use a hashtable to track the latest version of each objectId
-    $uniqueObjects = @{}
-
+    
+    $unique = @{}
     foreach ($item in $dataArray) {
         $objectId = if ($item -is [System.Collections.IDictionary]) { $item['objectId'] } else { $item.objectId }
-
         if ($null -eq $objectId) { continue }
-
-        # Get timestamp for comparison (prefer _ts, fallback to lastModified)
+        
         $timestamp = if ($item -is [System.Collections.IDictionary]) {
             if ($item.ContainsKey('_ts')) { $item['_ts'] } else { $item['lastModified'] }
         } else {
             if ($item._ts) { $item._ts } else { $item.lastModified }
         }
-
-        # If this objectId hasn't been seen, or if this version is newer, keep it
-        if (-not $uniqueObjects.ContainsKey($objectId)) {
-            $uniqueObjects[$objectId] = @{ Item = $item; Timestamp = $timestamp }
-        }
-        else {
-            $existingTimestamp = $uniqueObjects[$objectId].Timestamp
-            if ($timestamp -gt $existingTimestamp) {
-                $uniqueObjects[$objectId] = @{ Item = $item; Timestamp = $timestamp }
-            }
+        
+        if (-not $unique.ContainsKey($objectId) -or $timestamp -gt $unique[$objectId].Timestamp) {
+            $unique[$objectId] = @{ Item = $item; Timestamp = $timestamp }
         }
     }
+    return $unique.Values | ForEach-Object { $_.Item }
+}
 
-    # Return just the items (not the wrapper objects)
-    return $uniqueObjects.Values | ForEach-Object { $_.Item }
+# Helper: Build HTML table
+function New-TableHtml {
+    param($data, $tableId, $dataType = "")
+    
+    if ($data.Count -eq 0) { return @{ Headers = ""; Rows = ""; Props = @() } }
+    
+    $props = Get-DynamicProperties -dataArray $data -dataType $dataType
+    
+    # Build headers with click handlers
+    $headers = (0..($props.Count - 1) | ForEach-Object {
+        "<th onclick=`"sortTable($_, '$tableId')`">$($props[$_])</th>"
+    }) -join ''
+    
+    # Build rows
+    $rows = ($data | ForEach-Object {
+        $item = $_
+        $cells = ($props | ForEach-Object {
+            $value = if ($item -is [System.Collections.IDictionary]) { $item[$_] } else { $item.$_ }
+            $displayValue = if ($_ -eq 'delta') { Format-Delta $value } else { Format-DisplayValue $value $_ }
+            "<td>$displayValue</td>"
+        }) -join ''
+        "<tr>$cells</tr>"
+    }) -join "`n"
+    
+    return @{ Headers = $headers; Rows = $rows; Props = $props }
 }
 
 try {
-    # Get raw data and de-duplicate by objectId (keeping only latest version)
-    $userDataRaw = if ($usersRawIn) { $usersRawIn } else { @() }
-    $groupDataRaw = if ($groupsRawIn) { $groupsRawIn } else { @() }
-    $spDataRaw = if ($servicePrincipalsRawIn) { $servicePrincipalsRawIn } else { @() }
-
-    # DEBUG: Log what we're receiving before deduplication
-    Write-Verbose "User data count (before dedup): $($userDataRaw.Count)"
-    Write-Verbose "Group data count (before dedup): $($groupDataRaw.Count)"
-    Write-Verbose "Service Principal data count (before dedup): $($spDataRaw.Count)"
-
-    # De-duplicate to show only the latest version of each user/group/service principal
-    $userDataArray = @(& $deduplicateByObjectId $userDataRaw)
-    $groupDataArray = @(& $deduplicateByObjectId $groupDataRaw)
-    $spDataArray = @(& $deduplicateByObjectId $spDataRaw)
-
-    # DEBUG: Log after deduplication
-    Write-Verbose "User data count (after dedup): $($userDataArray.Count)"
-    Write-Verbose "Group data count (after dedup): $($groupDataArray.Count)"
-    Write-Verbose "Service Principal data count (after dedup): $($spDataArray.Count)"
+    # De-duplicate raw data
+    $userData = Remove-Duplicates ($usersRawIn ?? @())
+    $groupData = Remove-Duplicates ($groupsRawIn ?? @())
+    $spData = Remove-Duplicates ($servicePrincipalsRawIn ?? @())
     
-    if ($userDataArray.Count -gt 0) {
-        Write-Verbose "First user object type: $($userDataArray[0].GetType().FullName)"
-        Write-Verbose "First user properties: $($userDataArray[0].PSObject.Properties.Name -join ', ')"
-    }
-
-    # Get dynamic properties for users
-    $userProps = & $getDynamicProperties $userDataArray
-    Write-Verbose "Detected user properties: $($userProps -join ', ')"
+    Write-Verbose "Processed counts - Users: $($userData.Count), Groups: $($groupData.Count), SPs: $($spData.Count)"
     
-    # Build User Headers
-    $userHeaders = New-Object System.Text.StringBuilder
-    for ($i = 0; $i -lt $userProps.Count; $i++) {
-        [void]$userHeaders.Append("<th onclick=`"sortTable($i, 'u-table')`">$($userProps[$i])</th>")
-    }
-
-    # Build User Rows
-    $userRows = New-Object System.Text.StringBuilder
-    foreach ($u in $userDataArray) {
-        [void]$userRows.Append("<tr>")
-        foreach ($prop in $userProps) {
-            $value = $u.$prop
-            $displayValue = & $formatValue $value $prop
-            [void]$userRows.Append("<td>$displayValue</td>")
-        }
-        [void]$userRows.AppendLine("</tr>")
-    }
-
-    # Get dynamic properties for groups
-    $groupProps = & $getDynamicProperties $groupDataArray
-    Write-Verbose "Detected group properties: $($groupProps -join ', ')"
-    
-    # Build Group Headers
-    $groupHeaders = New-Object System.Text.StringBuilder
-    for ($i = 0; $i -lt $groupProps.Count; $i++) {
-        [void]$groupHeaders.Append("<th onclick=`"sortTable($i, 'g-table')`">$($groupProps[$i])</th>")
-    }
-
-    # Build Group Rows
-    $groupRows = New-Object System.Text.StringBuilder
-    foreach ($g in $groupDataArray) {
-        [void]$groupRows.Append("<tr>")
-        foreach ($prop in $groupProps) {
-            $value = $g.$prop
-            $displayValue = & $formatValue $value $prop
-            [void]$groupRows.Append("<td>$displayValue</td>")
-        }
-        [void]$groupRows.AppendLine("</tr>")
-    }
-
-    # Get dynamic properties for service principals
-    $spProps = & $getDynamicProperties $spDataArray
-    Write-Verbose "Detected service principal properties: $($spProps -join ', ')"
-
-    # Build Service Principal Headers
-    $spHeaders = New-Object System.Text.StringBuilder
-    for ($i = 0; $i -lt $spProps.Count; $i++) {
-        [void]$spHeaders.Append("<th onclick=`"sortTable($i, 'sp-table')`">$($spProps[$i])</th>")
-    }
-
-    # Build Service Principal Rows
-    $spRows = New-Object System.Text.StringBuilder
-    foreach ($sp in $spDataArray) {
-        [void]$spRows.Append("<tr>")
-        foreach ($prop in $spProps) {
-            $value = $sp.$prop
-            $displayValue = & $formatValue $value $prop
-            [void]$spRows.Append("<td>$displayValue</td>")
-        }
-        [void]$spRows.AppendLine("</tr>")
-    }
-
-    # Build Change Rows (Combined Users, Groups, and Service Principals) - NOW DYNAMIC
-    $changeRows = New-Object System.Text.StringBuilder
+    # Combine changes with category labels
     $allChanges = @()
-
-    # Add Category property to identify User vs Group vs Service Principal changes
-    # Handle both hashtables (from Cosmos DB) and PSCustomObjects
-    if ($userChangesIn) {
-        $userChangesIn | ForEach-Object {
-            if ($_ -is [System.Collections.IDictionary]) {
-                $_['Category'] = 'User'
-            } else {
-                $_ | Add-Member -NotePropertyName "Category" -NotePropertyValue "User" -Force
+    @(
+        @{ Data = $userChangesIn; Category = 'User' }
+        @{ Data = $groupChangesIn; Category = 'Group' }
+        @{ Data = $servicePrincipalChangesIn; Category = 'ServicePrincipal' }
+    ) | ForEach-Object {
+        $category = $_.Category
+        if ($_.Data) {
+            $_.Data | ForEach-Object {
+                if ($_ -is [System.Collections.IDictionary]) { $_['Category'] = $category }
+                else { $_ | Add-Member -NotePropertyName "Category" -NotePropertyValue $category -Force }
+                $allChanges += $_
             }
-            $allChanges += $_
         }
     }
-    if ($groupChangesIn) {
-        $groupChangesIn | ForEach-Object {
-            if ($_ -is [System.Collections.IDictionary]) {
-                $_['Category'] = 'Group'
-            } else {
-                $_ | Add-Member -NotePropertyName "Category" -NotePropertyValue "Group" -Force
-            }
-            $allChanges += $_
-        }
-    }
-    if ($servicePrincipalChangesIn) {
-        $servicePrincipalChangesIn | ForEach-Object {
-            if ($_ -is [System.Collections.IDictionary]) {
-                $_['Category'] = 'ServicePrincipal'
-            } else {
-                $_ | Add-Member -NotePropertyName "Category" -NotePropertyValue "ServicePrincipal" -Force
-            }
-            $allChanges += $_
-        }
-    }
-
-    # Get dynamic properties for changes
-    $changeProps = & $getDynamicProperties $allChanges "changes"
+    $allChanges = $allChanges | Sort-Object changeTimestamp -Descending
     
-    # ENSURE Category is always first if we have changes
-    if ($allChanges.Count -gt 0 -and $changeProps -notcontains 'Category') {
-        $changeProps = @('Category') + $changeProps
-    }
+    # Generate tables
+    $userTable = New-TableHtml -data $userData -tableId 'u-table'
+    $groupTable = New-TableHtml -data $groupData -tableId 'g-table'
+    $spTable = New-TableHtml -data $spData -tableId 'sp-table'
+    $changeTable = New-TableHtml -data $allChanges -tableId 'c-table' -dataType 'changes'
     
-    Write-Verbose "Change properties detected: $($changeProps -join ', ')"
-    
-    # Build Change Headers
-    $changeHeaders = New-Object System.Text.StringBuilder
-    for ($i = 0; $i -lt $changeProps.Count; $i++) {
-        [void]$changeHeaders.Append("<th onclick=`"sortTable($i, 'c-table')`">$($changeProps[$i])</th>")
-    }
-
-    # Build Change Rows with all properties
-    foreach ($c in ($allChanges | Sort-Object changeTimestamp -Descending)) {
-        [void]$changeRows.Append("<tr>")
-        foreach ($prop in $changeProps) {
-            # Get the value - handle both hashtable and object notation
-            $value = if ($c -is [System.Collections.IDictionary]) { 
-                $c[$prop] 
-            } else { 
-                $c.$prop 
-            }
-            
-            # Special handling for delta object
-            if ($prop -eq 'delta') {
-                $displayValue = & $renderDelta $value
-            }
-            else {
-                $displayValue = & $formatValue $value $prop
-            }
-            
-            [void]$changeRows.Append("<td>$displayValue</td>")
-        }
-        [void]$changeRows.AppendLine("</tr>")
-    }
-    
-    # Simple debug info
+    # Debug info
     $debugInfo = @"
         <div style='background:#e8f4fd;padding:10px;margin:10px 0;border-left:4px solid #0078d4;border-radius:5px;font-size:0.9em;'>
             <b>Data Summary:</b>
-            Users: <b>$($userDataArray.Count)</b> records ($($userProps.Count) properties) |
-            Groups: <b>$($groupDataArray.Count)</b> records ($($groupProps.Count) properties) |
-            Service Principals: <b>$($spDataArray.Count)</b> records ($($spProps.Count) properties) |
-            Changes: <b>$($allChanges.Count)</b> records ($($changeProps.Count) properties) |
+            Users: <b>$($userData.Count)</b> records ($($userTable.Props.Count) properties) |
+            Groups: <b>$($groupData.Count)</b> records ($($groupTable.Props.Count) properties) |
+            Service Principals: <b>$($spData.Count)</b> records ($($spTable.Props.Count) properties) |
+            Changes: <b>$($allChanges.Count)</b> records ($($changeTable.Props.Count) properties) |
             Generated: <b>$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')</b>
         </div>
 "@
@@ -378,27 +189,18 @@ try {
             document.getElementById(id).classList.add('active'); btn.classList.add('active');
         }
         function sortTable(n, tableId) {
-            var table = document.getElementById(tableId);
-            var rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
-            switching = true; dir = "asc";
+            var table = document.getElementById(tableId), rows, switching = true, dir = "asc", switchcount = 0;
             while (switching) {
                 switching = false; rows = table.rows;
-                for (i = 1; i < (rows.length - 1); i++) {
-                    shouldSwitch = false;
-                    x = rows[i].getElementsByTagName("TD")[n];
-                    y = rows[i + 1].getElementsByTagName("TD")[n];
-                    if (dir == "asc") {
-                        if (x.innerHTML.toLowerCase() > y.innerHTML.toLowerCase()) { shouldSwitch = true; break; }
-                    } else if (dir == "desc") {
-                        if (x.innerHTML.toLowerCase() < y.innerHTML.toLowerCase()) { shouldSwitch = true; break; }
+                for (var i = 1; i < rows.length - 1; i++) {
+                    var x = rows[i].getElementsByTagName("TD")[n], y = rows[i + 1].getElementsByTagName("TD")[n];
+                    if ((dir == "asc" && x.innerHTML.toLowerCase() > y.innerHTML.toLowerCase()) ||
+                        (dir == "desc" && x.innerHTML.toLowerCase() < y.innerHTML.toLowerCase())) {
+                        rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+                        switching = true; switchcount++; break;
                     }
                 }
-                if (shouldSwitch) {
-                    rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
-                    switching = true; switchcount ++;
-                } else {
-                    if (switchcount == 0 && dir == "asc") { dir = "desc"; switching = true; }
-                }
+                if (switchcount == 0 && dir == "asc") { dir = "desc"; switching = true; }
             }
         }
     </script>
@@ -408,53 +210,30 @@ try {
     $debugInfo
     <div class="card">
         <div class="tabs">
-            <button class="tab active" onclick="showTab('u-tab', this)">Users ($($userDataArray.Count))</button>
-            <button class="tab" onclick="showTab('g-tab', this)">Groups ($($groupDataArray.Count))</button>
-            <button class="tab" onclick="showTab('sp-tab', this)">Service Principals ($($spDataArray.Count))</button>
+            <button class="tab active" onclick="showTab('u-tab', this)">Users ($($userData.Count))</button>
+            <button class="tab" onclick="showTab('g-tab', this)">Groups ($($groupData.Count))</button>
+            <button class="tab" onclick="showTab('sp-tab', this)">Service Principals ($($spData.Count))</button>
             <button class="tab" onclick="showTab('c-tab', this)">Recent Changes ($($allChanges.Count))</button>
         </div>
-
         <div id="u-tab" class="tab-content active">
-            <div class="table-container">
-                <table id="u-table">
-                    <thead><tr>$($userHeaders.ToString())</tr></thead>
-                    <tbody>$($userRows.ToString())</tbody>
-                </table>
-            </div>
+            <div class="table-container"><table id="u-table"><thead><tr>$($userTable.Headers)</tr></thead><tbody>$($userTable.Rows)</tbody></table></div>
         </div>
-
         <div id="g-tab" class="tab-content">
-            <div class="table-container">
-                <table id="g-table">
-                    <thead><tr>$($groupHeaders.ToString())</tr></thead>
-                    <tbody>$($groupRows.ToString())</tbody>
-                </table>
-            </div>
+            <div class="table-container"><table id="g-table"><thead><tr>$($groupTable.Headers)</tr></thead><tbody>$($groupTable.Rows)</tbody></table></div>
         </div>
-
         <div id="sp-tab" class="tab-content">
-            <div class="table-container">
-                <table id="sp-table">
-                    <thead><tr>$($spHeaders.ToString())</tr></thead>
-                    <tbody>$($spRows.ToString())</tbody>
-                </table>
-            </div>
+            <div class="table-container"><table id="sp-table"><thead><tr>$($spTable.Headers)</tr></thead><tbody>$($spTable.Rows)</tbody></table></div>
         </div>
-
         <div id="c-tab" class="tab-content">
-            <div class="table-container">
-                <table id="c-table">
-                    <thead><tr>$($changeHeaders.ToString())</tr></thead>
-                    <tbody>$($changeRows.ToString())</tbody>
-                </table>
-            </div>
+            <div class="table-container"><table id="c-table"><thead><tr>$($changeTable.Headers)</tr></thead><tbody>$($changeTable.Rows)</tbody></table></div>
         </div>
     </div>
 </body>
 </html>
 "@
 
-    Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{ StatusCode = 200; Body = $html; headers = @{"content-type"="text/html"} })
+    Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{ StatusCode = 200; Body = $html; Headers = @{"content-type"="text/html"} })
 } catch {
+    Write-Error "Dashboard error: $($_.Exception.Message)"
     Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{ StatusCode = 500; Body = "Error: $($_.Exception.Message)" })
 }

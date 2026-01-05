@@ -185,6 +185,19 @@ function Invoke-GraphWithRetry {
                             $retryAfter = [Math]::Max([Math]::Ceiling(($retryDate - (Get-Date).ToUniversalTime()).TotalSeconds), 1)
                         } catch {
                             Write-Warning "Could not parse Retry-After: $retryAfterHeader"
+
+                        # "GENTLE GIANT: 429 HANDLING"
+                        # add as a 
+                        # .PARAMETER switch $GentleGiant
+                        # Due to the aggressive retry method, there's maaaaybe chance of "crashing" other azure apps if they are making graph requests at the same time...
+                        <#
+                        # If enabled, this would handle 429s here and 'continue' before the standard block.
+                        # $retryAfterHeader = $_.Exception.Response.Headers.'Retry-After'
+                        # $retryAfter = if ($retryAfterHeader -match '^\d+$') { [int]$retryAfterHeader + 1 } else { 60 }
+                        # Write-Warning "Surgical 429: Waiting $retryAfter seconds..."
+                        # Start-Sleep -Seconds $retryAfter
+                        # continue
+                        #>
                         }
                     }
                 }

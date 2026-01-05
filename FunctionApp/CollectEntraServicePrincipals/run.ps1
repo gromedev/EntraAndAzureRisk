@@ -118,7 +118,7 @@ try {
     }
 
     # Query service principals with field selection
-    $selectFields = "appDisplayName,accountEnabled,addIns,displayName,appId,appRoleAssignmentRequired,deletedDateTime,description,oauth2PermissionScopes,resourceSpecificApplicationPermissions,servicePrincipalNames,servicePrincipalType,tags,notes"
+    $selectFields = "id,appDisplayName,accountEnabled,addIns,displayName,appId,appRoleAssignmentRequired,deletedDateTime,description,oauth2PermissionScopes,resourceSpecificApplicationPermissions,servicePrincipalNames,servicePrincipalType,tags,notes"
     $nextLink = "https://graph.microsoft.com/v1.0/servicePrincipals?`$select=$selectFields&`$top=$batchSize"
 
     Write-Verbose "Starting batch processing with streaming writes"
@@ -175,7 +175,7 @@ try {
                 collectionTimestamp = $timestampFormatted
             }
 
-            [void]$servicePrincipalsJsonL.AppendLine(($servicePrincipalObj | ConvertTo-Json -Compress))
+            [void]$servicePrincipalsJsonL.AppendLine(($servicePrincipalObj | ConvertTo-Json -Depth 10 -Compress))
             $servicePrincipalCount++
 
             # Track summary statistics
