@@ -1054,6 +1054,7 @@ function Invoke-DeltaIndexing {
             $changeLog += @{
                 id = [Guid]::NewGuid().ToString()
                 objectId = $objectId
+                displayName = $currentEntity.displayName
                 changeType = 'new'
                 changeTimestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
                 snapshotId = $Timestamp
@@ -1106,6 +1107,7 @@ function Invoke-DeltaIndexing {
                 $changeLog += @{
                     id = [Guid]::NewGuid().ToString()
                     objectId = $objectId
+                    displayName = $currentEntity.displayName
                     changeType = 'modified'
                     changeTimestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
                     snapshotId = $Timestamp
@@ -1131,6 +1133,7 @@ function Invoke-DeltaIndexing {
                 $changeLog += @{
                     id = [Guid]::NewGuid().ToString()
                     objectId = $objectId
+                    displayName = $existingEntities[$objectId].displayName
                     changeType = 'deleted'
                     changeTimestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
                     snapshotId = $Timestamp
@@ -1172,7 +1175,7 @@ function Invoke-DeltaIndexing {
             $doc = @{
                 id = $entity.objectId
                 objectId = $entity.objectId
-                lastModified = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+                lastModified = $entity.collectionTimestamp ?? (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
                 snapshotId = $Timestamp
             }
 

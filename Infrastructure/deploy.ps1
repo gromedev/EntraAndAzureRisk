@@ -146,7 +146,7 @@ catch {
 Write-Host ""
 Write-Host "Deploying infrastructure (this may take 5-10 minutes)..." -ForegroundColor Yellow
 
-$bicepFile = Join-Path $PSScriptRoot "main-pilot-delta.bicep"
+$bicepFile = Join-Path $PSScriptRoot "main.bicep"
 
 if (-not (Test-Path $bicepFile)) {
     Write-Error "Bicep file not found: $bicepFile"

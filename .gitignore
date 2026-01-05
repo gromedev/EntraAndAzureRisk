@@ -2,6 +2,7 @@
 /.vscode/
 /.claude
 Test/
+/.Test/
 
 # Ignore local secrets and settings (Crucial for safety)
 local.settings.json

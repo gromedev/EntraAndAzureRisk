@@ -19,10 +19,10 @@ function Get-DynamicProperties {
     } | Where-Object { $_ -notmatch '^_' } | Select-Object -Unique | Sort-Object
     
     # Smart ordering based on data type
-    $priority = if ($dataType -eq "changes") { 
-        @('Category', 'objectId', 'displayName') 
-    } else { 
-        @('objectId', 'displayName') 
+    $priority = if ($dataType -eq "changes") {
+        @('Category', 'displayName', 'objectId')
+    } else {
+        @('objectId', 'displayName')
     }
     
     return ($priority | Where-Object { $_ -in $allProps }) + ($allProps | Where-Object { $_ -notin $priority })
@@ -34,7 +34,32 @@ function Format-DisplayValue {
     
     if ($null -eq $value) { return "<span class='no-data'>null</span>" }
     if ($value -is [bool]) { return $value.ToString() }
-    if ($value -is [array]) { return ($value.Count -eq 0) ? "[]" : ("[" + ($value -join ", ") + "]") }
+
+    # Handle arrays (including arrays of objects)
+    if ($value -is [array]) {
+        if ($value.Count -eq 0) { return "[]" }
+
+        # Check if array contains objects/hashtables
+        $firstItem = $value[0]
+        if ($firstItem -is [System.Collections.IDictionary] -or $firstItem -is [PSCustomObject]) {
+            # Array of objects - format each object
+            $formattedItems = $value | ForEach-Object {
+                $currentObj = $_
+                $objProps = if ($currentObj -is [System.Collections.IDictionary]) { $currentObj.Keys } else { $currentObj.PSObject.Properties.Name }
+                $propPairs = $objProps | ForEach-Object {
+                    $propName = $_
+                    $propValue = if ($currentObj -is [System.Collections.IDictionary]) { $currentObj[$propName] } else { $currentObj.$propName }
+                    $propDisplay = if ($null -eq $propValue) { "null" } else { [System.Web.HttpUtility]::HtmlEncode($propValue.ToString()) }
+                    "<b>$propName</b> $propDisplay"
+                }
+                "<div style='margin:4px 0;padding:4px;background:#f5f5f5;border-radius:3px;'>$($propPairs -join '; ')</div>"
+            }
+            return "<div style='font-size:0.85em;'>$($formattedItems -join '')</div>"
+        } else {
+            # Array of simple values
+            return "[" + ($value -join ", ") + "]"
+        }
+    }
     
     # Handle objects/hashtables
     if ($value -is [System.Collections.IDictionary] -or $value -is [PSCustomObject]) {

@@ -254,11 +254,6 @@ resource cosmosContainerSnapshots 'Microsoft.DocumentDB/databaseAccounts/sqlData
   }
 }
 
-// NOTE: groups_raw and group_changes containers already exist
-// They were created manually and have TTL configured via Azure CLI
-// Container 4: groups_raw - Current state with soft delete support (defaultTtl: -1)
-// Container 5: group_changes - Audit trail (defaultTtl: -1)
-
 // COSMOS DB AUDIT PROTECTION
 
 // Diagnostic settings - Log ALL Cosmos DB operations to Log Analytics
