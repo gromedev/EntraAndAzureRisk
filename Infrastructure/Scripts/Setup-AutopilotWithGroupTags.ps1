@@ -138,6 +138,156 @@ function Connect-ToGraph {
     }
 }
 
+function Set-IntuneMdmMamScope {
+    <#
+    .SYNOPSIS
+        Configures MDM and MAM User Scope for Windows Automatic Enrollment (required for Autopilot).
+    .DESCRIPTION
+        Sets the MDM User Scope and optionally adds specific groups when scope is "Some".
+        This is a prerequisite for Windows Autopilot to function properly.
+    #>
+    param(
+        [ValidateSet("All", "Some", "None")]
+        [string]$MdmScope = "Some",
+
+        [ValidateSet("All", "Some", "None")]
+        [string]$MamScope = "None",
+
+        [string[]]$IncludedGroupIds,
+
+        [switch]$WhatIf
+    )
+
+    Write-Host "Configuring MDM/MAM User Scope..." -ForegroundColor Yellow
+
+    # Microsoft Intune MDM application ID (well-known)
+    $IntuneMdmAppId = "0000000a-0000-0000-c000-000000000000"
+
+    try {
+        # Get current MDM policy
+        $mdmPolicy = Invoke-MgGraphRequest -Method GET `
+            -Uri "https://graph.microsoft.com/beta/policies/mobileDeviceManagementPolicies/$IntuneMdmAppId" `
+            -ErrorAction Stop
+
+        Write-Host "  Current MDM scope: $($mdmPolicy.appliesTo)" -ForegroundColor Gray
+
+        # Map scope string to API value
+        $appliesToValue = switch ($MdmScope) {
+            "All"  { "all" }
+            "Some" { "selected" }
+            "None" { "none" }
+        }
+
+        # Update scope if needed
+        if ($mdmPolicy.appliesTo -ne $appliesToValue) {
+            if ($WhatIf) {
+                Write-Host "  [WhatIf] Would set MDM scope to '$MdmScope'" -ForegroundColor Magenta
+            }
+            else {
+                $updateBody = @{ appliesTo = $appliesToValue }
+
+                Invoke-MgGraphRequest -Method PATCH `
+                    -Uri "https://graph.microsoft.com/beta/policies/mobileDeviceManagementPolicies/$IntuneMdmAppId" `
+                    -Body ($updateBody | ConvertTo-Json) `
+                    -ContentType "application/json" | Out-Null
+
+                Write-Host "  MDM User Scope set to '$MdmScope'" -ForegroundColor Green
+            }
+        }
+        else {
+            Write-Host "  MDM scope already set to '$MdmScope'" -ForegroundColor Cyan
+        }
+
+        # Add groups to MDM scope if "Some" is selected and groups are provided
+        if ($MdmScope -eq "Some" -and $IncludedGroupIds -and $IncludedGroupIds.Count -gt 0) {
+            Write-Host "  Adding groups to MDM scope..." -ForegroundColor Yellow
+
+            foreach ($GroupId in $IncludedGroupIds) {
+                if ($WhatIf) {
+                    Write-Host "    [WhatIf] Would add group $GroupId to MDM scope" -ForegroundColor Magenta
+                    continue
+                }
+
+                try {
+                    # Check if group is already included
+                    $existingGroups = Invoke-MgGraphRequest -Method GET `
+                        -Uri "https://graph.microsoft.com/beta/policies/mobileDeviceManagementPolicies/$IntuneMdmAppId/includedGroups" `
+                        -ErrorAction SilentlyContinue
+
+                    $alreadyIncluded = $existingGroups.value | Where-Object { $_.id -eq $GroupId }
+
+                    if ($alreadyIncluded) {
+                        Write-Host "    Group $GroupId already in MDM scope" -ForegroundColor Cyan
+                    }
+                    else {
+                        # Add group to MDM policy
+                        $addGroupBody = @{
+                            "@odata.id" = "https://graph.microsoft.com/beta/groups/$GroupId"
+                        }
+
+                        Invoke-MgGraphRequest -Method POST `
+                            -Uri "https://graph.microsoft.com/beta/policies/mobileDeviceManagementPolicies/$IntuneMdmAppId/includedGroups/`$ref" `
+                            -Body ($addGroupBody | ConvertTo-Json) `
+                            -ContentType "application/json" | Out-Null
+
+                        Write-Host "    Added group $GroupId to MDM scope" -ForegroundColor Green
+                    }
+                }
+                catch {
+                    Write-Warning "    Failed to add group $GroupId to MDM scope: $($_.Exception.Message)"
+                }
+            }
+        }
+    }
+    catch {
+        if ($_.Exception.Message -match "not found|404") {
+            Write-Warning "  MDM policy not found. Intune may not be configured in this tenant."
+            Write-Host "  Please configure MDM manually:" -ForegroundColor Yellow
+            Write-Host "    1. Go to Entra Admin Center > Mobility (MDM and MAM)" -ForegroundColor Gray
+            Write-Host "    2. Click 'Microsoft Intune'" -ForegroundColor Gray
+            Write-Host "    3. Set MDM User Scope to 'Some' and add your groups" -ForegroundColor Gray
+            return $false
+        }
+        else {
+            Write-Warning "  Failed to configure MDM scope: $($_.Exception.Message)"
+            return $false
+        }
+    }
+
+    # Configure MAM if needed (similar logic)
+    if ($MamScope -ne "None") {
+        try {
+            $mamPolicy = Invoke-MgGraphRequest -Method GET `
+                -Uri "https://graph.microsoft.com/beta/policies/mobileAppManagementPolicies/$IntuneMdmAppId" `
+                -ErrorAction SilentlyContinue
+
+            if ($mamPolicy) {
+                $mamAppliesToValue = switch ($MamScope) {
+                    "All"  { "all" }
+                    "Some" { "selected" }
+                    "None" { "none" }
+                }
+
+                if (-not $WhatIf -and $mamPolicy.appliesTo -ne $mamAppliesToValue) {
+                    $updateBody = @{ appliesTo = $mamAppliesToValue }
+
+                    Invoke-MgGraphRequest -Method PATCH `
+                        -Uri "https://graph.microsoft.com/beta/policies/mobileAppManagementPolicies/$IntuneMdmAppId" `
+                        -Body ($updateBody | ConvertTo-Json) `
+                        -ContentType "application/json" | Out-Null
+
+                    Write-Host "  MAM User Scope set to '$MamScope'" -ForegroundColor Green
+                }
+            }
+        }
+        catch {
+            Write-Verbose "  MAM policy configuration skipped: $($_.Exception.Message)"
+        }
+    }
+
+    return $true
+}
+
 function New-AutopilotDynamicGroup {
     <#
     .SYNOPSIS
@@ -201,6 +351,9 @@ function New-AutopilotDeploymentProfile {
     <#
     .SYNOPSIS
         Creates a Windows Autopilot deployment profile.
+    .DESCRIPTION
+        Creates an Autopilot deployment profile via the Graph API using the format
+        from the WindowsAutoPilotIntune PowerShell module.
     #>
     param(
         [Parameter(Mandatory)]
@@ -215,13 +368,25 @@ function New-AutopilotDeploymentProfile {
     Write-Host "Creating Autopilot deployment profile: $ProfileName" -ForegroundColor Yellow
 
     # Check if profile already exists
-    $ExistingProfile = Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeploymentProfiles" |
-        Select-Object -ExpandProperty value |
-        Where-Object { $_.displayName -eq $ProfileName }
+    try {
+        $ExistingProfiles = Invoke-MgGraphRequest -Method GET -Uri "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeploymentProfiles" -ErrorAction Stop
+        $ExistingProfile = $ExistingProfiles.value | Where-Object { $_.displayName -eq $ProfileName }
 
-    if ($ExistingProfile) {
-        Write-Host "  Profile '$ProfileName' already exists (ID: $($ExistingProfile.id))" -ForegroundColor Cyan
-        return $ExistingProfile
+        if ($ExistingProfile) {
+            Write-Host "  Profile '$ProfileName' already exists (ID: $($ExistingProfile.id))" -ForegroundColor Cyan
+            return $ExistingProfile
+        }
+    }
+    catch {
+        Write-Warning "  Could not query existing profiles. Intune may not be configured in this tenant."
+        Write-Warning "  Error: $($_.Exception.Message)"
+        Write-Host ""
+        Write-Host "  To use Autopilot, ensure:" -ForegroundColor Yellow
+        Write-Host "    1. Intune is licensed and configured in your tenant" -ForegroundColor Gray
+        Write-Host "    2. You have the Intune Administrator or Global Administrator role" -ForegroundColor Gray
+        Write-Host "    3. Windows Autopilot is enabled in Intune" -ForegroundColor Gray
+        Write-Host ""
+        return $null
     }
 
     if ($WhatIf) {
@@ -229,51 +394,41 @@ function New-AutopilotDeploymentProfile {
         return @{ id = "whatif-profile-id"; displayName = $ProfileName }
     }
 
-    # Define the deployment profile settings
-    # Using Azure AD Join with User-driven deployment
-    $ProfileBody = @{
-        "@odata.type"                            = "#microsoft.graph.azureADWindowsAutopilotDeploymentProfile"
-        displayName                              = $ProfileName
-        description                              = "Autopilot deployment profile for Group Tag: $GroupTag"
-        language                                 = "os-default"
-        extractHardwareHash                      = $true
-        deviceNameTemplate                       = "AP-%SERIAL%"
-        deviceType                               = "windowsPc"
-        enableWhiteGlove                         = $true
-        roleScopeTagIds                          = @()
-        hybridAzureADJoinSkipConnectivityCheck   = $false
-        outOfBoxExperienceSettings               = @{
-            "@odata.type"             = "microsoft.graph.outOfBoxExperienceSettings"
-            hidePrivacySettings       = $true
-            hideEULA                  = $true
-            userType                  = "standard"
-            deviceUsageType           = "singleUser"
-            skipKeyboardSelectionPage = $true
-            hideEscapeLink            = $true
-        }
-        enrollmentStatusScreenSettings           = @{
-            hideInstallationProgress                         = $false
-            allowDeviceUseBeforeProfileAndAppInstallComplete = $false
-            blockDeviceSetupRetryByUser                      = $false
-            allowLogCollectionOnInstallFailure               = $true
-            customErrorMessage                               = "An error occurred during setup. Please contact IT support."
-            installProgressTimeoutInMinutes                  = 60
-            allowDeviceUseOnInstallFailure                   = $false
-        }
+    # Define the deployment profile as JSON using the exact format from WindowsAutoPilotIntune module
+    # This format is proven to work with the Graph API
+    $jsonBody = @"
+{
+    "@odata.type": "#microsoft.graph.azureADWindowsAutopilotDeploymentProfile",
+    "displayName": "$ProfileName",
+    "description": "Autopilot deployment profile for Group Tag: $GroupTag",
+    "locale": "",
+    "hardwareHashExtractionEnabled": true,
+    "deviceNameTemplate": "AP-%SERIAL%",
+    "deviceType": "windowsPc",
+    "preprovisioningAllowed": false,
+    "outOfBoxExperienceSetting": {
+        "privacySettingsHidden": true,
+        "eulaHidden": true,
+        "userType": "standard",
+        "deviceUsageType": "singleUser",
+        "keyboardSelectionPageSkipped": true,
+        "escapeLinkHidden": true
     }
+}
+"@
 
     try {
         $NewProfile = Invoke-MgGraphRequest -Method POST `
             -Uri "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeploymentProfiles" `
-            -Body ($ProfileBody | ConvertTo-Json -Depth 10) `
+            -Body $jsonBody `
             -ContentType "application/json"
 
         Write-Host "  Created profile: $ProfileName (ID: $($NewProfile.id))" -ForegroundColor Green
         return $NewProfile
     }
     catch {
-        Write-Error "  Failed to create profile '$ProfileName': $_"
-        throw
+        Write-Warning "  Failed to create profile '$ProfileName': $($_.Exception.Message)"
+        return $null
     }
 }
 
@@ -370,6 +525,34 @@ Write-Host ""
 Write-Host "Processing Group Tags: $($GroupTags -join ', ')" -ForegroundColor Cyan
 Write-Host ""
 
+# STEP 1: Create all dynamic groups first
+Write-Host "Step 1: Creating Autopilot dynamic groups..." -ForegroundColor Cyan
+$CreatedGroups = @{}
+
+foreach ($Tag in $GroupTags) {
+    $Group = New-AutopilotDynamicGroup -GroupTag $Tag -GroupNamePrefix $GroupNamePrefix -WhatIf:$WhatIf
+    if ($Group) {
+        $CreatedGroups[$Tag] = $Group
+    }
+}
+
+Write-Host ""
+
+# STEP 2: Configure MDM/MAM User Scope with the created groups
+Write-Host "Step 2: Configuring MDM User Scope..." -ForegroundColor Cyan
+$GroupIds = $CreatedGroups.Values | ForEach-Object { $_.Id } | Where-Object { $_ -and $_ -ne "whatif-group-id" }
+
+$mdmConfigured = Set-IntuneMdmMamScope -MdmScope "Some" -IncludedGroupIds $GroupIds -WhatIf:$WhatIf
+
+if (-not $mdmConfigured -and -not $WhatIf) {
+    Write-Warning "MDM User Scope could not be configured automatically."
+    Write-Host "Please configure it manually in Entra > Mobility (MDM and MAM)." -ForegroundColor Yellow
+}
+
+Write-Host ""
+
+# STEP 3: Create deployment profiles and assign to groups
+Write-Host "Step 3: Creating deployment profiles and assignments..." -ForegroundColor Cyan
 $Results = @()
 
 foreach ($Tag in $GroupTags) {
@@ -377,14 +560,13 @@ foreach ($Tag in $GroupTags) {
     Write-Host "Processing Group Tag: $Tag" -ForegroundColor White
     Write-Host "----------------------------------------" -ForegroundColor Gray
 
-    # Create dynamic group
-    $Group = New-AutopilotDynamicGroup -GroupTag $Tag -GroupNamePrefix $GroupNamePrefix -WhatIf:$WhatIf
+    $Group = $CreatedGroups[$Tag]
 
     # Create deployment profile
     $ProfileName = "$GroupNamePrefix$Tag-Profile"
     $DeploymentProfile = New-AutopilotDeploymentProfile -ProfileName $ProfileName -GroupTag $Tag -WhatIf:$WhatIf
 
-    # Assign profile to group
+    # Assign profile to group if both exist
     if ($Group -and $DeploymentProfile) {
         Set-AutopilotProfileAssignment `
             -ProfileId $DeploymentProfile.id `
@@ -396,10 +578,10 @@ foreach ($Tag in $GroupTags) {
 
     $Results += [PSCustomObject]@{
         GroupTag    = $Tag
-        GroupName   = $Group.DisplayName
-        GroupId     = $Group.Id
-        ProfileName = $DeploymentProfile.displayName
-        ProfileId   = $DeploymentProfile.id
+        GroupName   = if ($Group) { $Group.DisplayName } else { "N/A" }
+        GroupId     = if ($Group) { $Group.Id } else { "N/A" }
+        ProfileName = if ($DeploymentProfile) { $DeploymentProfile.displayName } else { "FAILED" }
+        ProfileId   = if ($DeploymentProfile) { $DeploymentProfile.id } else { "N/A" }
     }
 
     Write-Host ""

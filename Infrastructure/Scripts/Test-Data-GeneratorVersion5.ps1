@@ -1,17 +1,20 @@
 #Requires -Version 7.0
-# Requires -Modules Microsoft.Graph
+# Requires -Modules Microsoft.Graph, Az.Resources
 
 <#
 .SYNOPSIS
-    Generates test data in an Entra ID tenant for testing data collection scripts
+    Generates comprehensive test data in an Entra ID tenant for testing data collection scripts
 .DESCRIPTION
     This script creates a realistic test environment including:
     - Users with varied attributes, licenses, and sign-in states
     - Nested group hierarchies (security, Microsoft 365, dynamic)
     - Role assignments (direct, group-based, PIM-eligible)
+    - PIM Group memberships with eligibility schedules (NEW in V5)
+    - Conditional Access policies (enabled, disabled, report-only) (NEW in V5)
+    - Azure RBAC role assignments across subscriptions (NEW in V5)
     - Service principals with various permission levels
     - App registrations with delegated and application permissions
-    - Windows Autopilot configuration with Group Tags (NEW in V4)
+    - Windows Autopilot configuration with Group Tags
 
     Run this script multiple times (days apart) to generate historical data
     and test delta detection capabilities.
@@ -23,18 +26,24 @@
     Whether to create nested group hierarchies
 .PARAMETER SetupAutopilot
     Whether to create Autopilot dynamic groups and deployment profiles
+.PARAMETER SetupPimGroups
+    Whether to create PIM-enabled groups with eligibility schedules (NEW in V5)
+.PARAMETER SetupConditionalAccess
+    Whether to create Conditional Access policies (NEW in V5)
+.PARAMETER SetupAzureRbac
+    Whether to create Azure RBAC role assignments (NEW in V5)
 .PARAMETER AutopilotGroupTags
     Array of Autopilot group tags to create (default: @("Standard"))
 .PARAMETER SimulateChanges
     If specified, modifies existing test data to simulate changes over time
 .EXAMPLE
-    .\Test-Data-GeneratorVersion4.ps1 -TenantDomain "contoso.onmicrosoft.com" -UserCount 50
+    .\Test-Data-GeneratorVersion5.ps1 -TenantDomain "contoso.onmicrosoft.com" -UserCount 50
 .EXAMPLE
-    .\Test-Data-GeneratorVersion4.ps1 -TenantDomain "gromedev01.onmicrosoft.com" -UserCount 50 -SetupAutopilot
+    .\Test-Data-GeneratorVersion5.ps1 -TenantDomain "gromedev01.onmicrosoft.com" -SetupPimGroups -SetupConditionalAccess
 .EXAMPLE
-    .\Test-Data-GeneratorVersion4.ps1 -TenantDomain "gromedev01.onmicrosoft.com" -SetupAutopilot -AutopilotGroupTags @("Standard", "Kiosk", "Developer")
+    .\Test-Data-GeneratorVersion5.ps1 -TenantDomain "gromedev01.onmicrosoft.com" -SetupAzureRbac
 .EXAMPLE
-    .\Test-Data-GeneratorVersion4.ps1 -TenantDomain "gromedev01.onmicrosoft.com" -SimulateChanges
+    .\Test-Data-GeneratorVersion5.ps1 -TenantDomain "gromedev01.onmicrosoft.com" -SimulateChanges
 #>
 [CmdletBinding()]
 param(
@@ -50,6 +59,15 @@ param(
 
     [Parameter(Mandatory=$false)]
     [switch]$SetupAutopilot,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$SetupPimGroups,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$SetupConditionalAccess,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$SetupAzureRbac,
 
     [Parameter(Mandatory=$false)]
     [string[]]$AutopilotGroupTags = @("Standard"),
@@ -77,13 +95,22 @@ $script:Config = @{
 }
 
 Write-Host "=========================================="
-Write-Host "Entra ID Test Data Generator v4"
+Write-Host "Entra ID Test Data Generator v5"
 Write-Host "=========================================="
 Write-Host ""
 Write-Host "Target Tenant: $TenantDomain"
 Write-Host "Mode: $(if ($SimulateChanges) { 'Simulate Changes' } else { 'Create New Data' })"
 if ($SetupAutopilot) {
     Write-Host "Autopilot: Enabled (Tags: $($AutopilotGroupTags -join ', '))"
+}
+if ($SetupPimGroups) {
+    Write-Host "PIM Groups: Enabled"
+}
+if ($SetupConditionalAccess) {
+    Write-Host "Conditional Access: Enabled"
+}
+if ($SetupAzureRbac) {
+    Write-Host "Azure RBAC: Enabled"
 }
 Write-Host ""
 
@@ -106,6 +133,20 @@ if ($SetupAutopilot) {
     $requiredScopes += "DeviceManagementServiceConfig.ReadWrite.All"
 }
 
+# Add PIM Group scopes if needed
+if ($SetupPimGroups) {
+    $requiredScopes += @(
+        "PrivilegedAccess.ReadWrite.AzureADGroup",
+        "PrivilegedEligibilitySchedule.ReadWrite.AzureADGroup",
+        "PrivilegedAssignmentSchedule.ReadWrite.AzureADGroup"
+    )
+}
+
+# Add Conditional Access scopes if needed
+if ($SetupConditionalAccess) {
+    $requiredScopes += "Policy.ReadWrite.ConditionalAccess"
+}
+
 try {
     Connect-MgGraph -Scopes $requiredScopes -NoWelcome
     $context = Get-MgContext
@@ -121,6 +162,22 @@ try {
 catch {
     Write-Error "Failed to connect to Microsoft Graph: $_"
     exit 1
+}
+
+# Connect to Azure if RBAC setup is needed
+if ($SetupAzureRbac) {
+    Write-Host "Connecting to Azure..."
+    try {
+        Connect-AzAccount -ErrorAction Stop | Out-Null
+        $azContext = Get-AzContext
+        Write-Host "Connected to Azure subscription: $($azContext.Subscription.Name)"
+        Write-Host ""
+    }
+    catch {
+        Write-Error "Failed to connect to Azure: $_"
+        Write-Warning "Azure RBAC setup will be skipped"
+        $SetupAzureRbac = $false
+    }
 }
 
 #region Helper Functions - Users, Groups, Roles
@@ -418,103 +475,6 @@ function Invoke-SimulateUserLogin {
 
 #region Helper Functions - Autopilot
 
-function Set-IntuneMdmMamScope {
-    <#
-    .SYNOPSIS
-        Configures MDM and MAM User Scope for Windows Automatic Enrollment (required for Autopilot).
-    #>
-    param(
-        [ValidateSet("All", "Some", "None")]
-        [string]$MdmScope = "Some",
-
-        [ValidateSet("All", "Some", "None")]
-        [string]$MamScope = "None",
-
-        [string[]]$IncludedGroupIds
-    )
-
-    Write-Host "  Configuring MDM/MAM User Scope..." -ForegroundColor Yellow
-
-    # Microsoft Intune MDM application ID (well-known)
-    $IntuneMdmAppId = "0000000a-0000-0000-c000-000000000000"
-
-    try {
-        # Get current MDM policy
-        $mdmPolicy = Invoke-MgGraphRequest -Method GET `
-            -Uri "https://graph.microsoft.com/beta/policies/mobileDeviceManagementPolicies/$IntuneMdmAppId" `
-            -ErrorAction Stop
-
-        Write-Host "    Current MDM scope: $($mdmPolicy.appliesTo)" -ForegroundColor Gray
-
-        # Map scope string to API value
-        $appliesToValue = switch ($MdmScope) {
-            "All"  { "all" }
-            "Some" { "selected" }
-            "None" { "none" }
-        }
-
-        if ($mdmPolicy.appliesTo -ne $appliesToValue) {
-            $updateBody = @{ appliesTo = $appliesToValue }
-
-            Invoke-MgGraphRequest -Method PATCH `
-                -Uri "https://graph.microsoft.com/beta/policies/mobileDeviceManagementPolicies/$IntuneMdmAppId" `
-                -Body ($updateBody | ConvertTo-Json) `
-                -ContentType "application/json" | Out-Null
-
-            Write-Host "    MDM User Scope set to '$MdmScope'" -ForegroundColor Green
-        }
-        else {
-            Write-Host "    MDM scope already set to '$MdmScope'" -ForegroundColor Cyan
-        }
-
-        # Add groups to MDM scope if "Some" is selected and groups are provided
-        if ($MdmScope -eq "Some" -and $IncludedGroupIds -and $IncludedGroupIds.Count -gt 0) {
-            Write-Host "    Adding groups to MDM scope..." -ForegroundColor Yellow
-
-            foreach ($GroupId in $IncludedGroupIds) {
-                try {
-                    # Check if group is already included
-                    $existingGroups = Invoke-MgGraphRequest -Method GET `
-                        -Uri "https://graph.microsoft.com/beta/policies/mobileDeviceManagementPolicies/$IntuneMdmAppId/includedGroups" `
-                        -ErrorAction SilentlyContinue
-
-                    $alreadyIncluded = $existingGroups.value | Where-Object { $_.id -eq $GroupId }
-
-                    if ($alreadyIncluded) {
-                        Write-Host "      Group $GroupId already in MDM scope" -ForegroundColor Cyan
-                    }
-                    else {
-                        $addGroupBody = @{
-                            "@odata.id" = "https://graph.microsoft.com/beta/groups/$GroupId"
-                        }
-
-                        Invoke-MgGraphRequest -Method POST `
-                            -Uri "https://graph.microsoft.com/beta/policies/mobileDeviceManagementPolicies/$IntuneMdmAppId/includedGroups/`$ref" `
-                            -Body ($addGroupBody | ConvertTo-Json) `
-                            -ContentType "application/json" | Out-Null
-
-                        Write-Host "      Added group $GroupId to MDM scope" -ForegroundColor Green
-                    }
-                }
-                catch {
-                    Write-Warning "      Failed to add group $GroupId to MDM scope: $($_.Exception.Message)"
-                }
-            }
-        }
-
-        return $true
-    }
-    catch {
-        if ($_.Exception.Message -match "not found|404") {
-            Write-Warning "    MDM policy not found. Configure manually in Entra > Mobility (MDM and MAM)"
-        }
-        else {
-            Write-Warning "    Failed to configure MDM scope: $($_.Exception.Message)"
-        }
-        return $false
-    }
-}
-
 function New-AutopilotDynamicGroup {
     <#
     .SYNOPSIS
@@ -571,9 +531,6 @@ function New-AutopilotDeploymentProfile {
     <#
     .SYNOPSIS
         Creates a Windows Autopilot deployment profile.
-    .DESCRIPTION
-        Creates an Autopilot deployment profile via the Graph API using the format
-        from the WindowsAutoPilotIntune PowerShell module.
     #>
     param(
         [Parameter(Mandatory)]
@@ -595,40 +552,50 @@ function New-AutopilotDeploymentProfile {
         return $ExistingProfile
     }
 
-    # Define the deployment profile as JSON using the exact format from WindowsAutoPilotIntune module
-    # This format is proven to work with the Graph API
-    $jsonBody = @"
-{
-    "@odata.type": "#microsoft.graph.azureADWindowsAutopilotDeploymentProfile",
-    "displayName": "$ProfileName",
-    "description": "Autopilot deployment profile for Group Tag: $GroupTag",
-    "locale": "",
-    "hardwareHashExtractionEnabled": true,
-    "deviceNameTemplate": "AP-%SERIAL%",
-    "deviceType": "windowsPc",
-    "preprovisioningAllowed": false,
-    "outOfBoxExperienceSetting": {
-        "privacySettingsHidden": true,
-        "eulaHidden": true,
-        "userType": "standard",
-        "deviceUsageType": "singleUser",
-        "keyboardSelectionPageSkipped": true,
-        "escapeLinkHidden": true
+    # Define the deployment profile settings
+    # Using Azure AD Join with User-driven deployment
+    $ProfileBody = @{
+        "@odata.type"                            = "#microsoft.graph.azureADWindowsAutopilotDeploymentProfile"
+        displayName                              = $ProfileName
+        description                              = "Autopilot deployment profile for Group Tag: $GroupTag"
+        language                                 = "os-default"
+        extractHardwareHash                      = $true
+        deviceNameTemplate                       = "AP-%SERIAL%"
+        deviceType                               = "windowsPc"
+        enableWhiteGlove                         = $true
+        roleScopeTagIds                          = @()
+        hybridAzureADJoinSkipConnectivityCheck   = $false
+        outOfBoxExperienceSettings               = @{
+            "@odata.type"             = "microsoft.graph.outOfBoxExperienceSettings"
+            hidePrivacySettings       = $true
+            hideEULA                  = $true
+            userType                  = "standard"
+            deviceUsageType           = "singleUser"
+            skipKeyboardSelectionPage = $true
+            hideEscapeLink            = $true
+        }
+        enrollmentStatusScreenSettings           = @{
+            hideInstallationProgress                         = $false
+            allowDeviceUseBeforeProfileAndAppInstallComplete = $false
+            blockDeviceSetupRetryByUser                      = $false
+            allowLogCollectionOnInstallFailure               = $true
+            customErrorMessage                               = "An error occurred during setup. Please contact IT support."
+            installProgressTimeoutInMinutes                  = 60
+            allowDeviceUseOnInstallFailure                   = $false
+        }
     }
-}
-"@
 
     try {
         $NewProfile = Invoke-MgGraphRequest -Method POST `
             -Uri "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeploymentProfiles" `
-            -Body $jsonBody `
+            -Body ($ProfileBody | ConvertTo-Json -Depth 10) `
             -ContentType "application/json"
 
         Write-Host "    Created profile: $ProfileName (ID: $($NewProfile.id))" -ForegroundColor Green
         return $NewProfile
     }
     catch {
-        Write-Warning "    Failed to create profile '$ProfileName': $($_.Exception.Message)"
+        Write-Error "    Failed to create profile '$ProfileName': $_"
         return $null
     }
 }
@@ -684,6 +651,337 @@ function Set-AutopilotProfileAssignment {
     }
     catch {
         Write-Error "    Failed to assign profile: $_"
+    }
+}
+
+#endregion
+
+#region Helper Functions - PIM Groups (NEW in V5)
+
+function New-PimGroupEligibility {
+    <#
+    .SYNOPSIS
+        Creates a PIM eligibility schedule for group membership
+    .DESCRIPTION
+        Makes a user eligible to activate membership in a role-assignable group.
+        The user must then "activate" the membership when they need access.
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [string]$GroupId,
+
+        [Parameter(Mandatory)]
+        [string]$GroupName,
+
+        [Parameter(Mandatory)]
+        [string]$PrincipalId,
+
+        [Parameter(Mandatory)]
+        [string]$PrincipalDisplayName,
+
+        [Parameter(Mandatory=$false)]
+        [ValidateSet("member", "owner")]
+        [string]$AccessId = "member",
+
+        [Parameter(Mandatory=$false)]
+        [string]$Duration = "P365D"
+    )
+
+    Write-Host "  Creating PIM eligibility for $PrincipalDisplayName in $GroupName ($AccessId)" -ForegroundColor Yellow
+
+    # Check if eligibility already exists
+    try {
+        $existing = Invoke-MgGraphRequest -Method GET `
+            -Uri "https://graph.microsoft.com/v1.0/identityGovernance/privilegedAccess/group/eligibilitySchedules?`$filter=groupId eq '$GroupId' and principalId eq '$PrincipalId' and accessId eq '$AccessId'"
+
+        if ($existing.value.Count -gt 0) {
+            Write-Host "    Eligibility already exists" -ForegroundColor Yellow
+            return $existing.value[0]
+        }
+    }
+    catch {
+        # Continue if check fails
+    }
+
+    # Create eligibility schedule request
+    $requestBody = @{
+        accessId = $AccessId
+        principalId = $PrincipalId
+        groupId = $GroupId
+        action = "adminAssign"
+        scheduleInfo = @{
+            startDateTime = (Get-Date).ToUniversalTime().ToString("o")
+            expiration = @{
+                type = "afterDuration"
+                duration = $Duration
+            }
+        }
+        justification = "Test data generation - PIM group eligibility"
+    }
+
+    try {
+        $result = Invoke-MgGraphRequest -Method POST `
+            -Uri "https://graph.microsoft.com/v1.0/identityGovernance/privilegedAccess/group/eligibilityScheduleRequests" `
+            -Body ($requestBody | ConvertTo-Json -Depth 5) `
+            -ContentType "application/json"
+
+        Write-Host "    Created PIM eligibility for $PrincipalDisplayName" -ForegroundColor Green
+        return $result
+    }
+    catch {
+        if ($_.Exception.Message -match "already exists|RoleAssignmentExists") {
+            Write-Host "    Eligibility already exists" -ForegroundColor Yellow
+        }
+        else {
+            Write-Warning "    Failed to create PIM eligibility: $_"
+        }
+        return $null
+    }
+}
+
+function New-PimGroupAssignment {
+    <#
+    .SYNOPSIS
+        Creates a direct (active) PIM assignment for group membership
+    .DESCRIPTION
+        Directly assigns a user as a member of a role-assignable group (active, not eligible).
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [string]$GroupId,
+
+        [Parameter(Mandatory)]
+        [string]$GroupName,
+
+        [Parameter(Mandatory)]
+        [string]$PrincipalId,
+
+        [Parameter(Mandatory)]
+        [string]$PrincipalDisplayName,
+
+        [Parameter(Mandatory=$false)]
+        [ValidateSet("member", "owner")]
+        [string]$AccessId = "member",
+
+        [Parameter(Mandatory=$false)]
+        [string]$Duration = "P365D"
+    )
+
+    Write-Host "  Creating active PIM assignment for $PrincipalDisplayName in $GroupName ($AccessId)" -ForegroundColor Yellow
+
+    # Create assignment schedule request
+    $requestBody = @{
+        accessId = $AccessId
+        principalId = $PrincipalId
+        groupId = $GroupId
+        action = "adminAssign"
+        scheduleInfo = @{
+            startDateTime = (Get-Date).ToUniversalTime().ToString("o")
+            expiration = @{
+                type = "afterDuration"
+                duration = $Duration
+            }
+        }
+        justification = "Test data generation - PIM group assignment"
+    }
+
+    try {
+        $result = Invoke-MgGraphRequest -Method POST `
+            -Uri "https://graph.microsoft.com/v1.0/identityGovernance/privilegedAccess/group/assignmentScheduleRequests" `
+            -Body ($requestBody | ConvertTo-Json -Depth 5) `
+            -ContentType "application/json"
+
+        Write-Host "    Created active assignment for $PrincipalDisplayName" -ForegroundColor Green
+        return $result
+    }
+    catch {
+        if ($_.Exception.Message -match "already exists|RoleAssignmentExists") {
+            Write-Host "    Assignment already exists" -ForegroundColor Yellow
+        }
+        else {
+            Write-Warning "    Failed to create PIM assignment: $_"
+        }
+        return $null
+    }
+}
+
+#endregion
+
+#region Helper Functions - Conditional Access (NEW in V5)
+
+function New-TestConditionalAccessPolicy {
+    <#
+    .SYNOPSIS
+        Creates a test Conditional Access policy
+    .DESCRIPTION
+        Creates CA policies with various configurations for testing data collection
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [string]$DisplayName,
+
+        [Parameter(Mandatory)]
+        [ValidateSet("enabled", "disabled", "enabledForReportingButNotEnforced")]
+        [string]$State,
+
+        [Parameter(Mandatory=$false)]
+        [string[]]$IncludeUsers = @("All"),
+
+        [Parameter(Mandatory=$false)]
+        [string[]]$ExcludeUsers = @(),
+
+        [Parameter(Mandatory=$false)]
+        [string[]]$IncludeApplications = @("All"),
+
+        [Parameter(Mandatory=$false)]
+        [string[]]$GrantControls = @("mfa"),
+
+        [Parameter(Mandatory=$false)]
+        [string]$Description = "Test CA policy created by data generator"
+    )
+
+    Write-Host "  Creating CA policy: $DisplayName ($State)" -ForegroundColor Yellow
+
+    # Check if policy already exists
+    try {
+        $existing = Invoke-MgGraphRequest -Method GET `
+            -Uri "https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies?`$filter=displayName eq '$DisplayName'"
+
+        if ($existing.value.Count -gt 0) {
+            Write-Host "    Policy already exists: $DisplayName" -ForegroundColor Yellow
+            return $existing.value[0]
+        }
+    }
+    catch {
+        # Continue if check fails
+    }
+
+    $policyBody = @{
+        displayName = $DisplayName
+        state = $State
+        conditions = @{
+            users = @{
+                includeUsers = $IncludeUsers
+                excludeUsers = $ExcludeUsers
+            }
+            applications = @{
+                includeApplications = $IncludeApplications
+            }
+            clientAppTypes = @("all")
+        }
+        grantControls = @{
+            operator = "OR"
+            builtInControls = $GrantControls
+        }
+    }
+
+    try {
+        $result = Invoke-MgGraphRequest -Method POST `
+            -Uri "https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies" `
+            -Body ($policyBody | ConvertTo-Json -Depth 10) `
+            -ContentType "application/json"
+
+        Write-Host "    Created CA policy: $DisplayName (ID: $($result.id))" -ForegroundColor Green
+        return $result
+    }
+    catch {
+        Write-Warning "    Failed to create CA policy: $_"
+        return $null
+    }
+}
+
+#endregion
+
+#region Helper Functions - Azure RBAC (NEW in V5)
+
+function New-TestAzureRbacAssignment {
+    <#
+    .SYNOPSIS
+        Creates an Azure RBAC role assignment
+    .DESCRIPTION
+        Assigns Azure roles to users/groups/service principals at subscription or resource group scope
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [string]$PrincipalId,
+
+        [Parameter(Mandatory)]
+        [string]$RoleDefinitionName,
+
+        [Parameter(Mandatory=$false)]
+        [string]$Scope,
+
+        [Parameter(Mandatory=$false)]
+        [string]$Description = "Test RBAC assignment"
+    )
+
+    Write-Host "  Creating Azure RBAC assignment: $RoleDefinitionName" -ForegroundColor Yellow
+
+    # If no scope provided, use current subscription
+    if (-not $Scope) {
+        $azContext = Get-AzContext
+        $Scope = "/subscriptions/$($azContext.Subscription.Id)"
+    }
+
+    try {
+        # Check if assignment already exists
+        $existing = Get-AzRoleAssignment -ObjectId $PrincipalId -RoleDefinitionName $RoleDefinitionName -Scope $Scope -ErrorAction SilentlyContinue
+
+        if ($existing) {
+            Write-Host "    Role assignment already exists" -ForegroundColor Yellow
+            return $existing
+        }
+
+        $assignment = New-AzRoleAssignment -ObjectId $PrincipalId `
+                                           -RoleDefinitionName $RoleDefinitionName `
+                                           -Scope $Scope `
+                                           -Description $Description `
+                                           -ErrorAction Stop
+
+        Write-Host "    Created RBAC assignment: $RoleDefinitionName at $Scope" -ForegroundColor Green
+        return $assignment
+    }
+    catch {
+        if ($_.Exception.Message -match "already exists|Conflict") {
+            Write-Host "    Role assignment already exists" -ForegroundColor Yellow
+        }
+        else {
+            Write-Warning "    Failed to create RBAC assignment: $_"
+        }
+        return $null
+    }
+}
+
+function New-TestResourceGroup {
+    <#
+    .SYNOPSIS
+        Creates a test resource group for RBAC testing
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [string]$Name,
+
+        [Parameter(Mandatory=$false)]
+        [string]$Location = "eastus"
+    )
+
+    Write-Host "  Creating resource group: $Name" -ForegroundColor Yellow
+
+    try {
+        $existing = Get-AzResourceGroup -Name $Name -ErrorAction SilentlyContinue
+
+        if ($existing) {
+            Write-Host "    Resource group already exists: $Name" -ForegroundColor Yellow
+            return $existing
+        }
+
+        $rg = New-AzResourceGroup -Name $Name -Location $Location -Tag @{ Purpose = "TestData"; Generator = "V5" }
+        Write-Host "    Created resource group: $Name" -ForegroundColor Green
+        return $rg
+    }
+    catch {
+        Write-Warning "    Failed to create resource group: $_"
+        return $null
     }
 }
 
@@ -946,6 +1244,7 @@ if ($SimulateChanges) {
     Write-Host "Phase 3: Creating groups..."
 
     $groups = @()
+    $pimGroups = @()  # Track role-assignable groups for PIM setup
 
     # Department security groups
     foreach ($dept in $script:Config.Departments) {
@@ -972,9 +1271,35 @@ if ($SimulateChanges) {
 
     if ($adminGroup) {
         $groups += $adminGroup
+        $pimGroups += $adminGroup  # Track for PIM setup
         $itUsers = $createdUsers | Where-Object { $_.Department -eq "IT" } | Select-Object -First 5
         foreach ($user in $itUsers) {
             Add-GroupMember -GroupId $adminGroup.Id -MemberId $user.Id
+        }
+    }
+
+    # Additional PIM-enabled groups (NEW in V5)
+    if ($SetupPimGroups) {
+        $secOpsGroupName = "$($script:Config.TestPrefix)-SecOps-Team"
+        $secOpsGroup = New-TestGroup -Name $secOpsGroupName `
+                                     -Description "Security Operations team with PIM-controlled membership" `
+                                     -SecurityEnabled `
+                                     -RoleAssignable
+
+        if ($secOpsGroup) {
+            $groups += $secOpsGroup
+            $pimGroups += $secOpsGroup
+        }
+
+        $cloudAdminsGroupName = "$($script:Config.TestPrefix)-Cloud-Admins"
+        $cloudAdminsGroup = New-TestGroup -Name $cloudAdminsGroupName `
+                                          -Description "Cloud administrators with PIM-controlled membership" `
+                                          -SecurityEnabled `
+                                          -RoleAssignable
+
+        if ($cloudAdminsGroup) {
+            $groups += $cloudAdminsGroup
+            $pimGroups += $cloudAdminsGroup
         }
     }
 
@@ -1071,48 +1396,25 @@ if ($SimulateChanges) {
     Write-Host "Created $($apps.Count) app registrations"
     Write-Host ""
 
-    # PHASE 7: Windows Autopilot Setup (NEW in V4)
+    # PHASE 7: Windows Autopilot Setup
     if ($SetupAutopilot) {
         Write-Host "Phase 7: Setting up Windows Autopilot with Group Tags..."
         Write-Host "  Group Tags: $($AutopilotGroupTags -join ', ')"
         Write-Host ""
 
-        # Step 1: Create all dynamic groups first
-        Write-Host "  Step 7.1: Creating Autopilot dynamic groups..." -ForegroundColor Cyan
-        $autopilotGroups = @{}
-
-        foreach ($Tag in $AutopilotGroupTags) {
-            $autopilotGroup = New-AutopilotDynamicGroup -GroupTag $Tag -GroupNamePrefix $AutopilotGroupNamePrefix
-            if ($autopilotGroup) {
-                $autopilotGroups[$Tag] = $autopilotGroup
-            }
-        }
-        Write-Host ""
-
-        # Step 2: Configure MDM User Scope with the created groups
-        Write-Host "  Step 7.2: Configuring MDM User Scope with groups..." -ForegroundColor Cyan
-        $groupIds = $autopilotGroups.Values | ForEach-Object { $_.Id } | Where-Object { $_ }
-
-        $mdmConfigured = Set-IntuneMdmMamScope -MdmScope "Some" -IncludedGroupIds $groupIds
-        if (-not $mdmConfigured) {
-            Write-Warning "  MDM User Scope could not be configured. Autopilot may not work until configured manually."
-        }
-        Write-Host ""
-
-        # Step 3: Create deployment profiles and assign to groups
-        Write-Host "  Step 7.3: Creating deployment profiles and assignments..." -ForegroundColor Cyan
         $autopilotResults = @()
 
         foreach ($Tag in $AutopilotGroupTags) {
-            Write-Host "    Processing Group Tag: $Tag" -ForegroundColor Cyan
+            Write-Host "  Processing Group Tag: $Tag" -ForegroundColor Cyan
 
-            $autopilotGroup = $autopilotGroups[$Tag]
+            # Create dynamic group for this tag
+            $autopilotGroup = New-AutopilotDynamicGroup -GroupTag $Tag -GroupNamePrefix $AutopilotGroupNamePrefix
 
             # Create deployment profile for this tag
             $profileName = "$AutopilotGroupNamePrefix$Tag-Profile"
             $deploymentProfile = New-AutopilotDeploymentProfile -ProfileName $profileName -GroupTag $Tag
 
-            # Assign profile to group if both exist
+            # Assign profile to group
             if ($autopilotGroup -and $deploymentProfile) {
                 Set-AutopilotProfileAssignment `
                     -ProfileId $deploymentProfile.id `
@@ -1123,16 +1425,196 @@ if ($SimulateChanges) {
 
             $autopilotResults += [PSCustomObject]@{
                 GroupTag    = $Tag
-                GroupName   = if ($autopilotGroup) { $autopilotGroup.DisplayName } else { "N/A" }
-                GroupId     = if ($autopilotGroup) { $autopilotGroup.Id } else { "N/A" }
-                ProfileName = if ($deploymentProfile) { $deploymentProfile.displayName } else { "FAILED" }
-                ProfileId   = if ($deploymentProfile) { $deploymentProfile.id } else { "N/A" }
+                GroupName   = $autopilotGroup.DisplayName
+                GroupId     = $autopilotGroup.Id
+                ProfileName = $deploymentProfile.displayName
+                ProfileId   = $deploymentProfile.id
             }
 
             Write-Host ""
         }
 
         Write-Host "Autopilot setup complete for $($AutopilotGroupTags.Count) group tag(s)"
+        Write-Host ""
+    }
+
+    # PHASE 8: PIM Group Memberships (NEW in V5)
+    if ($SetupPimGroups -and $pimGroups.Count -gt 0) {
+        Write-Host "Phase 8: Setting up PIM group memberships..."
+        Write-Host "  Found $($pimGroups.Count) role-assignable groups"
+        Write-Host ""
+
+        $pimEligibilityCount = 0
+        $pimAssignmentCount = 0
+
+        foreach ($pimGroup in $pimGroups) {
+            Write-Host "  Processing group: $($pimGroup.DisplayName)" -ForegroundColor Cyan
+
+            # Get some users to make eligible
+            $eligibleUsers = $createdUsers | Where-Object { $_.AccountEnabled } | Get-Random -Count ([Math]::Min(3, $createdUsers.Count))
+
+            foreach ($user in $eligibleUsers) {
+                $result = New-PimGroupEligibility -GroupId $pimGroup.Id `
+                                                   -GroupName $pimGroup.DisplayName `
+                                                   -PrincipalId $user.Id `
+                                                   -PrincipalDisplayName $user.DisplayName `
+                                                   -AccessId "member"
+                if ($result) { $pimEligibilityCount++ }
+            }
+
+            # Get some users to make active members
+            $activeUsers = $createdUsers | Where-Object { $_.AccountEnabled -and $_.Id -notin $eligibleUsers.Id } | Get-Random -Count ([Math]::Min(2, $createdUsers.Count))
+
+            foreach ($user in $activeUsers) {
+                $result = New-PimGroupAssignment -GroupId $pimGroup.Id `
+                                                  -GroupName $pimGroup.DisplayName `
+                                                  -PrincipalId $user.Id `
+                                                  -PrincipalDisplayName $user.DisplayName `
+                                                  -AccessId "member"
+                if ($result) { $pimAssignmentCount++ }
+            }
+
+            # Make one user an eligible owner
+            $ownerUser = $createdUsers | Where-Object { $_.AccountEnabled } | Get-Random
+            if ($ownerUser) {
+                $result = New-PimGroupEligibility -GroupId $pimGroup.Id `
+                                                   -GroupName $pimGroup.DisplayName `
+                                                   -PrincipalId $ownerUser.Id `
+                                                   -PrincipalDisplayName $ownerUser.DisplayName `
+                                                   -AccessId "owner"
+                if ($result) { $pimEligibilityCount++ }
+            }
+
+            Write-Host ""
+        }
+
+        Write-Host "PIM group setup complete:"
+        Write-Host "  Eligibility schedules created: $pimEligibilityCount"
+        Write-Host "  Active assignments created: $pimAssignmentCount"
+        Write-Host ""
+    }
+
+    # PHASE 9: Conditional Access Policies (NEW in V5)
+    if ($SetupConditionalAccess) {
+        Write-Host "Phase 9: Creating Conditional Access policies..."
+        Write-Host ""
+
+        $caPolicies = @()
+
+        # Enabled policy - Require MFA for admins
+        $caAdminMfa = New-TestConditionalAccessPolicy `
+            -DisplayName "$($script:Config.TestPrefix)-CA-Require-MFA-Admins" `
+            -State "enabled" `
+            -IncludeUsers @("All") `
+            -GrantControls @("mfa")
+
+        if ($caAdminMfa) { $caPolicies += $caAdminMfa }
+
+        # Report-only policy - Block legacy auth
+        $caBlockLegacy = New-TestConditionalAccessPolicy `
+            -DisplayName "$($script:Config.TestPrefix)-CA-Block-Legacy-Auth" `
+            -State "enabledForReportingButNotEnforced" `
+            -IncludeUsers @("All") `
+            -GrantControls @("block")
+
+        if ($caBlockLegacy) { $caPolicies += $caBlockLegacy }
+
+        # Disabled policy - Require compliant device
+        $caCompliant = New-TestConditionalAccessPolicy `
+            -DisplayName "$($script:Config.TestPrefix)-CA-Require-Compliant-Device" `
+            -State "disabled" `
+            -IncludeUsers @("All") `
+            -GrantControls @("compliantDevice")
+
+        if ($caCompliant) { $caPolicies += $caCompliant }
+
+        # Report-only policy - Require MFA for risky sign-ins
+        $caRiskySignIn = New-TestConditionalAccessPolicy `
+            -DisplayName "$($script:Config.TestPrefix)-CA-MFA-Risky-SignIn" `
+            -State "enabledForReportingButNotEnforced" `
+            -IncludeUsers @("All") `
+            -GrantControls @("mfa")
+
+        if ($caRiskySignIn) { $caPolicies += $caRiskySignIn }
+
+        Write-Host "Created $($caPolicies.Count) Conditional Access policies"
+        Write-Host ""
+    }
+
+    # PHASE 10: Azure RBAC Assignments (NEW in V5)
+    if ($SetupAzureRbac) {
+        Write-Host "Phase 10: Creating Azure RBAC assignments..."
+        Write-Host ""
+
+        $rbacAssignments = @()
+        $azContext = Get-AzContext
+        $subscriptionScope = "/subscriptions/$($azContext.Subscription.Id)"
+
+        # Create a test resource group
+        $testRgName = "$($script:Config.TestPrefix)-TestRG"
+        $testRg = New-TestResourceGroup -Name $testRgName -Location "eastus"
+
+        if ($testRg) {
+            # Assign Reader role at subscription level to a user
+            $readerUser = $createdUsers | Where-Object { $_.AccountEnabled } | Get-Random
+            if ($readerUser) {
+                $assignment = New-TestAzureRbacAssignment `
+                    -PrincipalId $readerUser.Id `
+                    -RoleDefinitionName "Reader" `
+                    -Scope $subscriptionScope `
+                    -Description "Test Reader assignment for $($readerUser.DisplayName)"
+
+                if ($assignment) { $rbacAssignments += $assignment }
+            }
+
+            # Assign Contributor role at resource group level to a user
+            $contributorUser = $createdUsers | Where-Object { $_.AccountEnabled -and $_.Id -ne $readerUser.Id } | Get-Random
+            if ($contributorUser) {
+                $assignment = New-TestAzureRbacAssignment `
+                    -PrincipalId $contributorUser.Id `
+                    -RoleDefinitionName "Contributor" `
+                    -Scope $testRg.ResourceId `
+                    -Description "Test Contributor assignment for $($contributorUser.DisplayName)"
+
+                if ($assignment) { $rbacAssignments += $assignment }
+            }
+
+            # Assign Storage Blob Data Reader to a group
+            if ($adminGroup) {
+                $assignment = New-TestAzureRbacAssignment `
+                    -PrincipalId $adminGroup.Id `
+                    -RoleDefinitionName "Storage Blob Data Reader" `
+                    -Scope $testRg.ResourceId `
+                    -Description "Test Storage role for IT Admins group"
+
+                if ($assignment) { $rbacAssignments += $assignment }
+            }
+
+            # Assign Security Reader at subscription level to a service principal
+            if ($apps.Count -gt 0 -and $apps[0].ServicePrincipal) {
+                $assignment = New-TestAzureRbacAssignment `
+                    -PrincipalId $apps[0].ServicePrincipal.Id `
+                    -RoleDefinitionName "Security Reader" `
+                    -Scope $subscriptionScope `
+                    -Description "Test Security Reader for $($apps[0].Application.DisplayName)"
+
+                if ($assignment) { $rbacAssignments += $assignment }
+            }
+
+            # Assign Virtual Machine Contributor at RG level to another user
+            $vmContributorUser = $createdUsers | Where-Object { $_.AccountEnabled -and $_.Id -notin @($readerUser.Id, $contributorUser.Id) } | Get-Random
+            if ($vmContributorUser) {
+                $assignment = New-TestAzureRbacAssignment `
+                    -PrincipalId $vmContributorUser.Id `
+                    -RoleDefinitionName "Virtual Machine Contributor" `
+                    -Scope $testRg.ResourceId `
+                    -Description "Test VM Contributor for $($vmContributorUser.DisplayName)"
+
+                if ($assignment) { $rbacAssignments += $assignment }
+            }
+        }
+
+        Write-Host "Created $($rbacAssignments.Count) Azure RBAC assignments"
         Write-Host ""
     }
 
@@ -1146,7 +1628,21 @@ if ($SimulateChanges) {
     Write-Host "  Apps created: $($apps.Count)"
     if ($SetupAutopilot) {
         Write-Host "  Autopilot Group Tags: $($AutopilotGroupTags.Count)"
-        Write-Host ""
+    }
+    if ($SetupPimGroups) {
+        Write-Host "  PIM Groups configured: $($pimGroups.Count)"
+        Write-Host "  PIM Eligibilities: $pimEligibilityCount"
+        Write-Host "  PIM Active Assignments: $pimAssignmentCount"
+    }
+    if ($SetupConditionalAccess) {
+        Write-Host "  Conditional Access policies: $($caPolicies.Count)"
+    }
+    if ($SetupAzureRbac) {
+        Write-Host "  Azure RBAC assignments: $($rbacAssignments.Count)"
+    }
+    Write-Host ""
+
+    if ($SetupAutopilot) {
         Write-Host "Autopilot Next Steps:" -ForegroundColor Cyan
         Write-Host "  1. Register devices with Group Tag using:"
         Write-Host "     - OEM registration"
@@ -1154,10 +1650,37 @@ if ($SimulateChanges) {
         Write-Host "     - PowerShell: Get-WindowsAutopilotInfo.ps1 -Online -GroupTag '$($AutopilotGroupTags[0])'"
         Write-Host "  2. Devices will auto-join the dynamic group: $AutopilotGroupNamePrefix$($AutopilotGroupTags[0])"
         Write-Host "  3. Deployment profile applied during OOBE"
+        Write-Host ""
     }
-    Write-Host ""
+
+    if ($SetupPimGroups) {
+        Write-Host "PIM Groups Next Steps:" -ForegroundColor Cyan
+        Write-Host "  1. Eligible users can activate group membership via PIM"
+        Write-Host "  2. Run data collection to verify PIM groups are captured"
+        Write-Host "  3. Check Dashboard 'PIM Groups' tab for eligibility schedules"
+        Write-Host ""
+    }
+
+    if ($SetupConditionalAccess) {
+        Write-Host "Conditional Access Next Steps:" -ForegroundColor Cyan
+        Write-Host "  1. Review policies in Azure Portal > Security > Conditional Access"
+        Write-Host "  2. Run data collection to verify CA policies are captured"
+        Write-Host "  3. Test policies are in various states (enabled, disabled, report-only)"
+        Write-Host ""
+    }
+
+    if ($SetupAzureRbac) {
+        Write-Host "Azure RBAC Next Steps:" -ForegroundColor Cyan
+        Write-Host "  1. Review assignments in Azure Portal > Subscriptions > IAM"
+        Write-Host "  2. Run data collection to verify RBAC assignments are captured"
+        Write-Host "  3. Check Dashboard 'Azure RBAC' tab for role assignments"
+        Write-Host ""
+    }
 }
 
-Disconnect-MgGraph
+Disconnect-MgGraph -ErrorAction SilentlyContinue
+if ($SetupAzureRbac) {
+    Disconnect-AzAccount -ErrorAction SilentlyContinue | Out-Null
+}
 Write-Host ""
 Write-Host "Script complete!"
