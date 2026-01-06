@@ -30,7 +30,8 @@ try {
             'approximateLastSignInDateTime',
             'manufacturer',
             'model',
-            'profileType'
+            'profileType',
+            'deleted'
         )
         ArrayFields = @()  # Devices have no array fields to compare
         DocumentFields = @{

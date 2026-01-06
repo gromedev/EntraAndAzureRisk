@@ -29,7 +29,8 @@ try {
             'hasTap',
             'hasWindowsHello',
             'methodCount',
-            'methods'
+            'methods',
+            'deleted'
         )
         ArrayFields = @('methods')  # Methods array compared as JSON
         DocumentFields = @{

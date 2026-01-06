@@ -42,7 +42,7 @@
       "databaseName": "EntraData",
       "containerName": "risky_users_raw",
       "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT c.objectId, c.userPrincipalName, c.userDisplayName, c.riskLevel, c.riskState, c.riskDetail, c.riskLastUpdatedDateTime, c.isDeleted, c.isProcessing, c.lastModified FROM c"
+      "sqlQuery": "SELECT c.objectId, c.userPrincipalName, c.userDisplayName, c.riskLevel, c.riskState, c.riskDetail, c.riskLastUpdatedDateTime, c.isDeleted, c.isProcessing, c.lastModified, c.deleted FROM c"
     }
   ]
 }

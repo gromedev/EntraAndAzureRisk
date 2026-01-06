@@ -42,7 +42,7 @@
       "databaseName": "EntraData",
       "containerName": "user_auth_methods_raw",
       "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT c.objectId, c.userPrincipalName, c.perUserMfaState, c.hasAuthenticator, c.hasPhone, c.hasFido2, c.hasEmail, c.hasPassword, c.hasTap, c.hasWindowsHello, c.methodCount, c.methods, c.lastModified FROM c"
+      "sqlQuery": "SELECT c.objectId, c.userPrincipalName, c.perUserMfaState, c.hasAuthenticator, c.hasPhone, c.hasFido2, c.hasEmail, c.hasPassword, c.hasTap, c.hasWindowsHello, c.methodCount, c.methods, c.lastModified, c.deleted FROM c"
     }
   ]
 }

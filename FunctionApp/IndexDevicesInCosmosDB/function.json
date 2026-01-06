@@ -42,7 +42,7 @@
       "databaseName": "EntraData",
       "containerName": "devices_raw",
       "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT c.objectId, c.displayName, c.accountEnabled, c.operatingSystem, c.operatingSystemVersion, c.isCompliant, c.isManaged, c.trustType, c.approximateLastSignInDateTime, c.manufacturer, c.model, c.profileType, c.lastModified FROM c"
+      "sqlQuery": "SELECT c.objectId, c.displayName, c.accountEnabled, c.operatingSystem, c.operatingSystemVersion, c.isCompliant, c.isManaged, c.trustType, c.approximateLastSignInDateTime, c.manufacturer, c.model, c.profileType, c.lastModified, c.deleted FROM c"
     }
   ]
 }

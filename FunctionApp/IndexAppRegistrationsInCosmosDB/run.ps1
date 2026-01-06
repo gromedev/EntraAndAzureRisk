@@ -26,7 +26,8 @@ try {
             'passwordCredentials',
             'keyCredentials',
             'secretCount',
-            'certificateCount'
+            'certificateCount',
+            'deleted'
         )
         ArrayFields = @('passwordCredentials', 'keyCredentials')  # Credentials arrays compared as JSON
         DocumentFields = @{

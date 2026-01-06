@@ -42,7 +42,7 @@
       "databaseName": "EntraData",
       "containerName": "users_raw",
       "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT c.objectId, c.userPrincipalName, c.accountEnabled, c.userType, c.lastSignInDateTime, c.lastModified FROM c"
+      "sqlQuery": "SELECT c.objectId, c.userPrincipalName, c.accountEnabled, c.userType, c.lastSignInDateTime, c.lastModified, c.deleted FROM c"
     }
   ]
 }
