@@ -212,71 +212,88 @@ try {
                               -BlobName $groupsBlobName `
                               -AccessToken $storageToken
 
-        # Collect eligible group memberships
-        $selectFields = "id,principalId,groupId,accessId,memberType,status,scheduleInfo,createdDateTime"
-        $nextLink = "https://graph.microsoft.com/v1.0/identityGovernance/privilegedAccess/group/eligibilitySchedules?`$select=$selectFields&`$expand=group,principal&`$top=$batchSize"
-
-        while ($nextLink) {
+        # First, get all role-assignable groups (these can have PIM enabled)
+        $roleAssignableGroups = @()
+        $groupsLink = "https://graph.microsoft.com/v1.0/groups?`$filter=isAssignableToRole eq true&`$select=id,displayName&`$top=999"
+        while ($groupsLink) {
             try {
-                $response = Invoke-GraphWithRetry -Uri $nextLink -AccessToken $graphToken
-                foreach ($membership in $response.value) {
-                    # Generate objectId from principalId + groupId + accessId + type if API doesn't provide id
-                    $objId = if ($membership.id) { $membership.id } else { "$($membership.principalId)_$($membership.groupId)_$($membership.accessId)_eligible" }
-                    $membershipObj = @{
-                        objectId = $objId
-                        assignmentType = "eligible"
-                        principalId = $membership.principalId ?? ""
-                        groupId = $membership.groupId ?? ""
-                        groupDisplayName = $membership.group.displayName ?? ""
-                        accessId = $membership.accessId ?? ""
-                        principalDisplayName = $membership.principal.displayName ?? ""
-                        principalType = $membership.principal.'@odata.type' -replace '#microsoft\.graph\.', '' ?? ""
-                        memberType = $membership.memberType ?? ""
-                        status = $membership.status ?? ""
-                        scheduleInfo = $membership.scheduleInfo ?? @{}
-                        createdDateTime = $membership.createdDateTime ?? ""
-                        collectionTimestamp = $timestampFormatted
-                    }
-                    [void]$groupsJsonL.AppendLine(($membershipObj | ConvertTo-Json -Compress))
-                    $pimGroupsCount++
-                    $eligibleGroupsCount++
-                }
-                $nextLink = $response.'@odata.nextLink'
+                $groupsResponse = Invoke-GraphWithRetry -Uri $groupsLink -AccessToken $graphToken
+                $roleAssignableGroups += $groupsResponse.value
+                $groupsLink = $groupsResponse.'@odata.nextLink'
             }
-            catch { Write-Warning "Eligible groups batch error: $_"; break }
+            catch { Write-Warning "Failed to get role-assignable groups: $_"; break }
+        }
+        Write-Verbose "Found $($roleAssignableGroups.Count) role-assignable groups to check for PIM"
+
+        # For each group, collect eligible memberships
+        $selectFields = "id,principalId,groupId,accessId,memberType,status,scheduleInfo,createdDateTime"
+        foreach ($group in $roleAssignableGroups) {
+            $nextLink = "https://graph.microsoft.com/v1.0/identityGovernance/privilegedAccess/group/eligibilitySchedules?`$filter=groupId eq '$($group.id)'&`$select=$selectFields&`$expand=group,principal&`$top=$batchSize"
+
+            while ($nextLink) {
+                try {
+                    $response = Invoke-GraphWithRetry -Uri $nextLink -AccessToken $graphToken
+                    foreach ($membership in $response.value) {
+                        # Generate objectId from principalId + groupId + accessId + type if API doesn't provide id
+                        $objId = if ($membership.id) { $membership.id } else { "$($membership.principalId)_$($membership.groupId)_$($membership.accessId)_eligible" }
+                        $membershipObj = @{
+                            objectId = $objId
+                            assignmentType = "eligible"
+                            principalId = $membership.principalId ?? ""
+                            groupId = $membership.groupId ?? ""
+                            groupDisplayName = $membership.group.displayName ?? ""
+                            accessId = $membership.accessId ?? ""
+                            principalDisplayName = $membership.principal.displayName ?? ""
+                            principalType = $membership.principal.'@odata.type' -replace '#microsoft\.graph\.', '' ?? ""
+                            memberType = $membership.memberType ?? ""
+                            status = $membership.status ?? ""
+                            scheduleInfo = $membership.scheduleInfo ?? @{}
+                            createdDateTime = $membership.createdDateTime ?? ""
+                            collectionTimestamp = $timestampFormatted
+                        }
+                        [void]$groupsJsonL.AppendLine(($membershipObj | ConvertTo-Json -Compress))
+                        $pimGroupsCount++
+                        $eligibleGroupsCount++
+                    }
+                    $nextLink = $response.'@odata.nextLink'
+                }
+                catch { Write-Warning "Eligible groups batch error for group $($group.id): $_"; break }
+            }
         }
 
-        # Collect active group memberships
-        $nextLink = "https://graph.microsoft.com/v1.0/identityGovernance/privilegedAccess/group/assignmentSchedules?`$select=$selectFields&`$expand=group,principal&`$top=$batchSize"
+        # For each group, collect active memberships
+        foreach ($group in $roleAssignableGroups) {
+            $nextLink = "https://graph.microsoft.com/v1.0/identityGovernance/privilegedAccess/group/assignmentSchedules?`$filter=groupId eq '$($group.id)'&`$select=$selectFields&`$expand=group,principal&`$top=$batchSize"
 
-        while ($nextLink) {
-            try {
-                $response = Invoke-GraphWithRetry -Uri $nextLink -AccessToken $graphToken
-                foreach ($membership in $response.value) {
-                    # Generate objectId from principalId + groupId + accessId + type if API doesn't provide id
-                    $objId = if ($membership.id) { $membership.id } else { "$($membership.principalId)_$($membership.groupId)_$($membership.accessId)_active" }
-                    $membershipObj = @{
-                        objectId = $objId
-                        assignmentType = "active"
-                        principalId = $membership.principalId ?? ""
-                        groupId = $membership.groupId ?? ""
-                        groupDisplayName = $membership.group.displayName ?? ""
-                        accessId = $membership.accessId ?? ""
-                        principalDisplayName = $membership.principal.displayName ?? ""
-                        principalType = $membership.principal.'@odata.type' -replace '#microsoft\.graph\.', '' ?? ""
-                        memberType = $membership.memberType ?? ""
-                        status = $membership.status ?? ""
-                        scheduleInfo = $membership.scheduleInfo ?? @{}
-                        createdDateTime = $membership.createdDateTime ?? ""
-                        collectionTimestamp = $timestampFormatted
+            while ($nextLink) {
+                try {
+                    $response = Invoke-GraphWithRetry -Uri $nextLink -AccessToken $graphToken
+                    foreach ($membership in $response.value) {
+                        # Generate objectId from principalId + groupId + accessId + type if API doesn't provide id
+                        $objId = if ($membership.id) { $membership.id } else { "$($membership.principalId)_$($membership.groupId)_$($membership.accessId)_active" }
+                        $membershipObj = @{
+                            objectId = $objId
+                            assignmentType = "active"
+                            principalId = $membership.principalId ?? ""
+                            groupId = $membership.groupId ?? ""
+                            groupDisplayName = $membership.group.displayName ?? ""
+                            accessId = $membership.accessId ?? ""
+                            principalDisplayName = $membership.principal.displayName ?? ""
+                            principalType = $membership.principal.'@odata.type' -replace '#microsoft\.graph\.', '' ?? ""
+                            memberType = $membership.memberType ?? ""
+                            status = $membership.status ?? ""
+                            scheduleInfo = $membership.scheduleInfo ?? @{}
+                            createdDateTime = $membership.createdDateTime ?? ""
+                            collectionTimestamp = $timestampFormatted
+                        }
+                        [void]$groupsJsonL.AppendLine(($membershipObj | ConvertTo-Json -Compress))
+                        $pimGroupsCount++
+                        $activeGroupsCount++
                     }
-                    [void]$groupsJsonL.AppendLine(($membershipObj | ConvertTo-Json -Compress))
-                    $pimGroupsCount++
-                    $activeGroupsCount++
+                    $nextLink = $response.'@odata.nextLink'
                 }
-                $nextLink = $response.'@odata.nextLink'
+                catch { Write-Warning "Active groups batch error for group $($group.id): $_"; break }
             }
-            catch { Write-Warning "Active groups batch error: $_"; break }
         }
 
         # Write to blob
