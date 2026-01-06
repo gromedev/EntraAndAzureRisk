@@ -30,7 +30,8 @@ try {
             'isAssignableToRole',
             'visibility',
             'onPremisesSyncEnabled',
-            'mail'
+            'mail',
+            'deleted'
         )
         ArrayFields = @('groupTypes')  # groupTypes is an array field
         DocumentFields = @{

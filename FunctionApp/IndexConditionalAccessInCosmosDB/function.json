@@ -42,7 +42,7 @@
       "databaseName": "EntraData",
       "containerName": "ca_policies_raw",
       "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT c.objectId, c.displayName, c.state, c.conditions, c.grantControls, c.sessionControls, c.lastModified FROM c"
+      "sqlQuery": "SELECT c.objectId, c.displayName, c.state, c.conditions, c.grantControls, c.sessionControls, c.lastModified, c.deleted FROM c"
     }
   ]
 }

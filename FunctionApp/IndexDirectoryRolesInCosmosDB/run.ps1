@@ -25,7 +25,8 @@ try {
             'roleTemplateId',
             'isPrivileged',
             'memberCount',
-            'members'
+            'members',
+            'deleted'
         )
         ArrayFields = @('members')  # Members array compared as JSON
         DocumentFields = @{

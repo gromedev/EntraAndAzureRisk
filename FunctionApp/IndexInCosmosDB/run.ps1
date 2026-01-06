@@ -32,7 +32,8 @@ try {
             'onPremisesSyncEnabled',
             'onPremisesSamAccountName',
             'onPremisesUserPrincipalName',
-            'onPremisesSecurityIdentifier'
+            'onPremisesSecurityIdentifier',
+            'deleted'
         )
         ArrayFields = @()  # Users have no array fields to compare
         DocumentFields = @{

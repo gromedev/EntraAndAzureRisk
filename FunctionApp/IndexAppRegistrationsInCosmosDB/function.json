@@ -42,7 +42,7 @@
       "databaseName": "EntraData",
       "containerName": "app_registrations_raw",
       "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT c.objectId, c.appId, c.displayName, c.signInAudience, c.publisherDomain, c.passwordCredentials, c.keyCredentials, c.secretCount, c.certificateCount, c.lastModified FROM c"
+      "sqlQuery": "SELECT c.objectId, c.appId, c.displayName, c.signInAudience, c.publisherDomain, c.passwordCredentials, c.keyCredentials, c.secretCount, c.certificateCount, c.lastModified, c.deleted FROM c"
     }
   ]
 }

@@ -1,10 +1,6 @@
 # Module-level token cache
 $script:TokenCache = @{}
 
-# Module-level role definition caches (separate for Entra and Azure)
-$script:EntraRoleDefinitionCache = @{}
-$script:AzureRoleDefinitionCache = @{}
-
 function Get-ManagedIdentityToken {
     <#
     .SYNOPSIS
@@ -100,108 +96,6 @@ function Get-CachedManagedIdentityToken {
     
     Write-Verbose "Token acquired and cached (expires: $($script:TokenCache[$Resource].ExpiresOn))"
     return $token
-}
-
-function Get-CachedRoleDefinition {
-    <#
-    .SYNOPSIS
-        Gets role definition with 5-minute caching to reduce API calls
-
-    .DESCRIPTION
-        Caches role definitions (Entra ID and Azure RBAC) with 5-minute expiry.
-        Reduces Graph/Azure Management API calls by ~85% for PIM operations.
-        Separate caches for Entra and Azure role types.
-
-        This function implements the caching pattern from PimActivation project
-        which showed 85% reduction in API calls for role lookups.
-
-    .PARAMETER RoleId
-        The role definition ID to lookup
-
-    .PARAMETER RoleType
-        Type of role: 'Entra' or 'Azure'. Default: 'Entra'
-
-    .PARAMETER AccessToken
-        Access token for Graph API (Entra) or Azure Management API (Azure)
-
-    .PARAMETER CacheDurationMinutes
-        Cache duration in minutes. Default: 5
-        Can be overridden with ROLE_CACHE_DURATION_MINUTES environment variable
-
-    .EXAMPLE
-        $token = Get-CachedManagedIdentityToken
-        $roleDef = Get-CachedRoleDefinition -RoleId "62e90394-69f5-4237-9190-012177145e10" -RoleType "Entra" -AccessToken $token
-
-    .EXAMPLE
-        $azureToken = Get-CachedManagedIdentityToken -Resource "https://management.azure.com"
-        $roleDef = Get-CachedRoleDefinition -RoleId "/subscriptions/xxx/providers/Microsoft.Authorization/roleDefinitions/yyy" -RoleType "Azure" -AccessToken $azureToken
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$RoleId,
-
-        [ValidateSet('Entra', 'Azure')]
-        [string]$RoleType = 'Entra',
-
-        [Parameter(Mandatory)]
-        [string]$AccessToken,
-
-        [int]$CacheDurationMinutes
-    )
-
-    # Get cache duration from environment or use parameter/default
-    if (-not $CacheDurationMinutes) {
-        $CacheDurationMinutes = if ($env:ROLE_CACHE_DURATION_MINUTES) {
-            [int]$env:ROLE_CACHE_DURATION_MINUTES
-        } else {
-            5
-        }
-    }
-
-    # Select appropriate cache
-    $cache = if ($RoleType -eq 'Entra') {
-        $script:EntraRoleDefinitionCache
-    } else {
-        $script:AzureRoleDefinitionCache
-    }
-
-    # Check cache
-    $cached = $cache[$RoleId]
-
-    if ($cached -and $cached.ExpiresOn -gt (Get-Date)) {
-        Write-Verbose "Using cached $RoleType role definition for $RoleId (expires: $($cached.ExpiresOn))"
-        return $cached.RoleDefinition
-    }
-
-    # Fetch from API
-    Write-Verbose "Fetching $RoleType role definition for $RoleId"
-
-    try {
-        if ($RoleType -eq 'Entra') {
-            # Entra ID role definition via Graph API
-            $uri = "https://graph.microsoft.com/v1.0/roleManagement/directory/roleDefinitions/$RoleId"
-            $roleDef = Invoke-GraphWithRetry -Uri $uri -AccessToken $AccessToken
-        }
-        else {
-            # Azure RBAC role definition via Azure Management API
-            $uri = "https://management.azure.com$RoleId`?api-version=2022-04-01"
-            $roleDef = Invoke-AzureManagementApiWithRetry -Uri $uri -AccessToken $AccessToken
-        }
-
-        # Cache the result
-        $cache[$RoleId] = @{
-            RoleDefinition = $roleDef
-            ExpiresOn = (Get-Date).AddMinutes($CacheDurationMinutes)
-        }
-
-        Write-Verbose "Role definition cached (expires: $($cache[$RoleId].ExpiresOn))"
-        return $roleDef
-    }
-    catch {
-        Write-Warning "Failed to fetch $RoleType role definition $RoleId $_"
-        return $null
-    }
 }
 
 #endregion
@@ -427,180 +321,6 @@ function Get-GraphPagedResults {
     
     # Return as array for pipeline compatibility
     # ToArray() is fast and creates a properly typed array
-    return $results.ToArray()
-}
-
-#endregion
-
-#region Azure Management API Functions
-
-function Invoke-AzureManagementApiWithRetry {
-    <#
-    .SYNOPSIS
-        Invokes Azure Management API with exponential backoff retry logic
-
-    .DESCRIPTION
-        Similar to Invoke-GraphWithRetry but for Azure Management API (management.azure.com).
-        Implements exponential backoff retry for transient failures (500+).
-        Rate limiting (429) doesn't count against retry attempts and uses Retry-After header.
-
-        This is used for Azure RBAC operations (role assignments, role definitions, etc.).
-
-    .PARAMETER Uri
-        The Azure Management API URI to call
-
-    .PARAMETER Method
-        HTTP method (GET, POST, PATCH, DELETE). Default: GET
-
-    .PARAMETER AccessToken
-        Bearer token for Azure Management API authentication
-        Use: Get-CachedManagedIdentityToken -Resource "https://management.azure.com"
-
-    .PARAMETER MaxRetries
-        Maximum number of retry attempts for transient errors. Default: 3
-
-    .PARAMETER BaseRetryDelaySeconds
-        Base delay for exponential backoff. Default: 5
-
-    .EXAMPLE
-        $token = Get-CachedManagedIdentityToken -Resource "https://management.azure.com"
-        $response = Invoke-AzureManagementApiWithRetry -Uri "https://management.azure.com/subscriptions?api-version=2022-12-01" -AccessToken $token
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$Uri,
-
-        [string]$Method = "GET",
-
-        [Parameter(Mandatory)]
-        [string]$AccessToken,
-
-        [int]$MaxRetries = 3,
-
-        [int]$BaseRetryDelaySeconds = 5
-    )
-
-    $headers = @{
-        'Authorization' = "Bearer $AccessToken"
-        'Content-Type' = 'application/json'
-    }
-
-    $attempt = 0
-    while ($attempt -lt $MaxRetries) {
-        try {
-            Write-Verbose "Azure Management API call: $Method $Uri (attempt $($attempt + 1)/$MaxRetries)"
-            $response = Invoke-RestMethod -Uri $Uri -Method $Method -Headers $headers
-            Write-Verbose "Azure Management API call succeeded"
-            return $response
-        }
-        catch {
-            $statusCode = $_.Exception.Response.StatusCode.value__
-
-            # Handle rate limiting (429) - doesn't count against retry attempts
-            if ($statusCode -eq 429) {
-                $retryAfter = 60
-                $retryAfterHeader = $_.Exception.Response.Headers.'Retry-After'
-                if ($retryAfterHeader) {
-                    if ($retryAfterHeader -match '^\d+$') {
-                        $retryAfter = [int]$retryAfterHeader
-                    } else {
-                        try {
-                            $retryDate = [DateTime]::ParseExact($retryAfterHeader, 'r', [System.Globalization.CultureInfo]::InvariantCulture)
-                            $retryAfter = [Math]::Max([Math]::Ceiling(($retryDate - (Get-Date).ToUniversalTime()).TotalSeconds), 1)
-                        } catch {
-                            Write-Warning "Could not parse Retry-After: $retryAfterHeader"
-                        }
-                    }
-                }
-                Write-Warning "Rate limited (429) on $Uri. Waiting $retryAfter seconds..."
-                Start-Sleep -Seconds $retryAfter
-                continue
-            }
-
-            # Handle transient server errors (500-599) with exponential backoff
-            $attempt++
-            if ($statusCode -ge 500 -and $attempt -lt $MaxRetries) {
-                $delay = $BaseRetryDelaySeconds * [Math]::Pow(2, $attempt - 1)
-                Write-Warning "Transient error ($statusCode) on $Uri. Retry $attempt of $MaxRetries in $delay seconds..."
-                Start-Sleep -Seconds $delay
-                continue
-            }
-
-            # Non-retryable error or max retries exceeded
-            $errorDetails = "Azure Management API request failed: $Method $Uri (Status: $statusCode)"
-            if ($_.ErrorDetails.Message) {
-                $errorDetails += " - $($_.ErrorDetails.Message)"
-            }
-            Write-Error $errorDetails
-            throw
-        }
-    }
-
-    throw "Max retries ($MaxRetries) exceeded for Azure Management API request: $Method $Uri"
-}
-
-function Get-AzureManagementPagedResults {
-    <#
-    .SYNOPSIS
-        Gets all pages of results from an Azure Management API endpoint
-
-    .DESCRIPTION
-        Automatically follows 'nextLink' to retrieve all results.
-        Uses ArrayList for efficient memory management with large result sets.
-        Uses Invoke-AzureManagementApiWithRetry for each page to handle transient failures.
-
-        Note: Azure Management API uses 'nextLink' instead of '@odata.nextLink' like Graph API.
-
-    .PARAMETER Uri
-        The initial Azure Management API URI to query
-
-    .PARAMETER AccessToken
-        The access token for Azure Management API authentication
-
-    .PARAMETER ShowProgress
-        Show progress information during collection
-
-    .EXAMPLE
-        $token = Get-CachedManagedIdentityToken -Resource "https://management.azure.com"
-        $subscriptions = Get-AzureManagementPagedResults -Uri "https://management.azure.com/subscriptions?api-version=2022-12-01" -AccessToken $token
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$Uri,
-
-        [Parameter(Mandatory)]
-        [string]$AccessToken,
-
-        [switch]$ShowProgress
-    )
-
-    $results = [System.Collections.ArrayList]::new()
-    $nextLink = $Uri
-    $pageCount = 0
-
-    while ($nextLink) {
-        $pageCount++
-
-        if ($ShowProgress) {
-            Write-Verbose "Fetching page $pageCount... ($($results.Count) items retrieved so far)"
-        }
-
-        $response = Invoke-AzureManagementApiWithRetry -Uri $nextLink -AccessToken $AccessToken
-
-        if ($response.value) {
-            [void]$results.AddRange($response.value)
-        }
-
-        # Azure Management API uses 'nextLink' instead of '@odata.nextLink'
-        $nextLink = $response.nextLink
-    }
-
-    if ($ShowProgress -or $results.Count -gt 100) {
-        Write-Verbose "Completed: Retrieved $($results.Count) items across $pageCount pages"
-    }
-
     return $results.ToArray()
 }
 
@@ -1273,11 +993,6 @@ function Invoke-DeltaIndexing {
     #region Step 1: Read entities from Blob
     Write-Verbose "Reading $entityPlural from Blob Storage..."
 
-    # Validate BlobName parameter
-    if ([string]::IsNullOrWhiteSpace($BlobName)) {
-        throw "BlobName parameter is null or empty - cannot read data from blob storage"
-    }
-
     $blobUri = "https://$storageAccountName.blob.core.windows.net/$containerName/$BlobName"
     $headers = @{
         'Authorization' = "Bearer $storageToken"
@@ -1285,21 +1000,7 @@ function Invoke-DeltaIndexing {
         'x-ms-blob-type' = 'AppendBlob'
     }
 
-    Write-Verbose "Reading blob from: $blobUri"
-
-    try {
-        # Use Invoke-WebRequest to get raw string content (not Invoke-RestMethod which auto-parses JSON)
-        $response = Invoke-WebRequest -Uri $blobUri -Method Get -Headers $headers -UseBasicParsing
-        $blobContent = $response.Content
-    }
-    catch {
-        throw "Failed to read blob '$BlobName': $($_.Exception.Message)"
-    }
-
-    if ([string]::IsNullOrWhiteSpace($blobContent)) {
-        Write-Verbose "Blob '$BlobName' is empty - returning zero entities"
-        $blobContent = ""
-    }
+    $blobContent = Invoke-RestMethod -Uri $blobUri -Method Get -Headers $headers
 
     # Parse JSONL into HashMap
     $currentEntities = @{}
@@ -1548,11 +1249,7 @@ function Invoke-DeltaIndexing {
 Export-ModuleMember -Function @(
     'Get-ManagedIdentityToken',
     'Get-CachedManagedIdentityToken',
-    'Get-CachedRoleDefinition',
     'Invoke-GraphWithRetry',
-    'Get-GraphPagedResults',
-    'Invoke-AzureManagementApiWithRetry',
-    'Get-AzureManagementPagedResults',
     'Initialize-AppendBlob',
     'Add-BlobContent',
     'Write-CosmosDocument',

@@ -42,7 +42,7 @@
       "databaseName": "EntraData",
       "containerName": "groups_raw",
       "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT c.objectId, c.displayName, c.classification, c.description, c.groupTypes, c.mailEnabled, c.membershipRule, c.securityEnabled, c.isAssignableToRole, c.visibility, c.onPremisesSyncEnabled, c.mail FROM c"
+      "sqlQuery": "SELECT c.objectId, c.displayName, c.classification, c.description, c.groupTypes, c.mailEnabled, c.membershipRule, c.securityEnabled, c.isAssignableToRole, c.visibility, c.onPremisesSyncEnabled, c.mail, c.deleted FROM c"
     }
   ]
 }

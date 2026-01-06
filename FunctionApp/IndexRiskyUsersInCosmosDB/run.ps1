@@ -27,7 +27,8 @@ try {
             'riskDetail',
             'riskLastUpdatedDateTime',
             'isDeleted',
-            'isProcessing'
+            'isProcessing',
+            'deleted'
         )
         ArrayFields = @()  # Risky users have no array fields to compare
         DocumentFields = @{

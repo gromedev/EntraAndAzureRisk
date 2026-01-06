@@ -24,7 +24,8 @@ try {
             'state',
             'conditions',
             'grantControls',
-            'sessionControls'
+            'sessionControls',
+            'deleted'
         )
         ArrayFields = @('conditions', 'grantControls', 'sessionControls')  # Complex objects compared as JSON
         DocumentFields = @{

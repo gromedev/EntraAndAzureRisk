@@ -42,7 +42,7 @@
       "databaseName": "EntraData",
       "containerName": "directory_roles_raw",
       "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT c.objectId, c.displayName, c.description, c.roleTemplateId, c.isPrivileged, c.memberCount, c.members, c.lastModified FROM c"
+      "sqlQuery": "SELECT c.objectId, c.displayName, c.description, c.roleTemplateId, c.isPrivileged, c.memberCount, c.members, c.lastModified, c.deleted FROM c"
     }
   ]
 }
