@@ -1,0 +1,48 @@
+{
+  "bindings": [
+    {
+      "name": "ActivityInput",
+      "type": "activityTrigger",
+      "direction": "in"
+    },
+    {
+      "name": "azureRbacRawOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "azure_rbac_assignments_raw",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/objectId"
+    },
+    {
+      "name": "azureRbacChangesOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "azure_rbac_assignment_changes",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/snapshotId"
+    },
+    {
+      "name": "snapshotsOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "snapshots",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/id"
+    },
+    {
+      "name": "azureRbacRawIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "azure_rbac_assignments_raw",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT c.objectId, c.principalId, c.principalType, c.roleDefinitionId, c.roleDefinitionName, c.scope, c.scopeType, c.scopeDisplayName, c.condition, c.createdOn, c.updatedOn, c.lastModified, c.deleted FROM c"
+    }
+  ]
+}

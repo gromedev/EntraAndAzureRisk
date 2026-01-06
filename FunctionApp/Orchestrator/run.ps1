@@ -6,34 +6,35 @@
 .DESCRIPTION
     Workflow:
     Phase 1: Entity Collection (Parallel)
-      - CollectEntraUsers, CollectEntraGroups, CollectEntraServicePrincipals (existing)
-      - CollectRiskyUsers, CollectDevices, CollectConditionalAccessPolicies (new)
-      - CollectAppRegistrations, CollectDirectoryRoles (new)
+      - CollectUsersWithAuthMethods (combined - users + auth methods in one pass)
+      - CollectEntraGroups, CollectEntraServicePrincipals
+      - CollectRiskyUsers, CollectDevices, CollectConditionalAccessPolicies
+      - CollectAppRegistrations, CollectDirectoryRoles
+      - CollectPimData (combined - PIM roles + group memberships + role policies)
+      - CollectAzureRbacAssignments
 
-    Phase 2: N+1 Collection (After Users)
-      - CollectUserAuthMethods (requires user list)
-
-    Phase 3: Event Collection (Parallel, time-windowed)
+    Phase 2: Event Collection (Parallel, time-windowed)
       - CollectSignInLogs (failed/risky only)
       - CollectDirectoryAudits
 
-    Phase 4: Entity Indexing (Parallel with retry)
+    Phase 3: Entity Indexing (Parallel with retry)
       - All entity indexers
 
-    Phase 5: Event Indexing (Parallel)
+    Phase 4: Event Indexing (Parallel)
       - SignInLogs, DirectoryAudits (append-only)
 
-    Phase 6: TestAIFoundry - Optional connectivity test
+    Phase 5: TestAIFoundry - Optional connectivity test
 
     Benefits of this flow:
     - Fast parallel collection (streaming to Blob)
+    - Combined collectors reduce orchestration complexity
     - Decoupled indexing (can retry independently)
     - Delta detection reduces Cosmos writes
     - Blob acts as checkpoint/buffer
     - Comprehensive security data coverage
 
     Partial Success Pattern:
-    - CollectEntraUsers fails → STOP (critical, no data)
+    - CollectUsersWithAuthMethods fails → STOP (critical, no data)
     - Other collections fail → CONTINUE (partial data still indexed)
     - Indexing fails → CONTINUE (data safe in Blob, can retry)
     - TestAIFoundry fails → CONTINUE (optional feature)
@@ -55,16 +56,18 @@ try {
     
     #region Step 1: Collect All Entity Data (Parallel)
     Write-Verbose "Step 1: Collecting entity data from Entra ID in parallel..."
-    Write-Verbose "  - Users, Groups, Service Principals (existing)"
-    Write-Verbose "  - Risky Users, Devices, CA Policies, App Registrations, Directory Roles (new)"
+    Write-Verbose "  - Users+AuthMethods (combined), Groups, Service Principals"
+    Write-Verbose "  - Risky Users, Devices, CA Policies, App Registrations, Directory Roles"
+    Write-Verbose "  - PIM Data (combined), Azure RBAC Assignments"
 
     $collectionInput = @{
         Timestamp = $timestamp
     }
 
     # Start all entity collections in parallel
-    $userCollectionTask = Invoke-DurableActivity `
-        -FunctionName 'CollectEntraUsers' `
+    # Combined collector: Users + AuthMethods in one pass (eliminates N+1 blob read)
+    $usersWithAuthTask = Invoke-DurableActivity `
+        -FunctionName 'CollectUsersWithAuthMethods' `
         -Input $collectionInput `
         -NoWait
 
@@ -78,7 +81,6 @@ try {
         -Input $collectionInput `
         -NoWait
 
-    # New entity collections
     $riskyUsersCollectionTask = Invoke-DurableActivity `
         -FunctionName 'CollectRiskyUsers' `
         -Input $collectionInput `
@@ -104,19 +106,33 @@ try {
         -Input $collectionInput `
         -NoWait
 
+    # Combined PIM collector: PIM roles + group memberships + role policies
+    $pimDataCollectionTask = Invoke-DurableActivity `
+        -FunctionName 'CollectPimData' `
+        -Input $collectionInput `
+        -NoWait
+
+    # Azure RBAC assignments
+    $azureRbacCollectionTask = Invoke-DurableActivity `
+        -FunctionName 'CollectAzureRbacAssignments' `
+        -Input $collectionInput `
+        -NoWait
+
     # Wait for all entity collections to complete
     $collectionResults = Wait-ActivityFunction -Task @(
-        $userCollectionTask,
+        $usersWithAuthTask,
         $groupCollectionTask,
         $spCollectionTask,
         $riskyUsersCollectionTask,
         $devicesCollectionTask,
         $caPoliciesCollectionTask,
         $appRegsCollectionTask,
-        $directoryRolesCollectionTask
+        $directoryRolesCollectionTask,
+        $pimDataCollectionTask,
+        $azureRbacCollectionTask
     )
 
-    $collectionResult = $collectionResults[0]           # Users
+    $usersWithAuthResult = $collectionResults[0]        # Users + AuthMethods combined
     $groupCollectionResult = $collectionResults[1]      # Groups
     $spCollectionResult = $collectionResults[2]         # Service Principals
     $riskyUsersResult = $collectionResults[3]           # Risky Users
@@ -124,10 +140,26 @@ try {
     $caPoliciesResult = $collectionResults[5]           # CA Policies
     $appRegsResult = $collectionResults[6]              # App Registrations
     $directoryRolesResult = $collectionResults[7]       # Directory Roles
+    $pimDataResult = $collectionResults[8]              # PIM Data (combined)
+    $azureRbacResult = $collectionResults[9]            # Azure RBAC Assignments
 
-    # Validate users succeeded (fail fast on users, warn on groups/SPs)
-    if (-not $collectionResult.Success) {
-        throw "User collection failed: $($collectionResult.Error)"
+    # Extract user and auth method results from combined collector
+    $collectionResult = @{
+        Success = $usersWithAuthResult.Success
+        UserCount = $usersWithAuthResult.UserCount
+        BlobName = $usersWithAuthResult.UsersBlobName
+        Summary = $usersWithAuthResult.UsersSummary
+    }
+    $authMethodsResult = @{
+        Success = $usersWithAuthResult.Success
+        UserCount = $usersWithAuthResult.AuthMethodsProcessedCount
+        BlobName = $usersWithAuthResult.AuthMethodsBlobName
+        Summary = $usersWithAuthResult.AuthMethodsSummary
+    }
+
+    # Validate users succeeded (fail fast on users, warn on others)
+    if (-not $usersWithAuthResult.Success) {
+        throw "User collection failed: $($usersWithAuthResult.Error)"
     }
 
     if (-not $groupCollectionResult.Success) {
@@ -196,8 +228,21 @@ try {
         $directoryRolesResult = @{ Success = $false; RoleCount = 0; BlobName = $null }
     }
 
+    # Validate PIM Data collection (non-critical)
+    if (-not $pimDataResult.Success) {
+        Write-Warning "PIM Data collection failed: $($pimDataResult.Error)"
+        $pimDataResult = @{ Success = $false; PimRolesCount = 0; PimGroupsCount = 0; RolePoliciesCount = 0; PimRolesBlobName = $null; PimGroupsBlobName = $null; RolePoliciesBlobName = $null }
+    }
+
+    # Validate Azure RBAC collection (non-critical)
+    if (-not $azureRbacResult.Success) {
+        Write-Warning "Azure RBAC Assignments collection failed: $($azureRbacResult.Error)"
+        $azureRbacResult = @{ Success = $false; AssignmentCount = 0; BlobName = $null }
+    }
+
     Write-Verbose "Entity Collection complete:"
     Write-Verbose "  Users: $($collectionResult.UserCount) users"
+    Write-Verbose "  Auth Methods: $($authMethodsResult.UserCount) users processed"
     Write-Verbose "  Groups: $($groupCollectionResult.GroupCount) groups"
     Write-Verbose "  Service Principals: $($spCollectionResult.ServicePrincipalCount) service principals"
     Write-Verbose "  Risky Users: $($riskyUsersResult.RiskyUserCount) risky users"
@@ -205,38 +250,14 @@ try {
     Write-Verbose "  CA Policies: $($caPoliciesResult.PolicyCount) policies"
     Write-Verbose "  App Registrations: $($appRegsResult.AppRegistrationCount) apps"
     Write-Verbose "  Directory Roles: $($directoryRolesResult.RoleCount) roles"
+    Write-Verbose "  PIM Roles: $($pimDataResult.PimRolesCount) roles"
+    Write-Verbose "  PIM Groups: $($pimDataResult.PimGroupsCount) groups"
+    Write-Verbose "  Role Policies: $($pimDataResult.RolePoliciesCount) policies"
+    Write-Verbose "  Azure RBAC: $($azureRbacResult.AssignmentCount) assignments"
     #endregion
 
-    #region Step 2: Collect User Auth Methods (N+1 Pattern - Requires Users)
-    Write-Verbose "Step 2: Collecting user authentication methods (N+1 pattern)..."
-
-    $authMethodsResult = @{ Success = $false; UserCount = 0; BlobName = $null }
-
-    if ($collectionResult.Success -and $collectionResult.BlobName) {
-        $authMethodsInput = @{
-            Timestamp = $timestamp
-            UsersBlobName = $collectionResult.BlobName
-        }
-
-        $authMethodsResult = Invoke-DurableActivity `
-            -FunctionName 'CollectUserAuthMethods' `
-            -Input $authMethodsInput
-
-        if ($authMethodsResult.Success) {
-            Write-Verbose "Auth Methods collection complete: $($authMethodsResult.UserCount) users processed"
-        }
-        else {
-            Write-Warning "Auth Methods collection failed: $($authMethodsResult.Error)"
-            $authMethodsResult = @{ Success = $false; UserCount = 0; BlobName = $null }
-        }
-    }
-    else {
-        Write-Verbose "Skipping Auth Methods collection (user collection required)"
-    }
-    #endregion
-
-    #region Step 3: Collect Event Data (Parallel, Time-Windowed)
-    Write-Verbose "Step 3: Collecting event data (Sign-In Logs, Directory Audits)..."
+    #region Step 2: Collect Event Data (Parallel, Time-Windowed)
+    Write-Verbose "Step 2: Collecting event data (Sign-In Logs, Directory Audits)..."
 
     # Start event collections in parallel
     $signInLogsTask = Invoke-DurableActivity `
@@ -272,8 +293,8 @@ try {
     }
     #endregion
     
-    #region Step 4: Index All Entity Data in Cosmos DB (with Retry)
-    Write-Verbose "Step 4: Indexing all entity data in Cosmos DB with delta detection..."
+    #region Step 3: Index All Entity Data in Cosmos DB (with Retry)
+    Write-Verbose "Step 3: Indexing all entity data in Cosmos DB with delta detection..."
 
     $maxRetries = 3
 
@@ -524,10 +545,74 @@ try {
             Write-Warning "Directory Roles indexing failed: $($directoryRolesIndexResult.Error)"
         }
     }
+
+    # Index PIM Roles
+    $pimRolesIndexResult = @{ Success = $false; TotalPimRoles = 0; NewPimRoles = 0; ModifiedPimRoles = 0; DeletedPimRoles = 0; UnchangedPimRoles = 0; CosmosWriteCount = 0 }
+    if ($pimDataResult.Success -and $pimDataResult.PimRolesBlobName) {
+        $pimRolesIndexInput = @{
+            Timestamp = $timestamp
+            BlobName = $pimDataResult.PimRolesBlobName
+        }
+        $pimRolesIndexResult = Invoke-DurableActivity -FunctionName 'IndexPimRolesInCosmosDB' -Input $pimRolesIndexInput
+        if ($pimRolesIndexResult.Success) {
+            Write-Verbose "PIM Roles indexing complete: $($pimRolesIndexResult.TotalPimRoles) total, $($pimRolesIndexResult.NewPimRoles) new"
+        }
+        else {
+            Write-Warning "PIM Roles indexing failed: $($pimRolesIndexResult.Error)"
+        }
+    }
+
+    # Index PIM Groups
+    $pimGroupsIndexResult = @{ Success = $false; TotalPimGroups = 0; NewPimGroups = 0; ModifiedPimGroups = 0; DeletedPimGroups = 0; UnchangedPimGroups = 0; CosmosWriteCount = 0 }
+    if ($pimDataResult.Success -and $pimDataResult.PimGroupsBlobName) {
+        $pimGroupsIndexInput = @{
+            Timestamp = $timestamp
+            BlobName = $pimDataResult.PimGroupsBlobName
+        }
+        $pimGroupsIndexResult = Invoke-DurableActivity -FunctionName 'IndexPimGroupsInCosmosDB' -Input $pimGroupsIndexInput
+        if ($pimGroupsIndexResult.Success) {
+            Write-Verbose "PIM Groups indexing complete: $($pimGroupsIndexResult.TotalPimGroups) total, $($pimGroupsIndexResult.NewPimGroups) new"
+        }
+        else {
+            Write-Warning "PIM Groups indexing failed: $($pimGroupsIndexResult.Error)"
+        }
+    }
+
+    # Index Role Policies
+    $rolePoliciesIndexResult = @{ Success = $false; TotalRolePolicies = 0; NewRolePolicies = 0; ModifiedRolePolicies = 0; DeletedRolePolicies = 0; UnchangedRolePolicies = 0; CosmosWriteCount = 0 }
+    if ($pimDataResult.Success -and $pimDataResult.RolePoliciesBlobName) {
+        $rolePoliciesIndexInput = @{
+            Timestamp = $timestamp
+            BlobName = $pimDataResult.RolePoliciesBlobName
+        }
+        $rolePoliciesIndexResult = Invoke-DurableActivity -FunctionName 'IndexRolePoliciesInCosmosDB' -Input $rolePoliciesIndexInput
+        if ($rolePoliciesIndexResult.Success) {
+            Write-Verbose "Role Policies indexing complete: $($rolePoliciesIndexResult.TotalRolePolicies) total, $($rolePoliciesIndexResult.NewRolePolicies) new"
+        }
+        else {
+            Write-Warning "Role Policies indexing failed: $($rolePoliciesIndexResult.Error)"
+        }
+    }
+
+    # Index Azure RBAC Assignments
+    $azureRbacIndexResult = @{ Success = $false; TotalRbacAssignments = 0; NewRbacAssignments = 0; ModifiedRbacAssignments = 0; DeletedRbacAssignments = 0; UnchangedRbacAssignments = 0; CosmosWriteCount = 0 }
+    if ($azureRbacResult.Success -and $azureRbacResult.BlobName) {
+        $azureRbacIndexInput = @{
+            Timestamp = $timestamp
+            BlobName = $azureRbacResult.BlobName
+        }
+        $azureRbacIndexResult = Invoke-DurableActivity -FunctionName 'IndexAzureRbacInCosmosDB' -Input $azureRbacIndexInput
+        if ($azureRbacIndexResult.Success) {
+            Write-Verbose "Azure RBAC indexing complete: $($azureRbacIndexResult.TotalRbacAssignments) total, $($azureRbacIndexResult.NewRbacAssignments) new"
+        }
+        else {
+            Write-Warning "Azure RBAC indexing failed: $($azureRbacIndexResult.Error)"
+        }
+    }
     #endregion
 
-    #region Step 5: Index Event Data (Append-only)
-    Write-Verbose "Step 5: Indexing event data (append-only, no delta detection)..."
+    #region Step 4: Index Event Data (Append-only)
+    Write-Verbose "Step 4: Indexing event data (append-only, no delta detection)..."
 
     # Index Sign-In Logs
     $signInLogsIndexResult = @{ Success = $false; TotalSignInLogs = 0; CosmosWriteCount = 0 }
@@ -562,8 +647,8 @@ try {
     }
     #endregion
 
-    #region Step 6: Test AI Foundry (Optional)
-    Write-Verbose "Step 6: Testing AI Foundry connectivity..."
+    #region Step 5: Test AI Foundry (Optional)
+    Write-Verbose "Step 5: Testing AI Foundry connectivity..."
 
     $aiTestInput = @{
         Timestamp = $timestamp
@@ -670,6 +755,28 @@ try {
                 Count = $directoryRolesResult.RoleCount
                 BlobPath = $directoryRolesResult.BlobName
             }
+            # PIM Data (combined collector)
+            PimRoles = @{
+                Success = $pimDataResult.Success
+                Count = $pimDataResult.PimRolesCount
+                BlobPath = $pimDataResult.PimRolesBlobName
+            }
+            PimGroupMemberships = @{
+                Success = $pimDataResult.Success
+                Count = $pimDataResult.PimGroupsCount
+                BlobPath = $pimDataResult.PimGroupsBlobName
+            }
+            RolePolicies = @{
+                Success = $pimDataResult.Success
+                Count = $pimDataResult.RolePoliciesCount
+                BlobPath = $pimDataResult.RolePoliciesBlobName
+            }
+            # Azure RBAC
+            AzureRbacAssignments = @{
+                Success = $azureRbacResult.Success
+                Count = $azureRbacResult.AssignmentCount
+                BlobPath = $azureRbacResult.BlobName
+            }
             # Event data
             SignInLogs = @{
                 Success = $signInLogsResult.Success
@@ -767,6 +874,43 @@ try {
                 Unchanged = $directoryRolesIndexResult.UnchangedDirectoryRoles
                 CosmosWrites = $directoryRolesIndexResult.CosmosWriteCount
             }
+            # PIM data
+            PimRoles = @{
+                Success = $pimRolesIndexResult.Success
+                Total = $pimRolesIndexResult.TotalPimRoles
+                New = $pimRolesIndexResult.NewPimRoles
+                Modified = $pimRolesIndexResult.ModifiedPimRoles
+                Deleted = $pimRolesIndexResult.DeletedPimRoles
+                Unchanged = $pimRolesIndexResult.UnchangedPimRoles
+                CosmosWrites = $pimRolesIndexResult.CosmosWriteCount
+            }
+            PimGroups = @{
+                Success = $pimGroupsIndexResult.Success
+                Total = $pimGroupsIndexResult.TotalPimGroups
+                New = $pimGroupsIndexResult.NewPimGroups
+                Modified = $pimGroupsIndexResult.ModifiedPimGroups
+                Deleted = $pimGroupsIndexResult.DeletedPimGroups
+                Unchanged = $pimGroupsIndexResult.UnchangedPimGroups
+                CosmosWrites = $pimGroupsIndexResult.CosmosWriteCount
+            }
+            RolePolicies = @{
+                Success = $rolePoliciesIndexResult.Success
+                Total = $rolePoliciesIndexResult.TotalRolePolicies
+                New = $rolePoliciesIndexResult.NewRolePolicies
+                Modified = $rolePoliciesIndexResult.ModifiedRolePolicies
+                Deleted = $rolePoliciesIndexResult.DeletedRolePolicies
+                Unchanged = $rolePoliciesIndexResult.UnchangedRolePolicies
+                CosmosWrites = $rolePoliciesIndexResult.CosmosWriteCount
+            }
+            AzureRbacAssignments = @{
+                Success = $azureRbacIndexResult.Success
+                Total = $azureRbacIndexResult.TotalRbacAssignments
+                New = $azureRbacIndexResult.NewRbacAssignments
+                Modified = $azureRbacIndexResult.ModifiedRbacAssignments
+                Deleted = $azureRbacIndexResult.DeletedRbacAssignments
+                Unchanged = $azureRbacIndexResult.UnchangedRbacAssignments
+                CosmosWrites = $azureRbacIndexResult.CosmosWriteCount
+            }
             # Event data (append-only, no delta)
             SignInLogs = @{
                 Success = $signInLogsIndexResult.Success
@@ -789,6 +933,7 @@ try {
         Summary = @{
             # Core entity counts
             TotalUsers = $collectionResult.UserCount
+            TotalUserAuthMethods = $authMethodsResult.UserCount
             TotalGroups = $groupCollectionResult.GroupCount
             TotalServicePrincipals = $spCollectionResult.ServicePrincipalCount
             TotalRiskyUsers = $riskyUsersResult.RiskyUserCount
@@ -796,6 +941,10 @@ try {
             TotalCAPolicies = $caPoliciesResult.PolicyCount
             TotalAppRegistrations = $appRegsResult.AppRegistrationCount
             TotalDirectoryRoles = $directoryRolesResult.RoleCount
+            TotalPimRoles = $pimDataResult.PimRolesCount
+            TotalPimGroupMemberships = $pimDataResult.PimGroupsCount
+            TotalRolePolicies = $pimDataResult.RolePoliciesCount
+            TotalAzureRbacAssignments = $azureRbacResult.AssignmentCount
             TotalSignInLogs = $signInLogsResult.SignInCount
             TotalDirectoryAudits = $directoryAuditsResult.AuditCount
 
@@ -812,6 +961,10 @@ try {
                 $appRegsIndexResult.Success -and
                 $authMethodsIndexResult.Success -and
                 $directoryRolesIndexResult.Success -and
+                $pimRolesIndexResult.Success -and
+                $pimGroupsIndexResult.Success -and
+                $rolePoliciesIndexResult.Success -and
+                $azureRbacIndexResult.Success -and
                 $signInLogsIndexResult.Success -and
                 $directoryAuditsIndexResult.Success
             )
@@ -826,7 +979,11 @@ try {
                 $caPoliciesIndexResult.NewPolicies +
                 $appRegsIndexResult.NewAppRegistrations +
                 $authMethodsIndexResult.NewUserAuthMethods +
-                $directoryRolesIndexResult.NewDirectoryRoles
+                $directoryRolesIndexResult.NewDirectoryRoles +
+                $pimRolesIndexResult.NewPimRoles +
+                $pimGroupsIndexResult.NewPimGroups +
+                $rolePoliciesIndexResult.NewRolePolicies +
+                $azureRbacIndexResult.NewRbacAssignments
             )
             TotalModifiedEntities = (
                 $indexResult.ModifiedUsers +
@@ -837,7 +994,11 @@ try {
                 $caPoliciesIndexResult.ModifiedPolicies +
                 $appRegsIndexResult.ModifiedAppRegistrations +
                 $authMethodsIndexResult.ModifiedUserAuthMethods +
-                $directoryRolesIndexResult.ModifiedDirectoryRoles
+                $directoryRolesIndexResult.ModifiedDirectoryRoles +
+                $pimRolesIndexResult.ModifiedPimRoles +
+                $pimGroupsIndexResult.ModifiedPimGroups +
+                $rolePoliciesIndexResult.ModifiedRolePolicies +
+                $azureRbacIndexResult.ModifiedRbacAssignments
             )
             TotalEventsIndexed = (
                 $signInLogsIndexResult.TotalSignInLogs +

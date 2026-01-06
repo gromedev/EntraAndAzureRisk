@@ -1,20 +1,20 @@
-#region Index Conditional Access Policies in Cosmos DB - Simplified Wrapper
+#region Index PIM Roles in Cosmos DB - Simplified Wrapper
 <#
 .SYNOPSIS
-    Indexes Conditional Access policies in Cosmos DB with delta change detection
+    Indexes PIM role assignments in Cosmos DB with delta change detection
 .DESCRIPTION
     Uses Invoke-DeltaIndexingWithBindings with config from IndexerConfigs.psd1.
     Configuration and binding logic handled by the shared function.
 #>
 #endregion
 
-param($ActivityInput, $caPoliciesRawIn)
+param($ActivityInput, $pimRolesRawIn)
 
 $modulePath = Join-Path $PSScriptRoot "..\Modules\EntraDataCollection"
 Import-Module $modulePath -Force -ErrorAction Stop
 
 # Use shared function with entity type - all config loaded from IndexerConfigs.psd1
 return Invoke-DeltaIndexingWithBindings `
-    -EntityType 'conditionalAccessPolicies' `
+    -EntityType 'pimRoles' `
     -ActivityInput $ActivityInput `
-    -ExistingData $caPoliciesRawIn
+    -ExistingData $pimRolesRawIn

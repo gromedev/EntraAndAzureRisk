@@ -12,6 +12,7 @@
     FunctionsToExport = @(
         'Get-ManagedIdentityToken',
         'Get-CachedManagedIdentityToken',
+        'Get-AzureManagementPagedResults',
         'Invoke-GraphWithRetry',
         'Initialize-AppendBlob',
         'Add-BlobContent',
@@ -19,7 +20,8 @@
         'Write-CosmosBatch',
         'Write-CosmosParallelBatch',
         'Get-CosmosDocuments',
-        'Invoke-DeltaIndexing'
+        'Invoke-DeltaIndexing',
+        'Invoke-DeltaIndexingWithBindings'
     )
     
     CmdletsToExport = @()

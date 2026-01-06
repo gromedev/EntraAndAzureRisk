@@ -25,7 +25,16 @@ param(
     $directoryRoleChangesIn,
     # Event data
     $signInLogsIn,
-    $directoryAuditsIn
+    $directoryAuditsIn,
+    # PIM data
+    $pimRolesRawIn,
+    $pimRoleChangesIn,
+    $pimGroupsRawIn,
+    $pimGroupChangesIn,
+    $rolePoliciesRawIn,
+    $rolePolicyChangesIn,
+    $azureRbacRawIn,
+    $azureRbacChangesIn
 )
 
 Add-Type -AssemblyName System.Web
@@ -59,6 +68,14 @@ function Get-DynamicProperties {
         @('objectId', 'userPrincipalName', 'hasMfa', 'methodTypes')
     } elseif ($dataType -eq "role") {
         @('objectId', 'displayName', 'isPrivileged', 'memberCount')
+    } elseif ($dataType -eq "pimrole") {
+        @('objectId', 'principalDisplayName', 'roleDefinitionName', 'assignmentType', 'memberType', 'status')
+    } elseif ($dataType -eq "pimgroup") {
+        @('objectId', 'principalDisplayName', 'groupDisplayName', 'accessId', 'assignmentType', 'memberType', 'status')
+    } elseif ($dataType -eq "rolepolicy") {
+        @('objectId', 'displayName', 'scopeType', 'scopeId')
+    } elseif ($dataType -eq "rbac") {
+        @('objectId', 'principalType', 'roleDefinitionName', 'scope', 'scopeType')
     } elseif ($dataType -eq "signin") {
         @('id', 'userPrincipalName', 'status', 'riskLevelAggregated', 'createdDateTime')
     } elseif ($dataType -eq "audit") {
@@ -231,6 +248,12 @@ try {
     $authMethodData = Remove-Duplicates ($authMethodsRawIn ?? @())
     $directoryRoleData = Remove-Duplicates ($directoryRolesRawIn ?? @())
 
+    # PIM data
+    $pimRoleData = Remove-Duplicates ($pimRolesRawIn ?? @())
+    $pimGroupData = Remove-Duplicates ($pimGroupsRawIn ?? @())
+    $rolePolicyData = Remove-Duplicates ($rolePoliciesRawIn ?? @())
+    $azureRbacData = Remove-Duplicates ($azureRbacRawIn ?? @())
+
     # Event data (no dedup needed - already unique by ID)
     $signInLogData = $signInLogsIn ?? @()
     $directoryAuditData = $directoryAuditsIn ?? @()
@@ -249,6 +272,10 @@ try {
         @{ Data = $appRegChangesIn; Category = 'AppRegistration' }
         @{ Data = $authMethodChangesIn; Category = 'AuthMethod' }
         @{ Data = $directoryRoleChangesIn; Category = 'DirectoryRole' }
+        @{ Data = $pimRoleChangesIn; Category = 'PimRole' }
+        @{ Data = $pimGroupChangesIn; Category = 'PimGroup' }
+        @{ Data = $rolePolicyChangesIn; Category = 'RolePolicy' }
+        @{ Data = $azureRbacChangesIn; Category = 'AzureRbac' }
     ) | ForEach-Object {
         $category = $_.Category
         if ($_.Data) {
@@ -273,6 +300,10 @@ try {
     $directoryRoleTable = New-TableHtml -data $directoryRoleData -tableId 'dr-table' -dataType 'role'
     $signInLogTable = New-TableHtml -data $signInLogData -tableId 'si-table' -dataType 'signin'
     $directoryAuditTable = New-TableHtml -data $directoryAuditData -tableId 'da-table' -dataType 'audit'
+    $pimRoleTable = New-TableHtml -data $pimRoleData -tableId 'pr-table' -dataType 'pimrole'
+    $pimGroupTable = New-TableHtml -data $pimGroupData -tableId 'pg-table' -dataType 'pimgroup'
+    $rolePolicyTable = New-TableHtml -data $rolePolicyData -tableId 'rp-table' -dataType 'rolepolicy'
+    $azureRbacTable = New-TableHtml -data $azureRbacData -tableId 'rb-table' -dataType 'rbac'
     $changeTable = New-TableHtml -data $allChanges -tableId 'c-table' -dataType 'changes'
 
     # Debug info
@@ -288,6 +319,10 @@ try {
             App Regs: <b>$($appRegData.Count)</b> |
             Auth Methods: <b>$($authMethodData.Count)</b> |
             Roles: <b>$($directoryRoleData.Count)</b> |
+            PIM Roles: <b>$($pimRoleData.Count)</b> |
+            PIM Groups: <b>$($pimGroupData.Count)</b> |
+            Role Policies: <b>$($rolePolicyData.Count)</b> |
+            Azure RBAC: <b>$($azureRbacData.Count)</b> |
             Sign-Ins: <b>$($signInLogData.Count)</b> |
             Audits: <b>$($directoryAuditData.Count)</b> |
             Changes: <b>$($allChanges.Count)</b> |
@@ -363,6 +398,12 @@ try {
             <button class="tab" onclick="showTab('ar-tab', this)">App Registrations ($($appRegData.Count))</button>
             <button class="tab" onclick="showTab('dr-tab', this)">Directory Roles ($($directoryRoleData.Count))</button>
             <span class="tab-divider"></span>
+            <!-- PIM & RBAC -->
+            <button class="tab" onclick="showTab('pr-tab', this)">PIM Roles ($($pimRoleData.Count))</button>
+            <button class="tab" onclick="showTab('pg-tab', this)">PIM Groups ($($pimGroupData.Count))</button>
+            <button class="tab" onclick="showTab('rp-tab', this)">Role Policies ($($rolePolicyData.Count))</button>
+            <button class="tab" onclick="showTab('rb-tab', this)">Azure RBAC ($($azureRbacData.Count))</button>
+            <span class="tab-divider"></span>
             <!-- Events -->
             <button class="tab" onclick="showTab('si-tab', this)">Sign-In Logs ($($signInLogData.Count))</button>
             <button class="tab" onclick="showTab('da-tab', this)">Audit Logs ($($directoryAuditData.Count))</button>
@@ -412,6 +453,26 @@ try {
         <!-- Directory Roles Tab -->
         <div id="dr-tab" class="tab-content">
             <div class="table-container"><table id="dr-table"><thead><tr>$($directoryRoleTable.Headers)</tr></thead><tbody>$($directoryRoleTable.Rows)</tbody></table></div>
+        </div>
+
+        <!-- PIM Roles Tab -->
+        <div id="pr-tab" class="tab-content">
+            <div class="table-container"><table id="pr-table"><thead><tr>$($pimRoleTable.Headers)</tr></thead><tbody>$($pimRoleTable.Rows)</tbody></table></div>
+        </div>
+
+        <!-- PIM Groups Tab -->
+        <div id="pg-tab" class="tab-content">
+            <div class="table-container"><table id="pg-table"><thead><tr>$($pimGroupTable.Headers)</tr></thead><tbody>$($pimGroupTable.Rows)</tbody></table></div>
+        </div>
+
+        <!-- Role Policies Tab -->
+        <div id="rp-tab" class="tab-content">
+            <div class="table-container"><table id="rp-table"><thead><tr>$($rolePolicyTable.Headers)</tr></thead><tbody>$($rolePolicyTable.Rows)</tbody></table></div>
+        </div>
+
+        <!-- Azure RBAC Tab -->
+        <div id="rb-tab" class="tab-content">
+            <div class="table-container"><table id="rb-table"><thead><tr>$($azureRbacTable.Headers)</tr></thead><tbody>$($azureRbacTable.Rows)</tbody></table></div>
         </div>
 
         <!-- Sign-In Logs Tab -->

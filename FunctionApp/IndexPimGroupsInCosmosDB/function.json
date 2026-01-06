@@ -1,0 +1,48 @@
+{
+  "bindings": [
+    {
+      "name": "ActivityInput",
+      "type": "activityTrigger",
+      "direction": "in"
+    },
+    {
+      "name": "pimGroupsRawOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "pim_group_memberships_raw",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/objectId"
+    },
+    {
+      "name": "pimGroupChangesOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "pim_group_membership_changes",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/snapshotId"
+    },
+    {
+      "name": "snapshotsOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "snapshots",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/id"
+    },
+    {
+      "name": "pimGroupsRawIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "pim_group_memberships_raw",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT c.objectId, c.assignmentType, c.principalId, c.groupId, c.groupDisplayName, c.accessId, c.principalDisplayName, c.principalType, c.memberType, c.status, c.scheduleInfo, c.createdDateTime, c.lastModified, c.deleted FROM c"
+    }
+  ]
+}

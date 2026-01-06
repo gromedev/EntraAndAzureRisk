@@ -100,6 +100,81 @@ function Get-CachedManagedIdentityToken {
 
 #endregion
 
+#region Azure Management Functions
+
+function Get-AzureManagementPagedResults {
+    <#
+    .SYNOPSIS
+        Gets paginated results from Azure Management API with automatic nextLink handling
+
+    .DESCRIPTION
+        Handles Azure Management API pagination by following nextLink until all results collected.
+        Includes retry logic for transient failures.
+
+    .PARAMETER Uri
+        The Azure Management API URI to call
+
+    .PARAMETER AccessToken
+        Bearer token for authentication
+
+    .EXAMPLE
+        $subscriptions = Get-AzureManagementPagedResults -Uri "https://management.azure.com/subscriptions?api-version=2022-12-01" -AccessToken $token
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Uri,
+
+        [Parameter(Mandatory)]
+        [string]$AccessToken
+    )
+
+    $allResults = [System.Collections.Generic.List[object]]::new()
+    $nextLink = $Uri
+    $maxRetries = 3
+
+    while ($nextLink) {
+        $retryCount = 0
+        $success = $false
+
+        while (-not $success -and $retryCount -lt $maxRetries) {
+            try {
+                $headers = @{
+                    'Authorization' = "Bearer $AccessToken"
+                    'Content-Type' = 'application/json'
+                }
+
+                $response = Invoke-RestMethod -Uri $nextLink -Method GET -Headers $headers -ErrorAction Stop
+
+                if ($response.value) {
+                    foreach ($item in $response.value) {
+                        $allResults.Add($item)
+                    }
+                }
+
+                $nextLink = $response.nextLink
+                $success = $true
+            }
+            catch {
+                $retryCount++
+                if ($retryCount -lt $maxRetries) {
+                    $delay = [math]::Pow(2, $retryCount) * 2
+                    Write-Warning "Azure Management API call failed, retrying in ${delay}s: $_"
+                    Start-Sleep -Seconds $delay
+                }
+                else {
+                    Write-Error "Azure Management API call failed after $maxRetries retries: $_"
+                    throw
+                }
+            }
+        }
+    }
+
+    return $allResults
+}
+
+#endregion
+
 #region Graph API Functions
 
 function Invoke-GraphWithRetry {
@@ -1244,11 +1319,114 @@ function Invoke-DeltaIndexing {
     }
 }
 
+function Invoke-DeltaIndexingWithBindings {
+    <#
+    .SYNOPSIS
+        Wrapper around Invoke-DeltaIndexing that handles output bindings and config loading
+
+    .DESCRIPTION
+        Loads entity configuration from IndexerConfigs.psd1, calls Invoke-DeltaIndexing,
+        pushes results to Azure Functions output bindings, and returns standardized statistics.
+        This reduces each indexer from ~96 lines to ~15 lines.
+
+    .PARAMETER EntityType
+        The entity type key from IndexerConfigs.psd1 (e.g., 'users', 'groups', 'devices')
+
+    .PARAMETER ActivityInput
+        The activity input containing BlobName and Timestamp
+
+    .PARAMETER ExistingData
+        The existing data from Cosmos DB input binding
+
+    .EXAMPLE
+        $result = Invoke-DeltaIndexingWithBindings -EntityType 'users' -ActivityInput $ActivityInput -ExistingData $usersRawIn
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$EntityType,
+
+        [Parameter(Mandatory = $true)]
+        [hashtable]$ActivityInput,
+
+        [Parameter(Mandatory = $false)]
+        [array]$ExistingData
+    )
+
+    try {
+        # Load configuration from IndexerConfigs.psd1
+        $configPath = Join-Path $PSScriptRoot "IndexerConfigs.psd1"
+
+        if (-not (Test-Path $configPath)) {
+            throw "IndexerConfigs.psd1 not found at: $configPath"
+        }
+
+        $allConfigs = Import-PowerShellDataFile $configPath
+        $config = $allConfigs[$EntityType]
+
+        if (-not $config) {
+            throw "Unknown entity type: $EntityType. Available types: $($allConfigs.Keys -join ', ')"
+        }
+
+        # Call the core delta indexing logic
+        $result = Invoke-DeltaIndexing `
+            -BlobName $ActivityInput.BlobName `
+            -Timestamp $ActivityInput.Timestamp `
+            -ExistingData $ExistingData `
+            -Config $config
+
+        # Push to output bindings using config-defined binding names
+        if ($result.RawDocuments.Count -gt 0) {
+            Push-OutputBinding -Name $config.RawOutBinding -Value $result.RawDocuments
+            Write-Verbose "Queued $($result.RawDocuments.Count) $($config.EntityNamePlural.ToLower()) to raw container"
+        }
+
+        if ($result.ChangeDocuments.Count -gt 0) {
+            Push-OutputBinding -Name $config.ChangesOutBinding -Value $result.ChangeDocuments
+            Write-Verbose "Queued $($result.ChangeDocuments.Count) change events to changes container"
+        }
+
+        Push-OutputBinding -Name 'snapshotsOut' -Value $result.SnapshotDocument
+        Write-Verbose "Queued snapshot summary to snapshots container"
+
+        # Return standardized statistics with entity-specific property names
+        $entityPlural = $config.EntityNamePlural
+        return @{
+            Success = $true
+            "Total$entityPlural" = $result.Statistics.Total
+            "New$entityPlural" = $result.Statistics.New
+            "Modified$entityPlural" = $result.Statistics.Modified
+            "Deleted$entityPlural" = $result.Statistics.Deleted
+            "Unchanged$entityPlural" = $result.Statistics.Unchanged
+            CosmosWriteCount = $result.Statistics.WriteCount
+            SnapshotId = $ActivityInput.Timestamp
+        }
+    }
+    catch {
+        Write-Error "Delta indexing with bindings failed for $EntityType`: $_"
+
+        # Return error result with zero counts
+        $entityPlural = if ($config) { $config.EntityNamePlural } else { 'Entities' }
+        return @{
+            Success = $false
+            Error = $_.Exception.Message
+            "Total$entityPlural" = 0
+            "New$entityPlural" = 0
+            "Modified$entityPlural" = 0
+            "Deleted$entityPlural" = 0
+            "Unchanged$entityPlural" = 0
+            CosmosWriteCount = 0
+            SnapshotId = $ActivityInput.Timestamp
+        }
+    }
+}
+
 #endregion
 
 Export-ModuleMember -Function @(
     'Get-ManagedIdentityToken',
     'Get-CachedManagedIdentityToken',
+    'Get-AzureManagementPagedResults',
     'Invoke-GraphWithRetry',
     'Initialize-AppendBlob',
     'Add-BlobContent',
@@ -1256,5 +1434,6 @@ Export-ModuleMember -Function @(
     'Write-CosmosBatch',
     'Write-CosmosParallelBatch',
     'Get-CosmosDocuments',
-    'Invoke-DeltaIndexing'
+    'Invoke-DeltaIndexing',
+    'Invoke-DeltaIndexingWithBindings'
 )
