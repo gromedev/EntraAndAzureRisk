@@ -4,7 +4,7 @@ An Azure-native solution for monitoring Microsoft Entra ID identity changes. Col
 
 ## Key Features
 
-- **Delta Change Detection**: Only writes changed records to Cosmos DB (~80-95% write reduction)
+- **Delta Change Detection**: Only writes changed records to Cosmos DB
 - **Immutable Audit Trail**: All changes tracked with before/after snapshots
 - **Parallel Processing**: Collects and indexes all entity types simultaneously
 - **Soft Deletes**: Deleted entities preserved for 90 days before automatic cleanup

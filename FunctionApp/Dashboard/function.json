@@ -66,6 +66,132 @@
       "containerName": "service_principal_changes",
       "connection": "CosmosDbConnectionString",
       "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
+    },
+    {
+      "name": "riskyUsersRawIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "risky_users_raw",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+    },
+    {
+      "name": "riskyUserChangesIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "risky_user_changes",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
+    },
+    {
+      "name": "devicesRawIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "devices_raw",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+    },
+    {
+      "name": "deviceChangesIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "device_changes",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
+    },
+    {
+      "name": "caPoliciesRawIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "ca_policies_raw",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+    },
+    {
+      "name": "caPolicyChangesIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "ca_policy_changes",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
+    },
+    {
+      "name": "appRegsRawIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "app_registrations_raw",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+    },
+    {
+      "name": "appRegChangesIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "app_registration_changes",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
+    },
+    {
+      "name": "authMethodsRawIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "user_auth_methods_raw",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+    },
+    {
+      "name": "authMethodChangesIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "user_auth_method_changes",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
+    },
+    {
+      "name": "directoryRolesRawIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "directory_roles_raw",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+    },
+    {
+      "name": "directoryRoleChangesIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "directory_role_changes",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
+    },
+    {
+      "name": "signInLogsIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "signin_logs",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT TOP 200 * FROM c ORDER BY c.createdDateTime DESC"
+    },
+    {
+      "name": "directoryAuditsIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "directory_audits",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT TOP 200 * FROM c ORDER BY c.activityDateTime DESC"
     }
   ]
 }

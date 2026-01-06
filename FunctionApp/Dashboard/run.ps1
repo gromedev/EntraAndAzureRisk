@@ -1,6 +1,32 @@
 using namespace System.Net
 
-param($Request, $TriggerMetadata, $usersRawIn, $groupsRawIn, $servicePrincipalsRawIn, $userChangesIn, $groupChangesIn, $servicePrincipalChangesIn)
+param(
+    $Request,
+    $TriggerMetadata,
+    # Existing entities
+    $usersRawIn,
+    $groupsRawIn,
+    $servicePrincipalsRawIn,
+    $userChangesIn,
+    $groupChangesIn,
+    $servicePrincipalChangesIn,
+    # New entities
+    $riskyUsersRawIn,
+    $riskyUserChangesIn,
+    $devicesRawIn,
+    $deviceChangesIn,
+    $caPoliciesRawIn,
+    $caPolicyChangesIn,
+    $appRegsRawIn,
+    $appRegChangesIn,
+    $authMethodsRawIn,
+    $authMethodChangesIn,
+    $directoryRolesRawIn,
+    $directoryRoleChangesIn,
+    # Event data
+    $signInLogsIn,
+    $directoryAuditsIn
+)
 
 Add-Type -AssemblyName System.Web
 $modulePath = Join-Path $PSScriptRoot "..\Modules\EntraDataCollection\EntraDataCollection.psm1"
@@ -9,29 +35,45 @@ Import-Module $modulePath -Force
 # Helper: Get dynamic properties with smart ordering
 function Get-DynamicProperties {
     param($dataArray, [string]$dataType = "")
-    
+
     if ($null -eq $dataArray -or $dataArray.Count -eq 0) { return @() }
-    
+
     # Collect all unique property names (excluding Cosmos DB internals)
     $allProps = $dataArray | ForEach-Object {
         if ($_ -is [System.Collections.IDictionary]) { $_.Keys }
         else { $_.PSObject.Properties.Name }
     } | Where-Object { $_ -notmatch '^_' } | Select-Object -Unique | Sort-Object
-    
+
     # Smart ordering based on data type
     $priority = if ($dataType -eq "changes") {
         @('Category', 'displayName', 'objectId')
+    } elseif ($dataType -eq "risky") {
+        @('objectId', 'userPrincipalName', 'riskLevel', 'riskState')
+    } elseif ($dataType -eq "device") {
+        @('objectId', 'displayName', 'isCompliant', 'isManaged', 'trustType')
+    } elseif ($dataType -eq "policy") {
+        @('objectId', 'displayName', 'state')
+    } elseif ($dataType -eq "app") {
+        @('objectId', 'displayName', 'appId', 'credentialStatus')
+    } elseif ($dataType -eq "auth") {
+        @('objectId', 'userPrincipalName', 'hasMfa', 'methodTypes')
+    } elseif ($dataType -eq "role") {
+        @('objectId', 'displayName', 'isPrivileged', 'memberCount')
+    } elseif ($dataType -eq "signin") {
+        @('id', 'userPrincipalName', 'status', 'riskLevelAggregated', 'createdDateTime')
+    } elseif ($dataType -eq "audit") {
+        @('id', 'activityDisplayName', 'category', 'initiatedBy', 'activityDateTime')
     } else {
         @('objectId', 'displayName')
     }
-    
+
     return ($priority | Where-Object { $_ -in $allProps }) + ($allProps | Where-Object { $_ -notin $priority })
 }
 
 # Helper: Format value for display
 function Format-DisplayValue {
     param($value, $propertyName)
-    
+
     if ($null -eq $value) { return "<span class='no-data'>null</span>" }
     if ($value -is [bool]) { return $value.ToString() }
 
@@ -60,7 +102,7 @@ function Format-DisplayValue {
             return "[" + ($value -join ", ") + "]"
         }
     }
-    
+
     # Handle objects/hashtables
     if ($value -is [System.Collections.IDictionary] -or $value -is [PSCustomObject]) {
         $props = if ($value -is [System.Collections.IDictionary]) { $value.Keys } else { $value.PSObject.Properties.Name }
@@ -73,13 +115,46 @@ function Format-DisplayValue {
         if ($props.Count -gt $maxDisplay) { $items += "<div style='color:#666;font-style:italic;'>... +$($props.Count - $maxDisplay) more</div>" }
         return "<div style='font-size:0.85em;'>$($items -join '')</div>"
     }
-    
+
     # Handle dates
     if ($propertyName -match 'DateTime|Timestamp') {
         try { return ([DateTime]::Parse($value)).ToString("yyyy-MM-dd HH:mm") }
         catch { }
     }
-    
+
+    # Color-code risk levels
+    if ($propertyName -eq 'riskLevel' -or $propertyName -eq 'riskLevelAggregated') {
+        $color = switch ($value) {
+            'high' { '#d13438' }
+            'medium' { '#ff8c00' }
+            'low' { '#107c10' }
+            default { '#666' }
+        }
+        return "<span style='color:$color;font-weight:bold;'>$value</span>"
+    }
+
+    # Color-code credential status
+    if ($propertyName -eq 'credentialStatus') {
+        $color = switch ($value) {
+            'expired' { '#d13438' }
+            'expiring_soon' { '#ff8c00' }
+            'active' { '#107c10' }
+            default { '#666' }
+        }
+        return "<span style='color:$color;font-weight:bold;'>$value</span>"
+    }
+
+    # Color-code policy state
+    if ($propertyName -eq 'state') {
+        $color = switch ($value) {
+            'enabled' { '#107c10' }
+            'disabled' { '#d13438' }
+            'enabledForReportingButNotEnforced' { '#ff8c00' }
+            default { '#666' }
+        }
+        return "<span style='color:$color;font-weight:bold;'>$value</span>"
+    }
+
     return [System.Web.HttpUtility]::HtmlEncode($value)
 }
 
@@ -90,7 +165,7 @@ function Format-Delta {
     ($delta.PSObject.Properties | ForEach-Object {
         $old = if ($null -eq $_.Value.old) { "null" } else { $_.Value.old }
         $new = if ($null -eq $_.Value.new) { "null" } else { $_.Value.new }
-        "<div class='delta-item'><b>$($_.Name)</b>: <span class='delta-old'>$old</span> → <span class='delta-new'>$new</span></div>"
+        "<div class='delta-item'><b>$($_.Name)</b>: <span class='delta-old'>$old</span> -> <span class='delta-new'>$new</span></div>"
     }) -join ''
 }
 
@@ -98,18 +173,18 @@ function Format-Delta {
 function Remove-Duplicates {
     param($dataArray)
     if ($null -eq $dataArray -or $dataArray.Count -eq 0) { return @() }
-    
+
     $unique = @{}
     foreach ($item in $dataArray) {
         $objectId = if ($item -is [System.Collections.IDictionary]) { $item['objectId'] } else { $item.objectId }
         if ($null -eq $objectId) { continue }
-        
+
         $timestamp = if ($item -is [System.Collections.IDictionary]) {
             if ($item.ContainsKey('_ts')) { $item['_ts'] } else { $item['lastModified'] }
         } else {
             if ($item._ts) { $item._ts } else { $item.lastModified }
         }
-        
+
         if (-not $unique.ContainsKey($objectId) -or $timestamp -gt $unique[$objectId].Timestamp) {
             $unique[$objectId] = @{ Item = $item; Timestamp = $timestamp }
         }
@@ -120,16 +195,16 @@ function Remove-Duplicates {
 # Helper: Build HTML table
 function New-TableHtml {
     param($data, $tableId, $dataType = "")
-    
+
     if ($data.Count -eq 0) { return @{ Headers = ""; Rows = ""; Props = @() } }
-    
+
     $props = Get-DynamicProperties -dataArray $data -dataType $dataType
-    
+
     # Build headers with click handlers
     $headers = (0..($props.Count - 1) | ForEach-Object {
         "<th onclick=`"sortTable($_, '$tableId')`">$($props[$_])</th>"
     }) -join ''
-    
+
     # Build rows
     $rows = ($data | ForEach-Object {
         $item = $_
@@ -140,24 +215,40 @@ function New-TableHtml {
         }) -join ''
         "<tr>$cells</tr>"
     }) -join "`n"
-    
+
     return @{ Headers = $headers; Rows = $rows; Props = $props }
 }
 
 try {
-    # De-duplicate raw data
+    # De-duplicate raw data for all entity types
     $userData = Remove-Duplicates ($usersRawIn ?? @())
     $groupData = Remove-Duplicates ($groupsRawIn ?? @())
     $spData = Remove-Duplicates ($servicePrincipalsRawIn ?? @())
-    
+    $riskyUserData = Remove-Duplicates ($riskyUsersRawIn ?? @())
+    $deviceData = Remove-Duplicates ($devicesRawIn ?? @())
+    $caPolicyData = Remove-Duplicates ($caPoliciesRawIn ?? @())
+    $appRegData = Remove-Duplicates ($appRegsRawIn ?? @())
+    $authMethodData = Remove-Duplicates ($authMethodsRawIn ?? @())
+    $directoryRoleData = Remove-Duplicates ($directoryRolesRawIn ?? @())
+
+    # Event data (no dedup needed - already unique by ID)
+    $signInLogData = $signInLogsIn ?? @()
+    $directoryAuditData = $directoryAuditsIn ?? @()
+
     Write-Verbose "Processed counts - Users: $($userData.Count), Groups: $($groupData.Count), SPs: $($spData.Count)"
-    
-    # Combine changes with category labels
+
+    # Combine all changes with category labels
     $allChanges = @()
     @(
         @{ Data = $userChangesIn; Category = 'User' }
         @{ Data = $groupChangesIn; Category = 'Group' }
         @{ Data = $servicePrincipalChangesIn; Category = 'ServicePrincipal' }
+        @{ Data = $riskyUserChangesIn; Category = 'RiskyUser' }
+        @{ Data = $deviceChangesIn; Category = 'Device' }
+        @{ Data = $caPolicyChangesIn; Category = 'CAPolicy' }
+        @{ Data = $appRegChangesIn; Category = 'AppRegistration' }
+        @{ Data = $authMethodChangesIn; Category = 'AuthMethod' }
+        @{ Data = $directoryRoleChangesIn; Category = 'DirectoryRole' }
     ) | ForEach-Object {
         $category = $_.Category
         if ($_.Data) {
@@ -168,22 +259,38 @@ try {
             }
         }
     }
-    $allChanges = $allChanges | Sort-Object changeTimestamp -Descending
-    
-    # Generate tables
+    $allChanges = $allChanges | Sort-Object changeTimestamp -Descending | Select-Object -First 200
+
+    # Generate tables for all data types
     $userTable = New-TableHtml -data $userData -tableId 'u-table'
     $groupTable = New-TableHtml -data $groupData -tableId 'g-table'
     $spTable = New-TableHtml -data $spData -tableId 'sp-table'
+    $riskyUserTable = New-TableHtml -data $riskyUserData -tableId 'ru-table' -dataType 'risky'
+    $deviceTable = New-TableHtml -data $deviceData -tableId 'd-table' -dataType 'device'
+    $caPolicyTable = New-TableHtml -data $caPolicyData -tableId 'ca-table' -dataType 'policy'
+    $appRegTable = New-TableHtml -data $appRegData -tableId 'ar-table' -dataType 'app'
+    $authMethodTable = New-TableHtml -data $authMethodData -tableId 'am-table' -dataType 'auth'
+    $directoryRoleTable = New-TableHtml -data $directoryRoleData -tableId 'dr-table' -dataType 'role'
+    $signInLogTable = New-TableHtml -data $signInLogData -tableId 'si-table' -dataType 'signin'
+    $directoryAuditTable = New-TableHtml -data $directoryAuditData -tableId 'da-table' -dataType 'audit'
     $changeTable = New-TableHtml -data $allChanges -tableId 'c-table' -dataType 'changes'
-    
+
     # Debug info
     $debugInfo = @"
-        <div style='background:#e8f4fd;padding:10px;margin:10px 0;border-left:4px solid #0078d4;border-radius:5px;font-size:0.9em;'>
+        <div style='background:#e8f4fd;padding:10px;margin:10px 0;border-left:4px solid #0078d4;border-radius:5px;font-size:0.85em;'>
             <b>Data Summary:</b>
-            Users: <b>$($userData.Count)</b> records ($($userTable.Props.Count) properties) |
-            Groups: <b>$($groupData.Count)</b> records ($($groupTable.Props.Count) properties) |
-            Service Principals: <b>$($spData.Count)</b> records ($($spTable.Props.Count) properties) |
-            Changes: <b>$($allChanges.Count)</b> records ($($changeTable.Props.Count) properties) |
+            Users: <b>$($userData.Count)</b> |
+            Groups: <b>$($groupData.Count)</b> |
+            SPs: <b>$($spData.Count)</b> |
+            Risky Users: <b>$($riskyUserData.Count)</b> |
+            Devices: <b>$($deviceData.Count)</b> |
+            CA Policies: <b>$($caPolicyData.Count)</b> |
+            App Regs: <b>$($appRegData.Count)</b> |
+            Auth Methods: <b>$($authMethodData.Count)</b> |
+            Roles: <b>$($directoryRoleData.Count)</b> |
+            Sign-Ins: <b>$($signInLogData.Count)</b> |
+            Audits: <b>$($directoryAuditData.Count)</b> |
+            Changes: <b>$($allChanges.Count)</b> |
             Generated: <b>$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')</b>
         </div>
 "@
@@ -191,21 +298,27 @@ try {
     $html = @"
 <html>
 <head>
+    <title>Entra Risk Dashboard</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; padding: 20px; background: #f4f4f9; }
+        body { font-family: 'Segoe UI', sans-serif; padding: 20px; background: #f4f4f9; margin: 0; }
         .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        .table-container { overflow-x: auto; max-width: 100%; }
+        .table-container { overflow-x: auto; max-width: 100%; max-height: 70vh; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; background: white; white-space: nowrap; }
-        th { background: #0078d4; color: white; padding: 12px; text-align: left; cursor: pointer; position: sticky; top: 0; }
+        th { background: #0078d4; color: white; padding: 12px; text-align: left; cursor: pointer; position: sticky; top: 0; z-index: 1; }
         th:hover { background: #005a9e; }
         td { padding: 10px; border-bottom: 1px solid #eee; font-size: 0.9em; }
-        .tabs { border-bottom: 2px solid #0078d4; margin-bottom: 15px; }
-        .tab { padding: 10px 20px; border: none; background: none; cursor: pointer; font-weight: bold; color: #666; }
+        tr:hover { background: #f5f5f5; }
+        .tabs { border-bottom: 2px solid #0078d4; margin-bottom: 15px; display: flex; flex-wrap: wrap; gap: 5px; }
+        .tab { padding: 8px 15px; border: none; background: none; cursor: pointer; font-weight: bold; color: #666; font-size: 0.9em; }
         .tab.active { color: #0078d4; border-bottom: 3px solid #0078d4; }
+        .tab:hover { color: #0078d4; }
         .tab-content { display: none; } .tab-content.active { display: block; }
         .delta-old { color: #d13438; text-decoration: line-through; } .delta-new { color: #107c10; }
         .delta-item { margin: 2px 0; padding: 3px; background: #f9f9f9; border-radius: 3px; }
         .no-data { color: #999; font-style: italic; }
+        .section-header { color: #0078d4; margin-top: 20px; padding-bottom: 5px; border-bottom: 1px solid #ddd; }
+        .tab-group { display: flex; flex-wrap: wrap; gap: 5px; padding: 5px 0; }
+        .tab-divider { border-left: 2px solid #ddd; margin: 0 10px; height: 30px; }
     </style>
     <script>
         function showTab(id, btn) {
@@ -235,20 +348,83 @@ try {
     $debugInfo
     <div class="card">
         <div class="tabs">
+            <!-- Core Identity -->
             <button class="tab active" onclick="showTab('u-tab', this)">Users ($($userData.Count))</button>
             <button class="tab" onclick="showTab('g-tab', this)">Groups ($($groupData.Count))</button>
             <button class="tab" onclick="showTab('sp-tab', this)">Service Principals ($($spData.Count))</button>
-            <button class="tab" onclick="showTab('c-tab', this)">Recent Changes ($($allChanges.Count))</button>
+            <span class="tab-divider"></span>
+            <!-- Security -->
+            <button class="tab" onclick="showTab('ru-tab', this)">Risky Users ($($riskyUserData.Count))</button>
+            <button class="tab" onclick="showTab('ca-tab', this)">CA Policies ($($caPolicyData.Count))</button>
+            <button class="tab" onclick="showTab('am-tab', this)">Auth Methods ($($authMethodData.Count))</button>
+            <span class="tab-divider"></span>
+            <!-- Infrastructure -->
+            <button class="tab" onclick="showTab('d-tab', this)">Devices ($($deviceData.Count))</button>
+            <button class="tab" onclick="showTab('ar-tab', this)">App Registrations ($($appRegData.Count))</button>
+            <button class="tab" onclick="showTab('dr-tab', this)">Directory Roles ($($directoryRoleData.Count))</button>
+            <span class="tab-divider"></span>
+            <!-- Events -->
+            <button class="tab" onclick="showTab('si-tab', this)">Sign-In Logs ($($signInLogData.Count))</button>
+            <button class="tab" onclick="showTab('da-tab', this)">Audit Logs ($($directoryAuditData.Count))</button>
+            <button class="tab" onclick="showTab('c-tab', this)">Changes ($($allChanges.Count))</button>
         </div>
+
+        <!-- Users Tab -->
         <div id="u-tab" class="tab-content active">
             <div class="table-container"><table id="u-table"><thead><tr>$($userTable.Headers)</tr></thead><tbody>$($userTable.Rows)</tbody></table></div>
         </div>
+
+        <!-- Groups Tab -->
         <div id="g-tab" class="tab-content">
             <div class="table-container"><table id="g-table"><thead><tr>$($groupTable.Headers)</tr></thead><tbody>$($groupTable.Rows)</tbody></table></div>
         </div>
+
+        <!-- Service Principals Tab -->
         <div id="sp-tab" class="tab-content">
             <div class="table-container"><table id="sp-table"><thead><tr>$($spTable.Headers)</tr></thead><tbody>$($spTable.Rows)</tbody></table></div>
         </div>
+
+        <!-- Risky Users Tab -->
+        <div id="ru-tab" class="tab-content">
+            <div class="table-container"><table id="ru-table"><thead><tr>$($riskyUserTable.Headers)</tr></thead><tbody>$($riskyUserTable.Rows)</tbody></table></div>
+        </div>
+
+        <!-- CA Policies Tab -->
+        <div id="ca-tab" class="tab-content">
+            <div class="table-container"><table id="ca-table"><thead><tr>$($caPolicyTable.Headers)</tr></thead><tbody>$($caPolicyTable.Rows)</tbody></table></div>
+        </div>
+
+        <!-- Auth Methods Tab -->
+        <div id="am-tab" class="tab-content">
+            <div class="table-container"><table id="am-table"><thead><tr>$($authMethodTable.Headers)</tr></thead><tbody>$($authMethodTable.Rows)</tbody></table></div>
+        </div>
+
+        <!-- Devices Tab -->
+        <div id="d-tab" class="tab-content">
+            <div class="table-container"><table id="d-table"><thead><tr>$($deviceTable.Headers)</tr></thead><tbody>$($deviceTable.Rows)</tbody></table></div>
+        </div>
+
+        <!-- App Registrations Tab -->
+        <div id="ar-tab" class="tab-content">
+            <div class="table-container"><table id="ar-table"><thead><tr>$($appRegTable.Headers)</tr></thead><tbody>$($appRegTable.Rows)</tbody></table></div>
+        </div>
+
+        <!-- Directory Roles Tab -->
+        <div id="dr-tab" class="tab-content">
+            <div class="table-container"><table id="dr-table"><thead><tr>$($directoryRoleTable.Headers)</tr></thead><tbody>$($directoryRoleTable.Rows)</tbody></table></div>
+        </div>
+
+        <!-- Sign-In Logs Tab -->
+        <div id="si-tab" class="tab-content">
+            <div class="table-container"><table id="si-table"><thead><tr>$($signInLogTable.Headers)</tr></thead><tbody>$($signInLogTable.Rows)</tbody></table></div>
+        </div>
+
+        <!-- Directory Audits Tab -->
+        <div id="da-tab" class="tab-content">
+            <div class="table-container"><table id="da-table"><thead><tr>$($directoryAuditTable.Headers)</tr></thead><tbody>$($directoryAuditTable.Rows)</tbody></table></div>
+        </div>
+
+        <!-- Changes Tab -->
         <div id="c-tab" class="tab-content">
             <div class="table-container"><table id="c-table"><thead><tr>$($changeTable.Headers)</tr></thead><tbody>$($changeTable.Rows)</tbody></table></div>
         </div>

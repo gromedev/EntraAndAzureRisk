@@ -18,7 +18,8 @@
         'Write-CosmosDocument',
         'Write-CosmosBatch',
         'Write-CosmosParallelBatch',
-        'Get-CosmosDocuments'
+        'Get-CosmosDocuments',
+        'Invoke-DeltaIndexing'
     )
     
     CmdletsToExport = @()

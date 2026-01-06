@@ -1,0 +1,34 @@
+{
+  "Location": "swedencentral",
+  "Resources": {
+    "CosmosContainers": {
+      "UsersRaw": "users_raw",
+      "Snapshots": "snapshots",
+      "UserChanges": "user_changes"
+    },
+    "FunctionApp": "func-entrarisk-data-dev-36jut3xd6y2so",
+    "AIFoundryProject": null,
+    "CosmosDBAccount": "cosno-entrarisk-dev-36jut3xd6y2so",
+    "ApplicationInsights": "appi-entrarisk-dev-001",
+    "AIFoundryHub": null,
+    "CosmosDatabase": "EntraData",
+    "StorageAccount": "stentrariskdev36jut3xd6y",
+    "KeyVault": "keyvaultentrariskdev36ju"
+  },
+  "DeploymentDate": "2026-01-06 08.08.45",
+  "Architecture": "DeltaChangeDetection",
+  "BlobRetentionDays": 7,
+  "NextSteps": {
+    "ModulePublishing": "Required - Run publish-module.yml",
+    "GraphAPIPermissions": "Required - See steps above",
+    "AIModelDeployment": "Optional - Deploy in AI Foundry portal",
+    "AppDeployment": "Required - Run pilot-pipeline.yml"
+  },
+  "SubscriptionId": "4e5adb24-09e8-4a01-adbb-c6cee339f639",
+  "Environment": "dev",
+  "ManagedIdentities": {
+    "FunctionApp": "209fe709-c803-465a-8e27-94483da9f388"
+  },
+  "ResourceGroupName": "rg-entrarisk-pilot-001",
+  "DeploymentName": "delta-pilot-20260106-080642"
+}

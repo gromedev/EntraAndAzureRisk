@@ -254,6 +254,607 @@ resource cosmosContainerSnapshots 'Microsoft.DocumentDB/databaseAccounts/sqlData
   }
 }
 
+// Container 4: Groups raw data
+resource cosmosContainerGroupsRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'groups_raw'
+  properties: {
+    resource: {
+      id: 'groups_raw'
+      partitionKey: {
+        paths: ['/objectId']
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        automatic: true
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/objectId/?' }
+          { path: '/displayName/?' }
+          { path: '/groupTypes/?' }
+          { path: '/securityEnabled/?' }
+          { path: '/mailEnabled/?' }
+        ]
+        excludedPaths: [
+          { path: '/*' }
+        ]
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 5: Groups change log
+resource cosmosContainerGroupChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'group_changes'
+  properties: {
+    resource: {
+      id: 'group_changes'
+      partitionKey: {
+        paths: ['/snapshotId']
+        kind: 'Hash'
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 6: Service Principals raw data
+resource cosmosContainerServicePrincipalsRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'service_principals_raw'
+  properties: {
+    resource: {
+      id: 'service_principals_raw'
+      partitionKey: {
+        paths: ['/objectId']
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        automatic: true
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/objectId/?' }
+          { path: '/displayName/?' }
+          { path: '/appId/?' }
+          { path: '/servicePrincipalType/?' }
+        ]
+        excludedPaths: [
+          { path: '/*' }
+        ]
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 7: Service Principals change log
+resource cosmosContainerServicePrincipalChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'service_principal_changes'
+  properties: {
+    resource: {
+      id: 'service_principal_changes'
+      partitionKey: {
+        paths: ['/snapshotId']
+        kind: 'Hash'
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 8: Risky Users raw data
+resource cosmosContainerRiskyUsersRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'risky_users_raw'
+  properties: {
+    resource: {
+      id: 'risky_users_raw'
+      partitionKey: {
+        paths: ['/objectId']
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        automatic: true
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/objectId/?' }
+          { path: '/riskLevel/?' }
+          { path: '/riskState/?' }
+          { path: '/riskLastUpdatedDateTime/?' }
+        ]
+        excludedPaths: [
+          { path: '/*' }
+        ]
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 9: Risky Users change log
+resource cosmosContainerRiskyUserChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'risky_user_changes'
+  properties: {
+    resource: {
+      id: 'risky_user_changes'
+      partitionKey: {
+        paths: ['/snapshotId']
+        kind: 'Hash'
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 10: Devices raw data
+resource cosmosContainerDevicesRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'devices_raw'
+  properties: {
+    resource: {
+      id: 'devices_raw'
+      partitionKey: {
+        paths: ['/objectId']
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        automatic: true
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/objectId/?' }
+          { path: '/displayName/?' }
+          { path: '/isCompliant/?' }
+          { path: '/isManaged/?' }
+          { path: '/trustType/?' }
+        ]
+        excludedPaths: [
+          { path: '/*' }
+        ]
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 11: Devices change log
+resource cosmosContainerDeviceChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'device_changes'
+  properties: {
+    resource: {
+      id: 'device_changes'
+      partitionKey: {
+        paths: ['/snapshotId']
+        kind: 'Hash'
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 12: Conditional Access Policies raw data
+resource cosmosContainerCAPoliciesRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'ca_policies_raw'
+  properties: {
+    resource: {
+      id: 'ca_policies_raw'
+      partitionKey: {
+        paths: ['/objectId']
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        automatic: true
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/objectId/?' }
+          { path: '/displayName/?' }
+          { path: '/state/?' }
+        ]
+        excludedPaths: [
+          { path: '/*' }
+        ]
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 13: CA Policies change log
+resource cosmosContainerCAPolicyChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'ca_policy_changes'
+  properties: {
+    resource: {
+      id: 'ca_policy_changes'
+      partitionKey: {
+        paths: ['/snapshotId']
+        kind: 'Hash'
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 14: App Registrations raw data
+resource cosmosContainerAppRegistrationsRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'app_registrations_raw'
+  properties: {
+    resource: {
+      id: 'app_registrations_raw'
+      partitionKey: {
+        paths: ['/objectId']
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        automatic: true
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/objectId/?' }
+          { path: '/appId/?' }
+          { path: '/displayName/?' }
+          { path: '/secretCount/?' }
+          { path: '/certificateCount/?' }
+        ]
+        excludedPaths: [
+          { path: '/*' }
+        ]
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 15: App Registrations change log
+resource cosmosContainerAppRegistrationChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'app_registration_changes'
+  properties: {
+    resource: {
+      id: 'app_registration_changes'
+      partitionKey: {
+        paths: ['/snapshotId']
+        kind: 'Hash'
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 16: User Auth Methods raw data
+resource cosmosContainerUserAuthMethodsRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'user_auth_methods_raw'
+  properties: {
+    resource: {
+      id: 'user_auth_methods_raw'
+      partitionKey: {
+        paths: ['/objectId']
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        automatic: true
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/objectId/?' }
+          { path: '/perUserMfaState/?' }
+          { path: '/hasAuthenticator/?' }
+          { path: '/hasFido2/?' }
+        ]
+        excludedPaths: [
+          { path: '/*' }
+        ]
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 17: User Auth Methods change log
+resource cosmosContainerUserAuthMethodChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'user_auth_method_changes'
+  properties: {
+    resource: {
+      id: 'user_auth_method_changes'
+      partitionKey: {
+        paths: ['/snapshotId']
+        kind: 'Hash'
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 18: Directory Roles raw data
+resource cosmosContainerDirectoryRolesRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'directory_roles_raw'
+  properties: {
+    resource: {
+      id: 'directory_roles_raw'
+      partitionKey: {
+        paths: ['/objectId']
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        automatic: true
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/objectId/?' }
+          { path: '/displayName/?' }
+          { path: '/roleTemplateId/?' }
+          { path: '/isPrivileged/?' }
+        ]
+        excludedPaths: [
+          { path: '/*' }
+        ]
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 19: Directory Roles change log
+resource cosmosContainerDirectoryRoleChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'directory_role_changes'
+  properties: {
+    resource: {
+      id: 'directory_role_changes'
+      partitionKey: {
+        paths: ['/snapshotId']
+        kind: 'Hash'
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 20: Sign-In Logs (Event-based, TTL enabled)
+resource cosmosContainerSignInLogs 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'signin_logs'
+  properties: {
+    resource: {
+      id: 'signin_logs'
+      partitionKey: {
+        paths: ['/id']
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        automatic: true
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/createdDateTime/?' }
+          { path: '/userId/?' }
+          { path: '/errorCode/?' }
+          { path: '/riskLevelAggregated/?' }
+        ]
+        excludedPaths: [
+          { path: '/*' }
+        ]
+      }
+      defaultTtl: 7776000  // 90 days TTL
+    }
+  }
+}
+
+// Container 21: Directory Audits (Event-based, TTL enabled)
+resource cosmosContainerDirectoryAudits 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'directory_audits'
+  properties: {
+    resource: {
+      id: 'directory_audits'
+      partitionKey: {
+        paths: ['/id']
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        automatic: true
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/activityDateTime/?' }
+          { path: '/category/?' }
+          { path: '/operationType/?' }
+        ]
+        excludedPaths: [
+          { path: '/*' }
+        ]
+      }
+      defaultTtl: 7776000  // 90 days TTL
+    }
+  }
+}
+
+// Container 22: Entra PIM Roles raw data
+resource cosmosContainerEntraPimRolesRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'entra_pim_roles_raw'
+  properties: {
+    resource: {
+      id: 'entra_pim_roles_raw'
+      partitionKey: {
+        paths: ['/objectId']
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        automatic: true
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/objectId/?' }
+          { path: '/principalId/?' }
+          { path: '/roleDefinitionId/?' }
+          { path: '/assignmentType/?' }
+          { path: '/status/?' }
+        ]
+        excludedPaths: [
+          { path: '/*' }
+        ]
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 23: Entra PIM Roles change log
+resource cosmosContainerEntraPimRoleChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'entra_pim_role_changes'
+  properties: {
+    resource: {
+      id: 'entra_pim_role_changes'
+      partitionKey: {
+        paths: ['/snapshotId']
+        kind: 'Hash'
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 24: PIM Group Memberships raw data
+resource cosmosContainerPimGroupMembershipsRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'pim_group_memberships_raw'
+  properties: {
+    resource: {
+      id: 'pim_group_memberships_raw'
+      partitionKey: {
+        paths: ['/objectId']
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        automatic: true
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/objectId/?' }
+          { path: '/principalId/?' }
+          { path: '/groupId/?' }
+          { path: '/assignmentType/?' }
+          { path: '/accessId/?' }
+        ]
+        excludedPaths: [
+          { path: '/*' }
+        ]
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 25: PIM Group Memberships change log
+resource cosmosContainerPimGroupMembershipChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'pim_group_membership_changes'
+  properties: {
+    resource: {
+      id: 'pim_group_membership_changes'
+      partitionKey: {
+        paths: ['/snapshotId']
+        kind: 'Hash'
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 26: Azure RBAC Assignments raw data
+resource cosmosContainerAzureRbacAssignmentsRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'azure_rbac_assignments_raw'
+  properties: {
+    resource: {
+      id: 'azure_rbac_assignments_raw'
+      partitionKey: {
+        paths: ['/objectId']
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        automatic: true
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/objectId/?' }
+          { path: '/principalId/?' }
+          { path: '/roleDefinitionId/?' }
+          { path: '/scope/?' }
+          { path: '/scopeType/?' }
+        ]
+        excludedPaths: [
+          { path: '/*' }
+        ]
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 27: Azure RBAC Assignments change log
+resource cosmosContainerAzureRbacAssignmentChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'azure_rbac_assignment_changes'
+  properties: {
+    resource: {
+      id: 'azure_rbac_assignment_changes'
+      partitionKey: {
+        paths: ['/snapshotId']
+        kind: 'Hash'
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 28: Role Policies raw data
+resource cosmosContainerRolePoliciesRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'role_policies_raw'
+  properties: {
+    resource: {
+      id: 'role_policies_raw'
+      partitionKey: {
+        paths: ['/objectId']
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        automatic: true
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/objectId/?' }
+          { path: '/displayName/?' }
+          { path: '/isOrganizationDefault/?' }
+        ]
+        excludedPaths: [
+          { path: '/*' }
+        ]
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 29: Role Policies change log
+resource cosmosContainerRolePolicyChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'role_policy_changes'
+  properties: {
+    resource: {
+      id: 'role_policy_changes'
+      partitionKey: {
+        paths: ['/snapshotId']
+        kind: 'Hash'
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
 // COSMOS DB AUDIT PROTECTION
 
 // Diagnostic settings - Log ALL Cosmos DB operations to Log Analytics
@@ -496,6 +1097,48 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
         {
           name: 'BLOB_RETENTION_DAYS'
           value: string(blobRetentionDays)
+        }
+        // PIM Configuration
+        {
+          name: 'ROLE_CACHE_DURATION_MINUTES'
+          value: '5'
+        }
+        {
+          name: 'PIM_PARALLEL_THROTTLE'
+          value: '10'
+        }
+        // PIM Cosmos DB Containers
+        {
+          name: 'COSMOS_CONTAINER_ENTRA_PIM_ROLES_RAW'
+          value: cosmosContainerEntraPimRolesRaw.name
+        }
+        {
+          name: 'COSMOS_CONTAINER_ENTRA_PIM_ROLE_CHANGES'
+          value: cosmosContainerEntraPimRoleChanges.name
+        }
+        {
+          name: 'COSMOS_CONTAINER_PIM_GROUP_MEMBERSHIPS_RAW'
+          value: cosmosContainerPimGroupMembershipsRaw.name
+        }
+        {
+          name: 'COSMOS_CONTAINER_PIM_GROUP_MEMBERSHIP_CHANGES'
+          value: cosmosContainerPimGroupMembershipChanges.name
+        }
+        {
+          name: 'COSMOS_CONTAINER_AZURE_RBAC_ASSIGNMENTS_RAW'
+          value: cosmosContainerAzureRbacAssignmentsRaw.name
+        }
+        {
+          name: 'COSMOS_CONTAINER_AZURE_RBAC_ASSIGNMENT_CHANGES'
+          value: cosmosContainerAzureRbacAssignmentChanges.name
+        }
+        {
+          name: 'COSMOS_CONTAINER_ROLE_POLICIES_RAW'
+          value: cosmosContainerRolePoliciesRaw.name
+        }
+        {
+          name: 'COSMOS_CONTAINER_ROLE_POLICY_CHANGES'
+          value: cosmosContainerRolePolicyChanges.name
         }
       ]
     }
