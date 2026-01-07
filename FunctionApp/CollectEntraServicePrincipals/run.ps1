@@ -3,6 +3,7 @@
     Collects service principal data from Microsoft Entra ID and streams to Blob Storage
 .DESCRIPTION
     - Queries Graph API (v1.0 endpoint for service principals)
+    - Includes keyCredentials (certificates) and passwordCredentials (secrets)
     - Streams JSONL output to Blob Storage (memory-efficient)
     - Returns summary statistics for orchestrator
     - Token caching (eliminates redundant IMDS calls)
@@ -97,6 +98,18 @@ try {
     $legacyTypeCount = 0
     $socialIdpTypeCount = 0
 
+    # Credential statistics
+    $spsWithSecretsCount = 0
+    $spsWithCertificatesCount = 0
+    $expiredSecretsCount = 0
+    $expiredCertificatesCount = 0
+    $expiringSecretsCount = 0  # Within 30 days
+    $expiringCertificatesCount = 0  # Within 30 days
+
+    # Calculate dates for expiry checks
+    $nowDate = (Get-Date).ToUniversalTime()
+    $thirtyDaysFromNow = $nowDate.AddDays(30)
+
     # Initialize append blob
     $servicePrincipalsBlobName = "$timestamp/$timestamp-serviceprincipals.jsonl"
     Write-Verbose "Initializing append blob: $servicePrincipalsBlobName"
@@ -117,8 +130,8 @@ try {
         }
     }
 
-    # Query service principals with field selection
-    $selectFields = "id,appDisplayName,accountEnabled,addIns,displayName,appId,appRoleAssignmentRequired,deletedDateTime,description,oauth2PermissionScopes,resourceSpecificApplicationPermissions,servicePrincipalNames,servicePrincipalType,tags,notes"
+    # Query service principals with field selection (including credentials)
+    $selectFields = "id,appDisplayName,accountEnabled,addIns,displayName,appId,appRoleAssignmentRequired,deletedDateTime,description,oauth2PermissionScopes,resourceSpecificApplicationPermissions,servicePrincipalNames,servicePrincipalType,tags,notes,keyCredentials,passwordCredentials"
     $nextLink = "https://graph.microsoft.com/v1.0/servicePrincipals?`$select=$selectFields&`$top=$batchSize"
 
     Write-Verbose "Starting batch processing with streaming writes"
@@ -144,6 +157,71 @@ try {
 
         # Sequential process batch
         foreach ($sp in $servicePrincipalBatch) {
+            # Process credentials
+            $hasSecrets = $false
+            $hasCertificates = $false
+            $processedSecrets = @()
+            $processedCertificates = @()
+
+            # Process password credentials (secrets)
+            if ($sp.passwordCredentials -and $sp.passwordCredentials.Count -gt 0) {
+                $hasSecrets = $true
+                foreach ($secret in $sp.passwordCredentials) {
+                    $endDateTime = if ($secret.endDateTime) { [DateTime]$secret.endDateTime } else { $null }
+                    $status = 'active'
+
+                    if ($endDateTime) {
+                        if ($endDateTime -lt $nowDate) {
+                            $status = 'expired'
+                            $expiredSecretsCount++
+                        } elseif ($endDateTime -lt $thirtyDaysFromNow) {
+                            $status = 'expiring_soon'
+                            $expiringSecretsCount++
+                        }
+                    }
+
+                    $processedSecrets += @{
+                        keyId = $secret.keyId ?? ""
+                        displayName = $secret.displayName ?? ""
+                        startDateTime = $secret.startDateTime ?? $null
+                        endDateTime = $secret.endDateTime ?? $null
+                        status = $status
+                    }
+                }
+            }
+
+            # Process key credentials (certificates)
+            if ($sp.keyCredentials -and $sp.keyCredentials.Count -gt 0) {
+                $hasCertificates = $true
+                foreach ($cert in $sp.keyCredentials) {
+                    $endDateTime = if ($cert.endDateTime) { [DateTime]$cert.endDateTime } else { $null }
+                    $status = 'active'
+
+                    if ($endDateTime) {
+                        if ($endDateTime -lt $nowDate) {
+                            $status = 'expired'
+                            $expiredCertificatesCount++
+                        } elseif ($endDateTime -lt $thirtyDaysFromNow) {
+                            $status = 'expiring_soon'
+                            $expiringCertificatesCount++
+                        }
+                    }
+
+                    $processedCertificates += @{
+                        keyId = $cert.keyId ?? ""
+                        displayName = $cert.displayName ?? ""
+                        type = $cert.type ?? ""
+                        usage = $cert.usage ?? ""
+                        startDateTime = $cert.startDateTime ?? $null
+                        endDateTime = $cert.endDateTime ?? $null
+                        status = $status
+                    }
+                }
+            }
+
+            if ($hasSecrets) { $spsWithSecretsCount++ }
+            if ($hasCertificates) { $spsWithCertificatesCount++ }
+
             # Transform to consistent camelCase structure with objectId
             $servicePrincipalObj = @{
                 # Core identifiers
@@ -171,6 +249,12 @@ try {
                 resourceSpecificApplicationPermissions = $sp.resourceSpecificApplicationPermissions ?? @()
                 servicePrincipalNames = $sp.servicePrincipalNames ?? @()
                 tags = $sp.tags ?? @()
+
+                # Credentials (secrets and certificates)
+                passwordCredentials = $processedSecrets
+                keyCredentials = $processedCertificates
+                secretCount = $processedSecrets.Count
+                certificateCount = $processedCertificates.Count
 
                 # Locally-generated property (collection metadata)
                 collectionTimestamp = $timestampFormatted
@@ -251,6 +335,13 @@ try {
         managedIdentityTypeCount = $managedIdentityTypeCount
         legacyTypeCount = $legacyTypeCount
         socialIdpTypeCount = $socialIdpTypeCount
+        # Credential statistics
+        spsWithSecretsCount = $spsWithSecretsCount
+        spsWithCertificatesCount = $spsWithCertificatesCount
+        expiredSecretsCount = $expiredSecretsCount
+        expiredCertificatesCount = $expiredCertificatesCount
+        expiringSecretsCount = $expiringSecretsCount
+        expiringCertificatesCount = $expiringCertificatesCount
         blobPath = $servicePrincipalsBlobName
     }
 

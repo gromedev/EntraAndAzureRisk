@@ -12,6 +12,9 @@
     5. PIM group eligible memberships
     6. PIM group active memberships
     7. Azure RBAC assignments
+    8. Application owners
+    9. Service Principal owners
+    10. User license assignments
 
     All output to single relationships.jsonl with relationType discriminator.
     Runs phases sequentially to manage memory, streams to blob.
@@ -89,6 +92,9 @@ try {
         PimGroupEligible = 0
         PimGroupActive = 0
         AzureRbac = 0
+        AppOwners = 0
+        SpOwners = 0
+        Licenses = 0
     }
 
     # Track direct memberships for transitive comparison
@@ -670,12 +676,223 @@ try {
     Write-Verbose "Azure RBAC complete: $($stats.AzureRbac)"
     #endregion
 
+    #region Phase 6: Application Owners
+    Write-Verbose "=== Phase 6: Application Owners ==="
+
+    # Get all applications
+    $appSelectFields = "id,displayName,appId,signInAudience,publisherDomain"
+    $appsNextLink = "https://graph.microsoft.com/v1.0/applications?`$select=$appSelectFields&`$top=$batchSize"
+
+    while ($appsNextLink) {
+        try {
+            $appsResponse = Invoke-GraphWithRetry -Uri $appsNextLink -AccessToken $graphToken
+            $appsNextLink = $appsResponse.'@odata.nextLink'
+
+            foreach ($app in $appsResponse.value) {
+                try {
+                    # Get owners for this application
+                    $ownersUri = "https://graph.microsoft.com/v1.0/applications/$($app.id)/owners?`$select=id,displayName,userPrincipalName,mail"
+                    $ownersResponse = Invoke-GraphWithRetry -Uri $ownersUri -AccessToken $graphToken
+
+                    foreach ($owner in $ownersResponse.value) {
+                        $ownerType = ($owner.'@odata.type' -replace '#microsoft.graph.', '')
+
+                        $relationship = @{
+                            id = "$($owner.id)_$($app.id)_appOwner"
+                            objectId = "$($owner.id)_$($app.id)_appOwner"
+                            relationType = "appOwner"
+                            sourceId = $owner.id
+                            sourceType = $ownerType
+                            sourceDisplayName = $owner.displayName ?? ""
+                            sourceUserPrincipalName = if ($ownerType -eq 'user') { $owner.userPrincipalName ?? $null } else { $null }
+                            targetId = $app.id
+                            targetType = "application"
+                            targetDisplayName = $app.displayName ?? ""
+                            targetAppId = $app.appId ?? ""
+                            targetSignInAudience = $app.signInAudience ?? ""
+                            targetPublisherDomain = $app.publisherDomain ?? ""
+                            collectionTimestamp = $timestampFormatted
+                        }
+
+                        [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress))
+                        $stats.AppOwners++
+                    }
+                }
+                catch { Write-Warning "Failed to get owners for app $($app.displayName): $_" }
+            }
+
+            # Periodic flush
+            if ($jsonL.Length -ge ($writeThreshold * 300)) {
+                Flush-Buffer
+                Write-Verbose "Flushed app owners buffer ($($stats.AppOwners) total)"
+            }
+        }
+        catch { Write-Warning "Failed to retrieve applications batch: $_"; break }
+    }
+
+    Flush-Buffer
+    Write-Verbose "Application owners complete: $($stats.AppOwners)"
+    #endregion
+
+    #region Phase 7: Service Principal Owners
+    Write-Verbose "=== Phase 7: Service Principal Owners ==="
+
+    # Get all service principals
+    $spSelectFields = "id,displayName,appId,appDisplayName,servicePrincipalType,accountEnabled"
+    $spsNextLink = "https://graph.microsoft.com/v1.0/servicePrincipals?`$select=$spSelectFields&`$top=$batchSize"
+
+    while ($spsNextLink) {
+        try {
+            $spsResponse = Invoke-GraphWithRetry -Uri $spsNextLink -AccessToken $graphToken
+            $spsNextLink = $spsResponse.'@odata.nextLink'
+
+            foreach ($sp in $spsResponse.value) {
+                try {
+                    # Get owners for this service principal
+                    $ownersUri = "https://graph.microsoft.com/v1.0/servicePrincipals/$($sp.id)/owners?`$select=id,displayName,userPrincipalName,mail"
+                    $ownersResponse = Invoke-GraphWithRetry -Uri $ownersUri -AccessToken $graphToken
+
+                    foreach ($owner in $ownersResponse.value) {
+                        $ownerType = ($owner.'@odata.type' -replace '#microsoft.graph.', '')
+
+                        $relationship = @{
+                            id = "$($owner.id)_$($sp.id)_spOwner"
+                            objectId = "$($owner.id)_$($sp.id)_spOwner"
+                            relationType = "spOwner"
+                            sourceId = $owner.id
+                            sourceType = $ownerType
+                            sourceDisplayName = $owner.displayName ?? ""
+                            sourceUserPrincipalName = if ($ownerType -eq 'user') { $owner.userPrincipalName ?? $null } else { $null }
+                            targetId = $sp.id
+                            targetType = "servicePrincipal"
+                            targetDisplayName = $sp.displayName ?? ""
+                            targetAppId = $sp.appId ?? ""
+                            targetAppDisplayName = $sp.appDisplayName ?? ""
+                            targetServicePrincipalType = $sp.servicePrincipalType ?? ""
+                            targetAccountEnabled = if ($null -ne $sp.accountEnabled) { $sp.accountEnabled } else { $null }
+                            collectionTimestamp = $timestampFormatted
+                        }
+
+                        [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress))
+                        $stats.SpOwners++
+                    }
+                }
+                catch { Write-Warning "Failed to get owners for SP $($sp.displayName): $_" }
+            }
+
+            # Periodic flush
+            if ($jsonL.Length -ge ($writeThreshold * 300)) {
+                Flush-Buffer
+                Write-Verbose "Flushed SP owners buffer ($($stats.SpOwners) total)"
+            }
+        }
+        catch { Write-Warning "Failed to retrieve service principals batch: $_"; break }
+    }
+
+    Flush-Buffer
+    Write-Verbose "Service principal owners complete: $($stats.SpOwners)"
+    #endregion
+
+    #region Phase 8: User License Assignments
+    Write-Verbose "=== Phase 8: User License Assignments ==="
+
+    # First, get the subscribed SKUs for name lookup
+    $skuLookup = @{}
+    try {
+        $skusResponse = Invoke-GraphWithRetry -Uri "https://graph.microsoft.com/v1.0/subscribedSkus" -AccessToken $graphToken
+        foreach ($sku in $skusResponse.value) {
+            $skuLookup[$sku.skuId] = @{
+                SkuPartNumber = $sku.skuPartNumber
+                SkuDisplayName = $sku.skuPartNumber  # Graph doesn't provide friendly names, use part number
+            }
+        }
+        Write-Verbose "Loaded $($skuLookup.Count) license SKUs"
+    }
+    catch { Write-Warning "Failed to load subscribed SKUs: $_" }
+
+    # Build a group lookup for resolving inherited license group names
+    $groupDisplayNameLookup = @{}
+    foreach ($g in $groups) {
+        $groupDisplayNameLookup[$g.id] = $g.displayName
+    }
+
+    # Get all users (we need their license details)
+    $userSelectFields = "id,displayName,userPrincipalName,accountEnabled,userType"
+    $usersNextLink = "https://graph.microsoft.com/v1.0/users?`$select=$userSelectFields&`$top=$batchSize"
+
+    while ($usersNextLink) {
+        try {
+            $usersResponse = Invoke-GraphWithRetry -Uri $usersNextLink -AccessToken $graphToken
+            $usersNextLink = $usersResponse.'@odata.nextLink'
+
+            foreach ($user in $usersResponse.value) {
+                try {
+                    # Get license details for this user
+                    $licenseUri = "https://graph.microsoft.com/v1.0/users/$($user.id)/licenseDetails"
+                    $licenseResponse = Invoke-GraphWithRetry -Uri $licenseUri -AccessToken $graphToken
+
+                    foreach ($license in $licenseResponse.value) {
+                        $skuId = $license.skuId ?? ""
+                        $skuInfo = $skuLookup[$skuId]
+                        $skuPartNumber = if ($skuInfo) { $skuInfo.SkuPartNumber } else { $skuId }
+
+                        # Determine assignment source (direct vs inherited)
+                        # If assignedByGroup is empty, it's direct; otherwise inherited
+                        $assignmentSource = "direct"
+                        $inheritedFromGroupId = $null
+                        $inheritedFromGroupName = $null
+
+                        # Check servicePlans for assignment info if available
+                        # Note: Graph API v1.0 licenseDetails doesn't expose assignedByGroup directly
+                        # We need to use /users/{id}/licenseAssignmentStates for detailed info
+
+                        $relationship = @{
+                            id = "$($user.id)_$($skuId)_license"
+                            objectId = "$($user.id)_$($skuId)_license"
+                            relationType = "license"
+                            sourceId = $user.id
+                            sourceType = "user"
+                            sourceDisplayName = $user.displayName ?? ""
+                            sourceUserPrincipalName = $user.userPrincipalName ?? ""
+                            sourceAccountEnabled = if ($null -ne $user.accountEnabled) { $user.accountEnabled } else { $null }
+                            sourceUserType = $user.userType ?? ""
+                            targetId = $skuId
+                            targetType = "license"
+                            targetDisplayName = $skuPartNumber
+                            targetSkuId = $skuId
+                            targetSkuPartNumber = $skuPartNumber
+                            assignmentSource = $assignmentSource
+                            inheritedFromGroupId = $inheritedFromGroupId
+                            inheritedFromGroupName = $inheritedFromGroupName
+                            collectionTimestamp = $timestampFormatted
+                        }
+
+                        [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress))
+                        $stats.Licenses++
+                    }
+                }
+                catch { Write-Warning "Failed to get licenses for user $($user.userPrincipalName): $_" }
+            }
+
+            # Periodic flush
+            if ($jsonL.Length -ge ($writeThreshold * 300)) {
+                Flush-Buffer
+                Write-Verbose "Flushed licenses buffer ($($stats.Licenses) total)"
+            }
+        }
+        catch { Write-Warning "Failed to retrieve users batch for licenses: $_"; break }
+    }
+
+    Flush-Buffer
+    Write-Verbose "User licenses complete: $($stats.Licenses)"
+    #endregion
+
     # Cleanup
     $jsonL = $null
     [System.GC]::Collect()
     [System.GC]::WaitForPendingFinalizers()
 
-    $totalRelationships = $stats.GroupMembershipsDirect + $stats.GroupMembershipsTransitive + $stats.DirectoryRoles + $stats.PimEligible + $stats.PimActive + $stats.PimGroupEligible + $stats.PimGroupActive + $stats.AzureRbac
+    $totalRelationships = $stats.GroupMembershipsDirect + $stats.GroupMembershipsTransitive + $stats.DirectoryRoles + $stats.PimEligible + $stats.PimActive + $stats.PimGroupEligible + $stats.PimGroupActive + $stats.AzureRbac + $stats.AppOwners + $stats.SpOwners + $stats.Licenses
 
     Write-Verbose "Combined relationships collection complete: $totalRelationships total"
 
@@ -696,6 +913,9 @@ try {
             pimGroupEligible = $stats.PimGroupEligible
             pimGroupActive = $stats.PimGroupActive
             azureRbac = $stats.AzureRbac
+            appOwners = $stats.AppOwners
+            spOwners = $stats.SpOwners
+            licenses = $stats.Licenses
         }
     }
 }

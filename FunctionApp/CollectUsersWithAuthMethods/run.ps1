@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-    Collects user data AND authentication methods from Microsoft Entra ID
+    Collects user data with EMBEDDED authentication methods from Microsoft Entra ID
 .DESCRIPTION
     Combined collector that:
     - Queries Graph API for users with pagination
     - For each user, queries authentication methods (N+1 pattern)
-    - Streams both users.jsonl and userAuthMethods.jsonl to Blob Storage
-    - Eliminates intermediate blob read (users already in memory)
+    - EMBEDS auth method summary directly in user object (denormalized for Power BI)
+    - Streams users.jsonl to Blob Storage (memory-efficient)
     - Returns summary statistics for orchestrator
     - Token caching (eliminates redundant IMDS calls)
 #>
@@ -87,8 +87,7 @@ try {
     Write-Verbose "Configuration: Batch=$batchSize, SkipDisabledForAuth=$skipDisabledForAuthMethods"
 
     # Initialize buffers
-    $usersJsonL = New-Object System.Text.StringBuilder(1048576)       # 1MB initial
-    $authMethodsJsonL = New-Object System.Text.StringBuilder(2097152) # 2MB initial
+    $usersJsonL = New-Object System.Text.StringBuilder(2097152)  # 2MB initial (larger for embedded auth)
     $writeThreshold = 5000
 
     # User counters
@@ -99,7 +98,7 @@ try {
     $memberCount = 0
     $guestCount = 0
 
-    # Auth methods counters
+    # Auth methods counters (embedded in users)
     $authMethodsProcessedCount = 0
     $authMethodsErrorCount = 0
     $mfaEnabledCount = 0
@@ -108,25 +107,20 @@ try {
     $usersWithAuthenticatorCount = 0
     $usersWithPhoneCount = 0
     $usersWithFido2Count = 0
+    $usersWithWindowsHelloCount = 0
 
-    # Initialize append blobs
+    # Initialize append blob (single file - auth methods embedded in users)
     $usersBlobName = "$timestamp/$timestamp-users.jsonl"
-    $authMethodsBlobName = "$timestamp/$timestamp-userauthMethods.jsonl"
-    Write-Verbose "Initializing append blobs: $usersBlobName, $authMethodsBlobName"
+    Write-Verbose "Initializing append blob: $usersBlobName (with embedded auth methods)"
 
     try {
         Initialize-AppendBlob -StorageAccountName $storageAccountName `
             -ContainerName $containerName `
             -BlobName $usersBlobName `
             -AccessToken $storageToken
-
-        Initialize-AppendBlob -StorageAccountName $storageAccountName `
-            -ContainerName $containerName `
-            -BlobName $authMethodsBlobName `
-            -AccessToken $storageToken
     }
     catch {
-        Write-Error "Failed to initialize blobs: $_"
+        Write-Error "Failed to initialize blob: $_"
         return @{
             Success = $false
             Error   = "Blob initialization failed: $($_.Exception.Message)"
@@ -160,142 +154,147 @@ try {
 
         # Process each user
         foreach ($user in $userBatch) {
-            # Transform to consistent structure
+            $userId = $user.id ?? ""
+            $upn = $user.userPrincipalName ?? ""
+            $accountEnabled = if ($null -ne $user.accountEnabled) { $user.accountEnabled } else { $null }
+
+            # Initialize auth methods fields (will be populated if we can fetch them)
+            $perUserMfaState = $null
+            $hasAuthenticator = $false
+            $hasPhone = $false
+            $hasFido2 = $false
+            $hasEmail = $false
+            $hasPassword = $false
+            $hasTap = $false
+            $hasWindowsHello = $false
+            $hasSoftwareOath = $false
+            $methodCount = 0
+            $authMethodTypes = @()
+
+            # --- Collect Auth Methods for this user (embedded) ---
+            # Skip disabled accounts if configured
+            $shouldCollectAuth = -not ($skipDisabledForAuthMethods -and $accountEnabled -eq $false)
+
+            if ($shouldCollectAuth) {
+                try {
+                    # Get authentication methods
+                    $authMethodsUri = "https://graph.microsoft.com/beta/users/$userId/authentication/methods"
+                    try {
+                        $authMethodsResponse = Invoke-GraphWithRetry -Uri $authMethodsUri -AccessToken $graphToken
+                        if ($authMethodsResponse -and $authMethodsResponse.value) {
+                            foreach ($method in $authMethodsResponse.value) {
+                                $methodType = $method.'@odata.type' -replace '#microsoft.graph.', ''
+                                $authMethodTypes += $methodType
+                                $methodCount++
+
+                                switch ($methodType) {
+                                    'microsoftAuthenticatorAuthenticationMethod' { $hasAuthenticator = $true }
+                                    'phoneAuthenticationMethod' { $hasPhone = $true }
+                                    'fido2AuthenticationMethod' { $hasFido2 = $true }
+                                    'emailAuthenticationMethod' { $hasEmail = $true }
+                                    'passwordAuthenticationMethod' { $hasPassword = $true }
+                                    'temporaryAccessPassAuthenticationMethod' { $hasTap = $true }
+                                    'windowsHelloForBusinessAuthenticationMethod' { $hasWindowsHello = $true }
+                                    'softwareOathAuthenticationMethod' { $hasSoftwareOath = $true }
+                                }
+                            }
+                        }
+                    }
+                    catch {
+                        Write-Warning "Failed to get auth methods for user $upn`: $_"
+                        $authMethodsErrorCount++
+                    }
+
+                    # Get MFA requirements (per-user MFA state)
+                    $mfaRequirementsUri = "https://graph.microsoft.com/beta/users/$userId/authentication/requirements"
+                    try {
+                        $mfaResponse = Invoke-GraphWithRetry -Uri $mfaRequirementsUri -AccessToken $graphToken
+                        $perUserMfaState = $mfaResponse.perUserMfaState ?? $null
+                    }
+                    catch {
+                        Write-Warning "Failed to get MFA requirements for user $upn`: $_"
+                    }
+
+                    # Track MFA statistics
+                    switch ($perUserMfaState) {
+                        'enabled' { $mfaEnabledCount++ }
+                        'enforced' { $mfaEnforcedCount++ }
+                        'disabled' { $mfaDisabledCount++ }
+                    }
+
+                    if ($hasAuthenticator) { $usersWithAuthenticatorCount++ }
+                    if ($hasPhone) { $usersWithPhoneCount++ }
+                    if ($hasFido2) { $usersWithFido2Count++ }
+                    if ($hasWindowsHello) { $usersWithWindowsHelloCount++ }
+
+                    $authMethodsProcessedCount++
+                }
+                catch {
+                    Write-Warning "Error processing auth methods for user $upn`: $_"
+                    $authMethodsErrorCount++
+                }
+            }
+
+            # Transform to consistent structure WITH EMBEDDED AUTH METHODS
             $userObj = @{
-                objectId                         = $user.id ?? ""
+                # Core identifiers
+                objectId                         = $userId
                 principalType                    = "user"
-                userPrincipalName                = $user.userPrincipalName ?? ""
-                accountEnabled                   = if ($null -ne $user.accountEnabled) { $user.accountEnabled } else { $null }
+                userPrincipalName                = $upn
+                displayName                      = $user.displayName ?? $null
+
+                # Account status
+                accountEnabled                   = $accountEnabled
                 userType                         = $user.userType ?? ""
+
+                # Timestamps
                 createdDateTime                  = $user.createdDateTime ?? ""
                 lastSignInDateTime               = if ($user.signInActivity.lastSignInDateTime) { $user.signInActivity.lastSignInDateTime } else { $null }
-                displayName                      = $user.displayName ?? $null
+
+                # Password and location
                 passwordPolicies                 = $user.passwordPolicies ?? $null
                 usageLocation                    = $user.usageLocation ?? $null
+
+                # External user
                 externalUserState                = $user.externalUserState ?? $null
                 externalUserStateChangeDateTime  = $user.externalUserStateChangeDateTime ?? $null
+
+                # On-premises sync
                 onPremisesSyncEnabled            = if ($null -ne $user.onPremisesSyncEnabled) { $user.onPremisesSyncEnabled } else { $null }
                 onPremisesSamAccountName         = $user.onPremisesSamAccountName ?? $null
                 onPremisesUserPrincipalName      = $user.onPremisesUserPrincipalName ?? $null
                 onPremisesSecurityIdentifier     = $user.onPremisesSecurityIdentifier ?? $null
+
+                # EMBEDDED Authentication Methods (denormalized for Power BI)
+                perUserMfaState                  = $perUserMfaState
+                hasAuthenticator                 = $hasAuthenticator
+                hasPhone                         = $hasPhone
+                hasFido2                         = $hasFido2
+                hasEmail                         = $hasEmail
+                hasPassword                      = $hasPassword
+                hasTap                           = $hasTap
+                hasWindowsHello                  = $hasWindowsHello
+                hasSoftwareOath                  = $hasSoftwareOath
+                authMethodCount                  = $methodCount
+                authMethodTypes                  = $authMethodTypes
+
+                # Collection metadata
                 collectionTimestamp              = $timestampFormatted
             }
 
-            [void]$usersJsonL.AppendLine(($userObj | ConvertTo-Json -Compress))
+            [void]$usersJsonL.AppendLine(($userObj | ConvertTo-Json -Compress -Depth 10))
             $userCount++
 
             # Track user statistics
-            if ($userObj.accountEnabled -eq $true) { $enabledCount++ }
-            elseif ($userObj.accountEnabled -eq $false) { $disabledCount++ }
+            if ($accountEnabled -eq $true) { $enabledCount++ }
+            elseif ($accountEnabled -eq $false) { $disabledCount++ }
 
-            if ($userObj.userType -eq 'Member') { $memberCount++ }
-            elseif ($userObj.userType -eq 'Guest') { $guestCount++ }
-
-            # --- Collect Auth Methods for this user ---
-            # Skip disabled accounts if configured
-            if ($skipDisabledForAuthMethods -and $userObj.accountEnabled -eq $false) {
-                continue
-            }
-
-            try {
-                $userId = $userObj.objectId
-                $upn = $userObj.userPrincipalName
-
-                # Get authentication methods
-                $authMethodsUri = "https://graph.microsoft.com/beta/users/$userId/authentication/methods"
-                $authMethodsResponse = $null
-                try {
-                    $authMethodsResponse = Invoke-GraphWithRetry -Uri $authMethodsUri -AccessToken $graphToken
-                }
-                catch {
-                    Write-Warning "Failed to get auth methods for user $upn`: $_"
-                    $authMethodsErrorCount++
-                }
-
-                # Get MFA requirements
-                $mfaRequirementsUri = "https://graph.microsoft.com/beta/users/$userId/authentication/requirements"
-                $mfaState = 'unknown'
-                try {
-                    $mfaResponse = Invoke-GraphWithRetry -Uri $mfaRequirementsUri -AccessToken $graphToken
-                    $mfaState = $mfaResponse.perUserMfaState ?? 'unknown'
-                }
-                catch {
-                    Write-Warning "Failed to get MFA requirements for user $upn`: $_"
-                }
-
-                # Process authentication methods
-                $hasAuthenticator = $false
-                $hasPhone = $false
-                $hasFido2 = $false
-                $hasEmail = $false
-                $hasPassword = $false
-                $hasTap = $false
-                $hasWindowsHello = $false
-
-                $methodsList = @()
-                if ($authMethodsResponse -and $authMethodsResponse.value) {
-                    foreach ($method in $authMethodsResponse.value) {
-                        $methodType = $method.'@odata.type' -replace '#microsoft.graph.', ''
-
-                        switch ($methodType) {
-                            'microsoftAuthenticatorAuthenticationMethod' { $hasAuthenticator = $true }
-                            'phoneAuthenticationMethod' { $hasPhone = $true }
-                            'fido2AuthenticationMethod' { $hasFido2 = $true }
-                            'emailAuthenticationMethod' { $hasEmail = $true }
-                            'passwordAuthenticationMethod' { $hasPassword = $true }
-                            'temporaryAccessPassAuthenticationMethod' { $hasTap = $true }
-                            'windowsHelloForBusinessAuthenticationMethod' { $hasWindowsHello = $true }
-                        }
-
-                        $methodsList += @{
-                            id          = $method.id ?? ""
-                            type        = $methodType
-                            displayName = $method.displayName ?? $null
-                        }
-                    }
-                }
-
-                # Track MFA statistics
-                switch ($mfaState) {
-                    'enabled' { $mfaEnabledCount++ }
-                    'enforced' { $mfaEnforcedCount++ }
-                    'disabled' { $mfaDisabledCount++ }
-                }
-
-                if ($hasAuthenticator) { $usersWithAuthenticatorCount++ }
-                if ($hasPhone) { $usersWithPhoneCount++ }
-                if ($hasFido2) { $usersWithFido2Count++ }
-
-                # Create auth methods object
-                $authMethodsObj = @{
-                    objectId            = $userId
-                    userPrincipalName   = $upn
-                    displayName         = $userObj.displayName ?? ""
-                    accountEnabled      = $userObj.accountEnabled
-                    perUserMfaState     = $mfaState
-                    hasAuthenticator    = $hasAuthenticator
-                    hasPhone            = $hasPhone
-                    hasFido2            = $hasFido2
-                    hasEmail            = $hasEmail
-                    hasPassword         = $hasPassword
-                    hasTap              = $hasTap
-                    hasWindowsHello     = $hasWindowsHello
-                    methodCount         = $methodsList.Count
-                    methods             = $methodsList
-                    collectionTimestamp = $timestampFormatted
-                }
-
-                [void]$authMethodsJsonL.AppendLine(($authMethodsObj | ConvertTo-Json -Compress -Depth 10))
-                $authMethodsProcessedCount++
-            }
-            catch {
-                Write-Warning "Error processing auth methods for user: $_"
-                $authMethodsErrorCount++
-            }
+            if ($user.userType -eq 'Member') { $memberCount++ }
+            elseif ($user.userType -eq 'Guest') { $guestCount++ }
         }
 
-        # Periodic flush to blobs
-        if ($usersJsonL.Length -ge ($writeThreshold * 200)) {
+        # Periodic flush to blob (single file with embedded auth methods)
+        if ($usersJsonL.Length -ge ($writeThreshold * 300)) {
             try {
                 Add-BlobContent -StorageAccountName $storageAccountName `
                     -ContainerName $containerName `
@@ -314,29 +313,10 @@ try {
             }
         }
 
-        if ($authMethodsJsonL.Length -ge ($writeThreshold * 500)) {
-            try {
-                Add-BlobContent -StorageAccountName $storageAccountName `
-                    -ContainerName $containerName `
-                    -BlobName $authMethodsBlobName `
-                    -Content $authMethodsJsonL.ToString() `
-                    -AccessToken $storageToken `
-                    -MaxRetries 3 `
-                    -BaseRetryDelaySeconds 2
-
-                Write-Verbose "Flushed $($authMethodsJsonL.Length) chars to authMethods blob"
-                $authMethodsJsonL.Clear()
-            }
-            catch {
-                Write-Error "CRITICAL: AuthMethods blob write failed after retries $_"
-                throw "Cannot continue - data loss would occur"
-            }
-        }
-
-        Write-Verbose "Batch $batchNumber complete: $userCount users, $authMethodsProcessedCount auth methods"
+        Write-Verbose "Batch $batchNumber complete: $userCount users ($authMethodsProcessedCount with auth methods)"
     }
 
-    # Final flush - users
+    # Final flush
     if ($usersJsonL.Length -gt 0) {
         try {
             Add-BlobContent -StorageAccountName $storageAccountName `
@@ -354,59 +334,33 @@ try {
         }
     }
 
-    # Final flush - auth methods
-    if ($authMethodsJsonL.Length -gt 0) {
-        try {
-            Add-BlobContent -StorageAccountName $storageAccountName `
-                -ContainerName $containerName `
-                -BlobName $authMethodsBlobName `
-                -Content $authMethodsJsonL.ToString() `
-                -AccessToken $storageToken `
-                -MaxRetries 3 `
-                -BaseRetryDelaySeconds 2
-            Write-Verbose "Final authMethods flush: $($authMethodsJsonL.Length) characters written"
-        }
-        catch {
-            Write-Error "CRITICAL: Final authMethods flush failed: $_"
-            throw "Cannot complete collection"
-        }
-    }
-
-    Write-Verbose "Combined collection complete: $userCount users, $authMethodsProcessedCount auth methods"
+    Write-Verbose "Collection complete: $userCount users with embedded auth methods ($authMethodsProcessedCount processed)"
 
     # Cleanup
     $usersJsonL.Clear()
     $usersJsonL = $null
-    $authMethodsJsonL.Clear()
-    $authMethodsJsonL = $null
 
-    # Create summaries
-    $usersSummary = @{
-        id                  = $timestamp
-        collectionTimestamp = $timestampFormatted
-        collectionType      = 'users'
-        totalCount          = $userCount
-        enabledCount        = $enabledCount
-        disabledCount       = $disabledCount
-        memberCount         = $memberCount
-        guestCount          = $guestCount
-        blobPath            = $usersBlobName
-    }
-
-    $authMethodsSummary = @{
-        id                         = $timestamp
-        collectionTimestamp        = $timestampFormatted
-        collectionType             = 'userAuthMethods'
-        totalUsersInBlob           = $userCount
-        processedCount             = $authMethodsProcessedCount
-        errorCount                 = $authMethodsErrorCount
-        mfaEnabledCount            = $mfaEnabledCount
-        mfaEnforcedCount           = $mfaEnforcedCount
-        mfaDisabledCount           = $mfaDisabledCount
+    # Create summary (includes embedded auth methods stats)
+    $summary = @{
+        id                          = $timestamp
+        collectionTimestamp         = $timestampFormatted
+        collectionType              = 'users'
+        totalCount                  = $userCount
+        enabledCount                = $enabledCount
+        disabledCount               = $disabledCount
+        memberCount                 = $memberCount
+        guestCount                  = $guestCount
+        # Auth methods stats (embedded)
+        authMethodsProcessedCount   = $authMethodsProcessedCount
+        authMethodsErrorCount       = $authMethodsErrorCount
+        mfaEnabledCount             = $mfaEnabledCount
+        mfaEnforcedCount            = $mfaEnforcedCount
+        mfaDisabledCount            = $mfaDisabledCount
         usersWithAuthenticatorCount = $usersWithAuthenticatorCount
-        usersWithPhoneCount        = $usersWithPhoneCount
-        usersWithFido2Count        = $usersWithFido2Count
-        blobPath                   = $authMethodsBlobName
+        usersWithPhoneCount         = $usersWithPhoneCount
+        usersWithFido2Count         = $usersWithFido2Count
+        usersWithWindowsHelloCount  = $usersWithWindowsHelloCount
+        blobPath                    = $usersBlobName
     }
 
     # Garbage collection
@@ -415,19 +369,17 @@ try {
     [System.GC]::WaitForPendingFinalizers()
     [System.GC]::Collect()
 
-    Write-Verbose "Combined collection activity completed successfully!"
+    Write-Verbose "Collection activity completed successfully!"
 
     return @{
-        Success                 = $true
-        UserCount               = $userCount
+        Success                   = $true
+        UserCount                 = $userCount
         AuthMethodsProcessedCount = $authMethodsProcessedCount
-        AuthMethodsErrorCount   = $authMethodsErrorCount
-        Data                    = @()
-        UsersSummary            = $usersSummary
-        AuthMethodsSummary      = $authMethodsSummary
-        Timestamp               = $timestamp
-        UsersBlobName           = $usersBlobName
-        AuthMethodsBlobName     = $authMethodsBlobName
+        AuthMethodsErrorCount     = $authMethodsErrorCount
+        Data                      = @()
+        Summary                   = $summary
+        Timestamp                 = $timestamp
+        UsersBlobName             = $usersBlobName
     }
 }
 catch {

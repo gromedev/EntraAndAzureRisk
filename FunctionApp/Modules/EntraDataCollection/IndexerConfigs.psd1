@@ -571,6 +571,18 @@
             'onPremisesSamAccountName'
             'onPremisesUserPrincipalName'
             'onPremisesSecurityIdentifier'
+            # User auth methods (embedded in user - from CollectUsersWithAuthMethods)
+            'perUserMfaState'
+            'hasAuthenticator'
+            'hasPhone'
+            'hasFido2'
+            'hasEmail'
+            'hasPassword'
+            'hasTap'
+            'hasWindowsHello'
+            'hasSoftwareOath'
+            'authMethodCount'
+            'authMethodTypes'
 
             # Group-specific fields (from CollectEntraGroups)
             'securityEnabled'
@@ -633,6 +645,7 @@
             'resourceSpecificApplicationPermissions'
             'keyCredentials'
             'passwordCredentials'
+            'authMethodTypes'
         )
         EmbeddedObjectFields = @()
         DocumentFields = @{
@@ -656,6 +669,18 @@
             onPremisesSamAccountName = 'onPremisesSamAccountName'
             onPremisesUserPrincipalName = 'onPremisesUserPrincipalName'
             onPremisesSecurityIdentifier = 'onPremisesSecurityIdentifier'
+            # User auth methods (embedded - from CollectUsersWithAuthMethods)
+            perUserMfaState = 'perUserMfaState'
+            hasAuthenticator = 'hasAuthenticator'
+            hasPhone = 'hasPhone'
+            hasFido2 = 'hasFido2'
+            hasEmail = 'hasEmail'
+            hasPassword = 'hasPassword'
+            hasTap = 'hasTap'
+            hasWindowsHello = 'hasWindowsHello'
+            hasSoftwareOath = 'hasSoftwareOath'
+            authMethodCount = 'authMethodCount'
+            authMethodTypes = 'authMethodTypes'
 
             # Group fields (from CollectEntraGroups)
             description = 'description'
@@ -770,6 +795,14 @@
             'resourceDisplayName'
             'consentType'
             'permissionScope'
+
+            # Ownership-specific target fields
+            'targetAppId'
+            'targetSignInAudience'
+            'targetPublisherDomain'
+            'targetAppDisplayName'
+            'targetServicePrincipalType'
+            'targetAccountEnabled'
         )
         ArrayFields = @(
             'inheritancePath'
@@ -832,6 +865,14 @@
             assignmentSource = 'assignmentSource'
             inheritedFromGroupId = 'inheritedFromGroupId'
             inheritedFromGroupName = 'inheritedFromGroupName'
+
+            # Ownership-specific target fields
+            targetAppId = 'targetAppId'
+            targetSignInAudience = 'targetSignInAudience'
+            targetPublisherDomain = 'targetPublisherDomain'
+            targetAppDisplayName = 'targetAppDisplayName'
+            targetServicePrincipalType = 'targetServicePrincipalType'
+            targetAccountEnabled = 'targetAccountEnabled'
         }
         WriteDeletes = $true
         IncludeDeleteMarkers = $true

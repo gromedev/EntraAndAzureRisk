@@ -39,7 +39,11 @@ function Get-DynamicProperties {
             'createdDateTime', 'lastSignInDateTime', 'passwordPolicies', 'usageLocation',
             'externalUserState', 'externalUserStateChangeDateTime',
             'onPremisesSyncEnabled', 'onPremisesSamAccountName', 'onPremisesUserPrincipalName',
-            'onPremisesSecurityIdentifier', 'principalType', 'collectionTimestamp', 'deleted'
+            'onPremisesSecurityIdentifier',
+            # Authentication methods (embedded)
+            'perUserMfaState', 'hasAuthenticator', 'hasPhone', 'hasFido2', 'hasWindowsHello',
+            'hasSoftwareOath', 'authMethodCount',
+            'principalType', 'collectionTimestamp', 'deleted'
         )
         "group" = @(
             'objectId', 'displayName', 'description', 'securityEnabled', 'mailEnabled', 'mail',
@@ -53,7 +57,10 @@ function Get-DynamicProperties {
             'objectId', 'displayName', 'appId', 'appDisplayName', 'servicePrincipalType',
             'accountEnabled', 'appRoleAssignmentRequired', 'deletedDateTime', 'description', 'notes',
             'servicePrincipalNames', 'tags', 'addIns', 'oauth2PermissionScopes',
-            'resourceSpecificApplicationPermissions', 'principalType', 'collectionTimestamp', 'deleted'
+            'resourceSpecificApplicationPermissions',
+            # Credentials (secrets and certificates)
+            'keyCredentials', 'passwordCredentials', 'secretCount', 'certificateCount',
+            'principalType', 'collectionTimestamp', 'deleted'
         )
         "device" = @(
             'objectId', 'displayName', 'deviceId', 'accountEnabled', 'operatingSystem',
@@ -70,9 +77,9 @@ function Get-DynamicProperties {
 
     # Priority ordering for each type
     $priority = switch ($dataType) {
-        "user" { @('objectId', 'displayName', 'userPrincipalName', 'accountEnabled', 'userType') }
+        "user" { @('objectId', 'displayName', 'userPrincipalName', 'accountEnabled', 'userType', 'perUserMfaState', 'hasAuthenticator', 'authMethodCount') }
         "group" { @('objectId', 'displayName', 'securityEnabled', 'memberCountDirect', 'userMemberCount', 'groupMemberCount', 'groupTypes') }
-        "servicePrincipal" { @('objectId', 'displayName', 'appId', 'servicePrincipalType', 'accountEnabled') }
+        "servicePrincipal" { @('objectId', 'displayName', 'appId', 'servicePrincipalType', 'accountEnabled', 'secretCount', 'certificateCount') }
         "device" { @('objectId', 'displayName', 'deviceId', 'isCompliant', 'isManaged', 'operatingSystem') }
         "application" { @('objectId', 'displayName', 'appId', 'signInAudience', 'secretCount', 'certificateCount') }
         "relationship" { @('id', 'sourceDisplayName', 'relationType', 'targetDisplayName', 'membershipType', 'inheritanceDepth', 'status') }
@@ -257,6 +264,8 @@ try {
     $pimGroupData = @($allRelationships | Where-Object { $_.relationType -match 'pimGroupEligible|pimGroupActive' })
     $azureRbacData = @($allRelationships | Where-Object { $_.relationType -eq 'azureRbac' })
     $appRoleData = @($allRelationships | Where-Object { $_.relationType -eq 'appRoleAssignment' })
+    $ownershipData = @($allRelationships | Where-Object { $_.relationType -eq 'appOwner' -or $_.relationType -eq 'spOwner' })
+    $licenseData = @($allRelationships | Where-Object { $_.relationType -eq 'license' })
 
     # Process policies - group by policyType
     $allPolicies = $policiesIn ?? @()
@@ -288,6 +297,8 @@ try {
     $pimGroupTable = New-TableHtml -data $pimGroupData -tableId 'pg-table' -dataType 'relationship'
     $rbacTable = New-TableHtml -data $azureRbacData -tableId 'rb-table' -dataType 'relationship'
     $appRoleTable = New-TableHtml -data $appRoleData -tableId 'ar-table' -dataType 'relationship'
+    $ownershipTable = New-TableHtml -data $ownershipData -tableId 'ow-table' -dataType 'relationship'
+    $licenseTable = New-TableHtml -data $licenseData -tableId 'lic-table' -dataType 'relationship'
     $caTable = New-TableHtml -data $caPolicyData -tableId 'ca-table' -dataType 'policy'
     $rolePolicyTable = New-TableHtml -data $rolePolicyData -tableId 'rp-table' -dataType 'policy'
     $signInTable = New-TableHtml -data $signInData -tableId 'si-table' -dataType 'signIn'
@@ -299,7 +310,7 @@ try {
         <div style='background:#e8f4fd;padding:10px;margin:10px 0;border-left:4px solid #0078d4;border-radius:5px;font-size:0.85em;'>
             <b>V2 Unified Architecture - Data Summary:</b><br/>
             <b>Principals:</b> Users: <b>$($userData.Count)</b> | Groups: <b>$($groupData.Count)</b> | SPs: <b>$($spData.Count)</b> | Devices: <b>$($deviceData.Count)</b> | Apps: <b>$($appData.Count)</b><br/>
-            <b>Relationships:</b> Group Members: <b>$($groupMembershipData.Count)</b> | Dir Roles: <b>$($directoryRoleData.Count)</b> | PIM Roles: <b>$($pimRoleData.Count)</b> | PIM Groups: <b>$($pimGroupData.Count)</b> | Azure RBAC: <b>$($azureRbacData.Count)</b> | App Roles: <b>$($appRoleData.Count)</b><br/>
+            <b>Relationships:</b> Group Members: <b>$($groupMembershipData.Count)</b> | Dir Roles: <b>$($directoryRoleData.Count)</b> | PIM Roles: <b>$($pimRoleData.Count)</b> | PIM Groups: <b>$($pimGroupData.Count)</b> | Azure RBAC: <b>$($azureRbacData.Count)</b> | Owners: <b>$($ownershipData.Count)</b> | Licenses: <b>$($licenseData.Count)</b><br/>
             <b>Policies:</b> CA: <b>$($caPolicyData.Count)</b> | Role Mgmt: <b>$($rolePolicyData.Count)</b><br/>
             <b>Events:</b> Sign-Ins: <b>$($signInData.Count)</b> | Audits: <b>$($auditData.Count)</b><br/>
             <b>Changes:</b> <b>$($changesData.Count)</b> | <b>Roles:</b> <b>$($rolesData.Count)</b><br/>
@@ -372,6 +383,8 @@ try {
             <button class="tab" onclick="showTab('pr-tab', this)">PIM Roles ($($pimRoleData.Count))</button>
             <button class="tab" onclick="showTab('pg-tab', this)">PIM Groups ($($pimGroupData.Count))</button>
             <button class="tab" onclick="showTab('rb-tab', this)">Azure RBAC ($($azureRbacData.Count))</button>
+            <button class="tab" onclick="showTab('ow-tab', this)">Owners ($($ownershipData.Count))</button>
+            <button class="tab" onclick="showTab('lic-tab', this)">Licenses ($($licenseData.Count))</button>
             <span class="tab-divider"></span>
             <span class="section-label">POLICIES:</span>
             <button class="tab" onclick="showTab('ca-tab', this)">CA Policies ($($caPolicyData.Count))</button>
@@ -415,6 +428,12 @@ try {
         </div>
         <div id="rb-tab" class="tab-content">
             <div class="table-container"><table id="rb-table"><thead><tr>$($rbacTable.Headers)</tr></thead><tbody>$($rbacTable.Rows)</tbody></table></div>
+        </div>
+        <div id="ow-tab" class="tab-content">
+            <div class="table-container"><table id="ow-table"><thead><tr>$($ownershipTable.Headers)</tr></thead><tbody>$($ownershipTable.Rows)</tbody></table></div>
+        </div>
+        <div id="lic-tab" class="tab-content">
+            <div class="table-container"><table id="lic-table"><thead><tr>$($licenseTable.Headers)</tr></thead><tbody>$($licenseTable.Rows)</tbody></table></div>
         </div>
 
         <!-- Policies -->
