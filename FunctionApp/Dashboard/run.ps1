@@ -150,7 +150,7 @@ function Format-DisplayValue {
     # Handle dates
     if ($propertyName -match 'DateTime|Timestamp') {
         try { return ([DateTime]::Parse($value)).ToString("yyyy-MM-dd HH:mm") }
-        catch { }
+        catch { Write-Verbose "Date parsing failed for: $value" }
     }
 
     # Color-code risk levels
@@ -385,6 +385,7 @@ try {
             <button class="tab" onclick="showTab('rb-tab', this)">Azure RBAC ($($azureRbacData.Count))</button>
             <button class="tab" onclick="showTab('ow-tab', this)">Owners ($($ownershipData.Count))</button>
             <button class="tab" onclick="showTab('lic-tab', this)">Licenses ($($licenseData.Count))</button>
+            <button class="tab" onclick="showTab('ar-tab', this)">App Roles ($($appRoleData.Count))</button>
             <span class="tab-divider"></span>
             <span class="section-label">POLICIES:</span>
             <button class="tab" onclick="showTab('ca-tab', this)">CA Policies ($($caPolicyData.Count))</button>
@@ -394,6 +395,9 @@ try {
             <button class="tab" onclick="showTab('si-tab', this)">Sign-Ins ($($signInData.Count))</button>
             <button class="tab" onclick="showTab('au-tab', this)">Audits ($($auditData.Count))</button>
             <button class="tab" onclick="showTab('ch-tab', this)">Changes ($($changesData.Count))</button>
+            <span class="tab-divider"></span>
+            <span class="section-label">REFERENCE:</span>
+            <button class="tab" onclick="showTab('ro-tab', this)">Roles ($($rolesData.Count))</button>
         </div>
 
         <!-- Principals -->
@@ -435,6 +439,9 @@ try {
         <div id="lic-tab" class="tab-content">
             <div class="table-container"><table id="lic-table"><thead><tr>$($licenseTable.Headers)</tr></thead><tbody>$($licenseTable.Rows)</tbody></table></div>
         </div>
+        <div id="ar-tab" class="tab-content">
+            <div class="table-container"><table id="ar-table"><thead><tr>$($appRoleTable.Headers)</tr></thead><tbody>$($appRoleTable.Rows)</tbody></table></div>
+        </div>
 
         <!-- Policies -->
         <div id="ca-tab" class="tab-content">
@@ -453,6 +460,11 @@ try {
         </div>
         <div id="ch-tab" class="tab-content">
             <div class="table-container"><table id="ch-table"><thead><tr>$($changesTable.Headers)</tr></thead><tbody>$($changesTable.Rows)</tbody></table></div>
+        </div>
+
+        <!-- Reference -->
+        <div id="ro-tab" class="tab-content">
+            <div class="table-container"><table id="ro-table"><thead><tr>$($rolesTable.Headers)</tr></thead><tbody>$($rolesTable.Rows)</tbody></table></div>
         </div>
     </div>
 </body>

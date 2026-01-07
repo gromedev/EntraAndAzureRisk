@@ -243,10 +243,6 @@ try {
             [hashtable]$GroupNesting
         )
 
-        # BFS to find path from member to target group through nested groups
-        $queue = [System.Collections.Generic.Queue[object]]::new()
-        $visited = [System.Collections.Generic.HashSet[string]]::new()
-
         # Find which groups this member belongs to directly
         foreach ($groupId in $GroupNesting.Keys) {
             if ($GroupNesting[$groupId] -contains $TargetGroupId) {
@@ -263,9 +259,8 @@ try {
         return @()
     }
 
-    # Only process groups that have nested groups (optimization)
-    $groupsWithNesting = $groups | Where-Object { $groupNesting.Values | Where-Object { $_ -contains $_.id } }
-    $groupsToProcess = $groups  # Process all groups for transitive
+    # Process all groups for transitive memberships
+    $groupsToProcess = $groups
 
     Write-Verbose "Processing $($groupsToProcess.Count) groups for transitive memberships"
 

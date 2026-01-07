@@ -39,7 +39,6 @@ if (-not $ActivityInput) {
 }
 
 $blobName = $ActivityInput.BlobName
-$timestamp = $ActivityInput.Timestamp
 
 if (-not $blobName) {
     return @{
@@ -82,8 +81,8 @@ try {
     $lines = $blobContent -split "`n" | Where-Object { $_.Trim() }
     foreach ($line in $lines) {
         try {
-            $event = $line | ConvertFrom-Json
-            $events += $event
+            $eventItem = $line | ConvertFrom-Json
+            $events += $eventItem
         }
         catch {
             Write-Warning "Failed to parse line: $($_.Exception.Message)"
@@ -109,22 +108,22 @@ try {
     # Prepare documents for Cosmos output binding
     # Each event already has id, eventType, eventDate from collector
     $cosmosDocuments = @()
-    foreach ($event in $events) {
+    foreach ($eventItem in $events) {
         # Ensure required fields
-        if (-not $event.id) {
-            $event.id = [guid]::NewGuid().ToString()
+        if (-not $eventItem.id) {
+            $eventItem.id = [guid]::NewGuid().ToString()
         }
-        if (-not $event.eventDate) {
+        if (-not $eventItem.eventDate) {
             # Extract date from createdDateTime for partition key
-            $created = $event.createdDateTime ?? $event.activityDateTime
+            $created = $eventItem.createdDateTime ?? $eventItem.activityDateTime
             if ($created) {
-                $event.eventDate = ([datetime]$created).ToString("yyyy-MM-dd")
+                $eventItem.eventDate = ([datetime]$created).ToString("yyyy-MM-dd")
             }
             else {
-                $event.eventDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
+                $eventItem.eventDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
             }
         }
-        $cosmosDocuments += $event
+        $cosmosDocuments += $eventItem
     }
 
     # Push to output binding

@@ -572,7 +572,7 @@ function Add-BlobContent {
                             try {
                                 $retryDate = [DateTime]::ParseExact($retryAfterHeader, 'r', [System.Globalization.CultureInfo]::InvariantCulture)
                                 $delay = [Math]::Max([Math]::Ceiling(($retryDate - (Get-Date).ToUniversalTime()).TotalSeconds), 1)
-                            } catch {}
+                            } catch { Write-Verbose "Failed to parse retry-after date, using default delay" }
                         }
                     }
                 }
