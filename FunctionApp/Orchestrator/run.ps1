@@ -1,12 +1,12 @@
 
-#region Durable Functions Orchestrator - V2 UNIFIED ARCHITECTURE (11 Collectors)
+#region Durable Functions Orchestrator - V2 UNIFIED ARCHITECTURE (15 Collectors)
 <#
 .SYNOPSIS
     Orchestrates comprehensive Entra and Azure data collection with delta change detection
 .DESCRIPTION
     V2 Architecture: Unified Containers with Type Discriminators
 
-    11 Collectors → 4+ Indexers → 7+ Containers
+    15 Collectors → 4+ Indexers → 7+ Containers
 
     Phase 1: Principal Collection (Parallel - 5 collectors)
       - CollectUsersWithAuthMethods → users.jsonl (principalType=user)
@@ -20,10 +20,14 @@
       - CollectPolicies → policies.jsonl (all policyType: conditionalAccess, roleManagement, roleManagementAssignment, namedLocation)
       - CollectEvents → events.jsonl (all eventType: signIn, audit)
 
-    Phase 2.5: Azure Resource Collection (Parallel - 3 collectors)
+    Phase 2.5: Azure Resource Collection (Parallel - 7 collectors)
       - CollectAzureHierarchy → azureresources.jsonl (resourceType: tenant, managementGroup, subscription, resourceGroup)
       - CollectKeyVaults → keyvaults.jsonl (resourceType: keyVault)
       - CollectVirtualMachines → virtualmachines.jsonl (resourceType: virtualMachine)
+      - CollectAutomationAccounts → automationaccounts.jsonl (resourceType: automationAccount)
+      - CollectFunctionApps → functionapps.jsonl (resourceType: functionApp)
+      - CollectLogicApps → logicapps.jsonl (resourceType: logicApp)
+      - CollectWebApps → webapps.jsonl (resourceType: webApp)
       + Azure relationships (contains, keyVaultAccess, hasManagedIdentity)
 
     Phase 3: Unified Indexing (4 indexers)
@@ -35,7 +39,7 @@
     Phase 4: TestAIFoundry - Optional connectivity test
 
     V2 Benefits:
-    - 11 collectors (8 Entra + 3 Azure)
+    - 15 collectors (8 Entra + 7 Azure)
     - Unified containers reduce Cosmos complexity (28 → 7 containers)
     - Type discriminators enable filtering (principalType, relationType, policyType, eventType, resourceType)
     - Denormalized relationship data for Power BI (no joins needed)
@@ -47,7 +51,7 @@
 param($Context)
 
 try {
-    Write-Verbose "Starting Entra data collection orchestration (V2 - 8 Collectors)"
+    Write-Verbose "Starting Entra data collection orchestration (V2 - 15 Collectors)"
     Write-Verbose "Instance ID: $($Context.InstanceId)"
 
     # Single Get-Date call to prevent race condition
@@ -109,8 +113,8 @@ try {
         -NoWait
     #endregion
 
-    #region Phase 2.5: Azure Resource Collection (Parallel - 3 collectors)
-    Write-Verbose "Phase 2.5: Collecting Azure resources (3 collectors in parallel)..."
+    #region Phase 2.5: Azure Resource Collection (Parallel - 7 collectors)
+    Write-Verbose "Phase 2.5: Collecting Azure resources (7 collectors in parallel)..."
 
     $azureHierarchyTask = Invoke-DurableActivity `
         -FunctionName 'CollectAzureHierarchy' `
@@ -126,10 +130,30 @@ try {
         -FunctionName 'CollectVirtualMachines' `
         -Input $collectionInput `
         -NoWait
+
+    $automationAccountsTask = Invoke-DurableActivity `
+        -FunctionName 'CollectAutomationAccounts' `
+        -Input $collectionInput `
+        -NoWait
+
+    $functionAppsTask = Invoke-DurableActivity `
+        -FunctionName 'CollectFunctionApps' `
+        -Input $collectionInput `
+        -NoWait
+
+    $logicAppsTask = Invoke-DurableActivity `
+        -FunctionName 'CollectLogicApps' `
+        -Input $collectionInput `
+        -NoWait
+
+    $webAppsTask = Invoke-DurableActivity `
+        -FunctionName 'CollectWebApps' `
+        -Input $collectionInput `
+        -NoWait
     #endregion
 
     #region Wait for All Collections
-    Write-Verbose "Waiting for all 11 collectors to complete..."
+    Write-Verbose "Waiting for all 15 collectors to complete..."
 
     $allResults = Wait-ActivityFunction -Task @(
         $usersTask,
@@ -142,7 +166,11 @@ try {
         $eventsTask,
         $azureHierarchyTask,
         $keyVaultsTask,
-        $virtualMachinesTask
+        $virtualMachinesTask,
+        $automationAccountsTask,
+        $functionAppsTask,
+        $logicAppsTask,
+        $webAppsTask
     )
 
     $usersResult = $allResults[0]
@@ -156,6 +184,10 @@ try {
     $azureHierarchyResult = $allResults[8]
     $keyVaultsResult = $allResults[9]
     $virtualMachinesResult = $allResults[10]
+    $automationAccountsResult = $allResults[11]
+    $functionAppsResult = $allResults[12]
+    $logicAppsResult = $allResults[13]
+    $webAppsResult = $allResults[14]
     #endregion
 
     #region Validate Collection Results
@@ -216,6 +248,26 @@ try {
         $virtualMachinesResult = @{ Success = $false; VirtualMachineCount = 0; ResourcesBlobName = $null; RelationshipsBlobName = $null }
     }
 
+    if (-not $automationAccountsResult.Success) {
+        Write-Warning "Automation Accounts collection failed: $($automationAccountsResult.Error)"
+        $automationAccountsResult = @{ Success = $false; AutomationAccountCount = 0; ResourcesBlobName = $null; RelationshipsBlobName = $null }
+    }
+
+    if (-not $functionAppsResult.Success) {
+        Write-Warning "Function Apps collection failed: $($functionAppsResult.Error)"
+        $functionAppsResult = @{ Success = $false; FunctionAppCount = 0; ResourcesBlobName = $null; RelationshipsBlobName = $null }
+    }
+
+    if (-not $logicAppsResult.Success) {
+        Write-Warning "Logic Apps collection failed: $($logicAppsResult.Error)"
+        $logicAppsResult = @{ Success = $false; LogicAppCount = 0; ResourcesBlobName = $null; RelationshipsBlobName = $null }
+    }
+
+    if (-not $webAppsResult.Success) {
+        Write-Warning "Web Apps collection failed: $($webAppsResult.Error)"
+        $webAppsResult = @{ Success = $false; WebAppCount = 0; ResourcesBlobName = $null; RelationshipsBlobName = $null }
+    }
+
     Write-Verbose "Collection complete:"
     Write-Verbose "  Users: $($usersResult.UserCount ?? 0)"
     Write-Verbose "  Groups: $($groupsResult.GroupCount ?? 0)"
@@ -228,6 +280,10 @@ try {
     Write-Verbose "  Azure Hierarchy: $($azureHierarchyResult.ResourceCount ?? 0) resources"
     Write-Verbose "  Key Vaults: $($keyVaultsResult.KeyVaultCount ?? 0)"
     Write-Verbose "  Virtual Machines: $($virtualMachinesResult.VirtualMachineCount ?? 0)"
+    Write-Verbose "  Automation Accounts: $($automationAccountsResult.AutomationAccountCount ?? 0)"
+    Write-Verbose "  Function Apps: $($functionAppsResult.FunctionAppCount ?? 0)"
+    Write-Verbose "  Logic Apps: $($logicAppsResult.LogicAppCount ?? 0)"
+    Write-Verbose "  Web Apps: $($webAppsResult.WebAppCount ?? 0)"
     #endregion
 
     #region Phase 3: Unified Indexing (4 indexers)
@@ -363,6 +419,50 @@ try {
         }
     }
 
+    $automationAccountsResourcesIndexResult = @{ Success = $false; TotalAzureResources = 0; NewAzureResources = 0; ModifiedAzureResources = 0; DeletedAzureResources = 0; UnchangedAzureResources = 0; CosmosWriteCount = 0 }
+    if ($automationAccountsResult.Success -and $automationAccountsResult.ResourcesBlobName) {
+        $automationAccountsResourcesIndexInput = @{ Timestamp = $timestamp; BlobName = $automationAccountsResult.ResourcesBlobName }
+        $automationAccountsResourcesIndexResult = Invoke-DurableActivity -FunctionName 'IndexAzureResourcesInCosmosDB' -Input $automationAccountsResourcesIndexInput
+        if ($automationAccountsResourcesIndexResult.Success) {
+            Write-Verbose "Automation Accounts resources indexing complete: $($automationAccountsResourcesIndexResult.TotalAzureResources) total"
+        } else {
+            Write-Warning "Automation Accounts resources indexing failed: $($automationAccountsResourcesIndexResult.Error)"
+        }
+    }
+
+    $functionAppsResourcesIndexResult = @{ Success = $false; TotalAzureResources = 0; NewAzureResources = 0; ModifiedAzureResources = 0; DeletedAzureResources = 0; UnchangedAzureResources = 0; CosmosWriteCount = 0 }
+    if ($functionAppsResult.Success -and $functionAppsResult.ResourcesBlobName) {
+        $functionAppsResourcesIndexInput = @{ Timestamp = $timestamp; BlobName = $functionAppsResult.ResourcesBlobName }
+        $functionAppsResourcesIndexResult = Invoke-DurableActivity -FunctionName 'IndexAzureResourcesInCosmosDB' -Input $functionAppsResourcesIndexInput
+        if ($functionAppsResourcesIndexResult.Success) {
+            Write-Verbose "Function Apps resources indexing complete: $($functionAppsResourcesIndexResult.TotalAzureResources) total"
+        } else {
+            Write-Warning "Function Apps resources indexing failed: $($functionAppsResourcesIndexResult.Error)"
+        }
+    }
+
+    $logicAppsResourcesIndexResult = @{ Success = $false; TotalAzureResources = 0; NewAzureResources = 0; ModifiedAzureResources = 0; DeletedAzureResources = 0; UnchangedAzureResources = 0; CosmosWriteCount = 0 }
+    if ($logicAppsResult.Success -and $logicAppsResult.ResourcesBlobName) {
+        $logicAppsResourcesIndexInput = @{ Timestamp = $timestamp; BlobName = $logicAppsResult.ResourcesBlobName }
+        $logicAppsResourcesIndexResult = Invoke-DurableActivity -FunctionName 'IndexAzureResourcesInCosmosDB' -Input $logicAppsResourcesIndexInput
+        if ($logicAppsResourcesIndexResult.Success) {
+            Write-Verbose "Logic Apps resources indexing complete: $($logicAppsResourcesIndexResult.TotalAzureResources) total"
+        } else {
+            Write-Warning "Logic Apps resources indexing failed: $($logicAppsResourcesIndexResult.Error)"
+        }
+    }
+
+    $webAppsResourcesIndexResult = @{ Success = $false; TotalAzureResources = 0; NewAzureResources = 0; ModifiedAzureResources = 0; DeletedAzureResources = 0; UnchangedAzureResources = 0; CosmosWriteCount = 0 }
+    if ($webAppsResult.Success -and $webAppsResult.ResourcesBlobName) {
+        $webAppsResourcesIndexInput = @{ Timestamp = $timestamp; BlobName = $webAppsResult.ResourcesBlobName }
+        $webAppsResourcesIndexResult = Invoke-DurableActivity -FunctionName 'IndexAzureResourcesInCosmosDB' -Input $webAppsResourcesIndexInput
+        if ($webAppsResourcesIndexResult.Success) {
+            Write-Verbose "Web Apps resources indexing complete: $($webAppsResourcesIndexResult.TotalAzureResources) total"
+        } else {
+            Write-Warning "Web Apps resources indexing failed: $($webAppsResourcesIndexResult.Error)"
+        }
+    }
+
     # Index Azure Relationships (azureRelationships container)
     $azureHierarchyRelationshipsIndexResult = @{ Success = $false; TotalAzureRelationships = 0; NewAzureRelationships = 0; ModifiedAzureRelationships = 0; DeletedAzureRelationships = 0; UnchangedAzureRelationships = 0; CosmosWriteCount = 0 }
     if ($azureHierarchyResult.Success -and $azureHierarchyResult.RelationshipsBlobName) {
@@ -394,6 +494,50 @@ try {
             Write-Verbose "Virtual Machines relationships indexing complete: $($virtualMachinesRelationshipsIndexResult.TotalAzureRelationships) total"
         } else {
             Write-Warning "Virtual Machines relationships indexing failed: $($virtualMachinesRelationshipsIndexResult.Error)"
+        }
+    }
+
+    $automationAccountsRelationshipsIndexResult = @{ Success = $false; TotalAzureRelationships = 0; NewAzureRelationships = 0; ModifiedAzureRelationships = 0; DeletedAzureRelationships = 0; UnchangedAzureRelationships = 0; CosmosWriteCount = 0 }
+    if ($automationAccountsResult.Success -and $automationAccountsResult.RelationshipsBlobName) {
+        $automationAccountsRelationshipsIndexInput = @{ Timestamp = $timestamp; BlobName = $automationAccountsResult.RelationshipsBlobName }
+        $automationAccountsRelationshipsIndexResult = Invoke-DurableActivity -FunctionName 'IndexAzureRelationshipsInCosmosDB' -Input $automationAccountsRelationshipsIndexInput
+        if ($automationAccountsRelationshipsIndexResult.Success) {
+            Write-Verbose "Automation Accounts relationships indexing complete: $($automationAccountsRelationshipsIndexResult.TotalAzureRelationships) total"
+        } else {
+            Write-Warning "Automation Accounts relationships indexing failed: $($automationAccountsRelationshipsIndexResult.Error)"
+        }
+    }
+
+    $functionAppsRelationshipsIndexResult = @{ Success = $false; TotalAzureRelationships = 0; NewAzureRelationships = 0; ModifiedAzureRelationships = 0; DeletedAzureRelationships = 0; UnchangedAzureRelationships = 0; CosmosWriteCount = 0 }
+    if ($functionAppsResult.Success -and $functionAppsResult.RelationshipsBlobName) {
+        $functionAppsRelationshipsIndexInput = @{ Timestamp = $timestamp; BlobName = $functionAppsResult.RelationshipsBlobName }
+        $functionAppsRelationshipsIndexResult = Invoke-DurableActivity -FunctionName 'IndexAzureRelationshipsInCosmosDB' -Input $functionAppsRelationshipsIndexInput
+        if ($functionAppsRelationshipsIndexResult.Success) {
+            Write-Verbose "Function Apps relationships indexing complete: $($functionAppsRelationshipsIndexResult.TotalAzureRelationships) total"
+        } else {
+            Write-Warning "Function Apps relationships indexing failed: $($functionAppsRelationshipsIndexResult.Error)"
+        }
+    }
+
+    $logicAppsRelationshipsIndexResult = @{ Success = $false; TotalAzureRelationships = 0; NewAzureRelationships = 0; ModifiedAzureRelationships = 0; DeletedAzureRelationships = 0; UnchangedAzureRelationships = 0; CosmosWriteCount = 0 }
+    if ($logicAppsResult.Success -and $logicAppsResult.RelationshipsBlobName) {
+        $logicAppsRelationshipsIndexInput = @{ Timestamp = $timestamp; BlobName = $logicAppsResult.RelationshipsBlobName }
+        $logicAppsRelationshipsIndexResult = Invoke-DurableActivity -FunctionName 'IndexAzureRelationshipsInCosmosDB' -Input $logicAppsRelationshipsIndexInput
+        if ($logicAppsRelationshipsIndexResult.Success) {
+            Write-Verbose "Logic Apps relationships indexing complete: $($logicAppsRelationshipsIndexResult.TotalAzureRelationships) total"
+        } else {
+            Write-Warning "Logic Apps relationships indexing failed: $($logicAppsRelationshipsIndexResult.Error)"
+        }
+    }
+
+    $webAppsRelationshipsIndexResult = @{ Success = $false; TotalAzureRelationships = 0; NewAzureRelationships = 0; ModifiedAzureRelationships = 0; DeletedAzureRelationships = 0; UnchangedAzureRelationships = 0; CosmosWriteCount = 0 }
+    if ($webAppsResult.Success -and $webAppsResult.RelationshipsBlobName) {
+        $webAppsRelationshipsIndexInput = @{ Timestamp = $timestamp; BlobName = $webAppsResult.RelationshipsBlobName }
+        $webAppsRelationshipsIndexResult = Invoke-DurableActivity -FunctionName 'IndexAzureRelationshipsInCosmosDB' -Input $webAppsRelationshipsIndexInput
+        if ($webAppsRelationshipsIndexResult.Success) {
+            Write-Verbose "Web Apps relationships indexing complete: $($webAppsRelationshipsIndexResult.TotalAzureRelationships) total"
+        } else {
+            Write-Warning "Web Apps relationships indexing failed: $($webAppsRelationshipsIndexResult.Error)"
         }
     }
     #endregion
@@ -429,7 +573,7 @@ try {
         OrchestrationId = $Context.InstanceId
         Timestamp = $timestampFormatted
         Status = 'Completed'
-        Architecture = 'V2-8Collectors'
+        Architecture = 'V2-15Collectors'
 
         Collection = @{
             Users = @{
@@ -496,6 +640,34 @@ try {
                 ResourcesBlobPath = $virtualMachinesResult.ResourcesBlobName
                 RelationshipsBlobPath = $virtualMachinesResult.RelationshipsBlobName
                 Summary = $virtualMachinesResult.Summary
+            }
+            AutomationAccounts = @{
+                Success = $automationAccountsResult.Success
+                Count = $automationAccountsResult.AutomationAccountCount ?? 0
+                ResourcesBlobPath = $automationAccountsResult.ResourcesBlobName
+                RelationshipsBlobPath = $automationAccountsResult.RelationshipsBlobName
+                Summary = $automationAccountsResult.Summary
+            }
+            FunctionApps = @{
+                Success = $functionAppsResult.Success
+                Count = $functionAppsResult.FunctionAppCount ?? 0
+                ResourcesBlobPath = $functionAppsResult.ResourcesBlobName
+                RelationshipsBlobPath = $functionAppsResult.RelationshipsBlobName
+                Summary = $functionAppsResult.Summary
+            }
+            LogicApps = @{
+                Success = $logicAppsResult.Success
+                Count = $logicAppsResult.LogicAppCount ?? 0
+                ResourcesBlobPath = $logicAppsResult.ResourcesBlobName
+                RelationshipsBlobPath = $logicAppsResult.RelationshipsBlobName
+                Summary = $logicAppsResult.Summary
+            }
+            WebApps = @{
+                Success = $webAppsResult.Success
+                Count = $webAppsResult.WebAppCount ?? 0
+                ResourcesBlobPath = $webAppsResult.ResourcesBlobName
+                RelationshipsBlobPath = $webAppsResult.RelationshipsBlobName
+                Summary = $webAppsResult.Summary
             }
         }
 
@@ -592,6 +764,34 @@ try {
                     Modified = $virtualMachinesResourcesIndexResult.ModifiedAzureResources
                     CosmosWrites = $virtualMachinesResourcesIndexResult.CosmosWriteCount
                 }
+                AutomationAccounts = @{
+                    Success = $automationAccountsResourcesIndexResult.Success
+                    Total = $automationAccountsResourcesIndexResult.TotalAzureResources
+                    New = $automationAccountsResourcesIndexResult.NewAzureResources
+                    Modified = $automationAccountsResourcesIndexResult.ModifiedAzureResources
+                    CosmosWrites = $automationAccountsResourcesIndexResult.CosmosWriteCount
+                }
+                FunctionApps = @{
+                    Success = $functionAppsResourcesIndexResult.Success
+                    Total = $functionAppsResourcesIndexResult.TotalAzureResources
+                    New = $functionAppsResourcesIndexResult.NewAzureResources
+                    Modified = $functionAppsResourcesIndexResult.ModifiedAzureResources
+                    CosmosWrites = $functionAppsResourcesIndexResult.CosmosWriteCount
+                }
+                LogicApps = @{
+                    Success = $logicAppsResourcesIndexResult.Success
+                    Total = $logicAppsResourcesIndexResult.TotalAzureResources
+                    New = $logicAppsResourcesIndexResult.NewAzureResources
+                    Modified = $logicAppsResourcesIndexResult.ModifiedAzureResources
+                    CosmosWrites = $logicAppsResourcesIndexResult.CosmosWriteCount
+                }
+                WebApps = @{
+                    Success = $webAppsResourcesIndexResult.Success
+                    Total = $webAppsResourcesIndexResult.TotalAzureResources
+                    New = $webAppsResourcesIndexResult.NewAzureResources
+                    Modified = $webAppsResourcesIndexResult.ModifiedAzureResources
+                    CosmosWrites = $webAppsResourcesIndexResult.CosmosWriteCount
+                }
             }
             AzureRelationships = @{
                 Hierarchy = @{
@@ -615,6 +815,34 @@ try {
                     Modified = $virtualMachinesRelationshipsIndexResult.ModifiedAzureRelationships
                     CosmosWrites = $virtualMachinesRelationshipsIndexResult.CosmosWriteCount
                 }
+                AutomationAccounts = @{
+                    Success = $automationAccountsRelationshipsIndexResult.Success
+                    Total = $automationAccountsRelationshipsIndexResult.TotalAzureRelationships
+                    New = $automationAccountsRelationshipsIndexResult.NewAzureRelationships
+                    Modified = $automationAccountsRelationshipsIndexResult.ModifiedAzureRelationships
+                    CosmosWrites = $automationAccountsRelationshipsIndexResult.CosmosWriteCount
+                }
+                FunctionApps = @{
+                    Success = $functionAppsRelationshipsIndexResult.Success
+                    Total = $functionAppsRelationshipsIndexResult.TotalAzureRelationships
+                    New = $functionAppsRelationshipsIndexResult.NewAzureRelationships
+                    Modified = $functionAppsRelationshipsIndexResult.ModifiedAzureRelationships
+                    CosmosWrites = $functionAppsRelationshipsIndexResult.CosmosWriteCount
+                }
+                LogicApps = @{
+                    Success = $logicAppsRelationshipsIndexResult.Success
+                    Total = $logicAppsRelationshipsIndexResult.TotalAzureRelationships
+                    New = $logicAppsRelationshipsIndexResult.NewAzureRelationships
+                    Modified = $logicAppsRelationshipsIndexResult.ModifiedAzureRelationships
+                    CosmosWrites = $logicAppsRelationshipsIndexResult.CosmosWriteCount
+                }
+                WebApps = @{
+                    Success = $webAppsRelationshipsIndexResult.Success
+                    Total = $webAppsRelationshipsIndexResult.TotalAzureRelationships
+                    New = $webAppsRelationshipsIndexResult.NewAzureRelationships
+                    Modified = $webAppsRelationshipsIndexResult.ModifiedAzureRelationships
+                    CosmosWrites = $webAppsRelationshipsIndexResult.CosmosWriteCount
+                }
             }
         }
 
@@ -634,14 +862,22 @@ try {
             TotalPolicies = $policiesResult.PolicyCount ?? 0
             TotalEvents = $eventsResult.EventCount ?? 0
 
-            # Azure resource counts (Phase 2)
+            # Azure resource counts (Phase 2 + Phase 3)
             TotalAzureHierarchyResources = $azureHierarchyResult.ResourceCount ?? 0
             TotalKeyVaults = $keyVaultsResult.KeyVaultCount ?? 0
             TotalVirtualMachines = $virtualMachinesResult.VirtualMachineCount ?? 0
+            TotalAutomationAccounts = $automationAccountsResult.AutomationAccountCount ?? 0
+            TotalFunctionApps = $functionAppsResult.FunctionAppCount ?? 0
+            TotalLogicApps = $logicAppsResult.LogicAppCount ?? 0
+            TotalWebApps = $webAppsResult.WebAppCount ?? 0
             TotalAzureRelationships = (
                 ($azureHierarchyResult.RelationshipCount ?? 0) +
                 ($keyVaultsResult.RelationshipCount ?? 0) +
-                ($virtualMachinesResult.RelationshipCount ?? 0)
+                ($virtualMachinesResult.RelationshipCount ?? 0) +
+                ($automationAccountsResult.RelationshipCount ?? 0) +
+                ($functionAppsResult.RelationshipCount ?? 0) +
+                ($logicAppsResult.RelationshipCount ?? 0) +
+                ($webAppsResult.RelationshipCount ?? 0)
             )
 
             # Indexing summary
@@ -687,7 +923,11 @@ try {
             AllAzureCollectionsSucceeded = (
                 $azureHierarchyResult.Success -and
                 $keyVaultsResult.Success -and
-                $virtualMachinesResult.Success
+                $virtualMachinesResult.Success -and
+                $automationAccountsResult.Success -and
+                $functionAppsResult.Success -and
+                $logicAppsResult.Success -and
+                $webAppsResult.Success
             )
             AllIndexingSucceeded = (
                 $usersIndexResult.Success -and
@@ -703,19 +943,35 @@ try {
                 $azureHierarchyResourcesIndexResult.Success -and
                 $keyVaultsResourcesIndexResult.Success -and
                 $virtualMachinesResourcesIndexResult.Success -and
+                $automationAccountsResourcesIndexResult.Success -and
+                $functionAppsResourcesIndexResult.Success -and
+                $logicAppsResourcesIndexResult.Success -and
+                $webAppsResourcesIndexResult.Success -and
                 $azureHierarchyRelationshipsIndexResult.Success -and
                 $keyVaultsRelationshipsIndexResult.Success -and
-                $virtualMachinesRelationshipsIndexResult.Success
+                $virtualMachinesRelationshipsIndexResult.Success -and
+                $automationAccountsRelationshipsIndexResult.Success -and
+                $functionAppsRelationshipsIndexResult.Success -and
+                $logicAppsRelationshipsIndexResult.Success -and
+                $webAppsRelationshipsIndexResult.Success
             )
             TotalAzureResourcesIndexed = (
                 ($azureHierarchyResourcesIndexResult.TotalAzureResources ?? 0) +
                 ($keyVaultsResourcesIndexResult.TotalAzureResources ?? 0) +
-                ($virtualMachinesResourcesIndexResult.TotalAzureResources ?? 0)
+                ($virtualMachinesResourcesIndexResult.TotalAzureResources ?? 0) +
+                ($automationAccountsResourcesIndexResult.TotalAzureResources ?? 0) +
+                ($functionAppsResourcesIndexResult.TotalAzureResources ?? 0) +
+                ($logicAppsResourcesIndexResult.TotalAzureResources ?? 0) +
+                ($webAppsResourcesIndexResult.TotalAzureResources ?? 0)
             )
             TotalAzureRelationshipsIndexed = (
                 ($azureHierarchyRelationshipsIndexResult.TotalAzureRelationships ?? 0) +
                 ($keyVaultsRelationshipsIndexResult.TotalAzureRelationships ?? 0) +
-                ($virtualMachinesRelationshipsIndexResult.TotalAzureRelationships ?? 0)
+                ($virtualMachinesRelationshipsIndexResult.TotalAzureRelationships ?? 0) +
+                ($automationAccountsRelationshipsIndexResult.TotalAzureRelationships ?? 0) +
+                ($functionAppsRelationshipsIndexResult.TotalAzureRelationships ?? 0) +
+                ($logicAppsRelationshipsIndexResult.TotalAzureRelationships ?? 0) +
+                ($webAppsRelationshipsIndexResult.TotalAzureRelationships ?? 0)
             )
         }
     }

@@ -123,7 +123,8 @@ try {
     # Note: Requires Application.Read.All permission
     # Note: There's a throttling limit of 150 requests per minute for keyCredentials
     # Added: requiredResourceAccess (API permissions), verifiedPublisher
-    $selectFields = "id,appId,displayName,createdDateTime,signInAudience,publisherDomain,keyCredentials,passwordCredentials,requiredResourceAccess,verifiedPublisher"
+    # Phase 1b: Added identifierUris, web, publicClient, spa, optionalClaims, groupMembershipClaims
+    $selectFields = "id,appId,displayName,createdDateTime,signInAudience,publisherDomain,keyCredentials,passwordCredentials,requiredResourceAccess,verifiedPublisher,identifierUris,web,publicClient,spa,optionalClaims,groupMembershipClaims"
     $nextLink = "https://graph.microsoft.com/v1.0/applications?`$select=$selectFields&`$top=$batchSize"
 
     Write-Verbose "Starting batch processing with streaming writes"
@@ -292,6 +293,15 @@ try {
                 federatedIdentityCredentials = $federatedCredentials
                 hasFederatedCredentials = $hasFederatedCredentials
                 federatedCredentialCount = $federatedCredentials.Count
+
+                # Phase 1b: Security-relevant fields
+                identifierUris = $app.identifierUris ?? @()
+                web = $app.web ?? $null
+                publicClient = $app.publicClient ?? $null
+                spa = $app.spa ?? $null
+                optionalClaims = $app.optionalClaims ?? $null
+                groupMembershipClaims = $app.groupMembershipClaims ?? $null
+
                 collectionTimestamp = $timestampFormatted
             }
 

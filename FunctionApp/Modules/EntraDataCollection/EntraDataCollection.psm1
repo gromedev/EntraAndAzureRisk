@@ -1142,47 +1142,37 @@ function Invoke-DeltaIndexing {
         'x-ms-blob-type' = 'AppendBlob'
     }
 
-    $blobContent = Invoke-RestMethod -Uri $blobUri -Method Get -Headers $headers
+    # Use Invoke-WebRequest to get raw content (not Invoke-RestMethod which auto-parses JSON)
+    # This is critical for JSONL files where each line is a separate JSON object
+    $response = Invoke-WebRequest -Uri $blobUri -Method Get -Headers $headers -UseBasicParsing
+
+    # Convert byte array to string (Azure Blob returns application/octet-stream which comes back as Byte[])
+    if ($response.Content -is [byte[]]) {
+        $blobContent = [System.Text.Encoding]::UTF8.GetString($response.Content)
+    } else {
+        $blobContent = $response.Content
+    }
+    Write-Verbose "Downloaded blob: $($blobContent.Length) characters"
 
     # Parse JSONL into HashMap
     $currentEntities = @{}
     $lineNumber = 0
 
-    # Handle case where Invoke-RestMethod auto-parses single-line JSON as PSCustomObject
-    # This happens when the blob contains exactly 1 JSON line (e.g., a single VM)
-    if ($blobContent -is [PSCustomObject]) {
-        if ($blobContent.objectId) {
-            $currentEntities[$blobContent.objectId] = $blobContent
-            $lineNumber = 1
-        } else {
-            Write-Warning "Blob content is PSCustomObject but has no objectId"
-        }
-    }
-    elseif ($blobContent -is [array]) {
-        # Handle case where blob contains a JSON array
-        foreach ($item in $blobContent) {
-            $lineNumber++
-            if ($item.objectId) {
-                $currentEntities[$item.objectId] = $item
-            } else {
-                Write-Warning "Array item $lineNumber has no objectId"
+    # Always treat as JSONL string - parse each line as separate JSON object
+    foreach ($line in ($blobContent -split "`n")) {
+        $lineNumber++
+        $trimmedLine = $line.Trim()
+        if ($trimmedLine) {
+            try {
+                $entity = $trimmedLine | ConvertFrom-Json
+                if ($entity.objectId) {
+                    $currentEntities[$entity.objectId] = $entity
+                } else {
+                    Write-Verbose "Line $lineNumber has no objectId (may be metadata)"
+                }
             }
-        }
-    }
-    else {
-        # Normal JSONL string processing
-        foreach ($line in ($blobContent -split "`n")) {
-            $lineNumber++
-            if ($line.Trim()) {
-                try {
-                    $entity = $line | ConvertFrom-Json
-                    if ($entity.objectId) {
-                        $currentEntities[$entity.objectId] = $entity
-                    }
-                }
-                catch {
-                    Write-Warning "Failed to parse line $lineNumber`: $_"
-                }
+            catch {
+                Write-Warning "Failed to parse line $lineNumber`: $_"
             }
         }
     }
@@ -1233,8 +1223,8 @@ function Invoke-DeltaIndexing {
     elseif ($isMixedTypeCollection) {
         Write-Verbose "Processing mixed-type collection (relationships) - no type filtering"
     }
-    elseif ($currentEntities.Count -eq 0 -and $Config.EntityType -in @('azureResources', 'azureRelationships')) {
-        # SAFEGUARD: If blob is empty for Azure types, skip delta detection entirely
+    elseif ($currentEntities.Count -eq 0 -and $Config.EntityType -in @('azureResources', 'azureRelationships', 'principals', 'relationships', 'policies', 'events')) {
+        # SAFEGUARD: If blob is empty, skip delta detection entirely
         # This prevents false deletions when the blob couldn't be read or is genuinely empty
         Write-Warning "No entities found in blob for $($Config.EntityType) - skipping delta detection to prevent false deletions"
     }
@@ -1243,10 +1233,10 @@ function Invoke-DeltaIndexing {
     #region Step 2: Build existing entities hashtable from input binding
     $existingEntities = @{}
 
-    # SAFEGUARD: Skip loading existing data for Azure types if blob is empty
+    # SAFEGUARD: Skip loading existing data if blob is empty
     # This prevents false deletions when the blob couldn't be read or is genuinely empty
     $skipExistingDataLoad = $false
-    if ($Config.EntityType -in @('azureResources', 'azureRelationships') -and $currentEntities.Count -eq 0) {
+    if ($Config.EntityType -in @('azureResources', 'azureRelationships', 'principals', 'relationships', 'policies', 'events') -and $currentEntities.Count -eq 0) {
         $skipExistingDataLoad = $true
         Write-Verbose "Skipping existing data load for $($Config.EntityType) - blob was empty, preventing false deletions"
     }

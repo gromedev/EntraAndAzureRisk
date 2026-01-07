@@ -610,6 +610,18 @@
             'hasSoftwareOath'
             'authMethodCount'
             'authMethodTypes'
+            # Phase 1b: User identity and contact fields
+            'mail'
+            'mailNickname'
+            'proxyAddresses'
+            'employeeId'
+            'employeeHireDate'
+            'employeeType'
+            'companyName'
+            'mobilePhone'
+            'businessPhones'
+            'department'
+            'jobTitle'
 
             # Group-specific fields (from CollectEntraGroups)
             'securityEnabled'
@@ -628,6 +640,14 @@
             'groupMemberCount'
             'servicePrincipalMemberCount'
             'deviceMemberCount'
+            # Phase 1b: Group lifecycle and provisioning fields
+            'expirationDateTime'
+            'renewedDateTime'
+            'resourceProvisioningOptions'
+            'resourceBehaviorOptions'
+            'preferredDataLocation'
+            'onPremisesSamAccountName'
+            'onPremisesLastSyncDateTime'
 
             # ServicePrincipal-specific fields (from CollectEntraServicePrincipals)
             'appId'
@@ -640,6 +660,15 @@
             'addIns'
             'oauth2PermissionScopes'
             'resourceSpecificApplicationPermissions'
+            # Phase 1b: SP security and SSO fields
+            'appOwnerOrganizationId'
+            'preferredSingleSignOnMode'
+            'signInAudience'
+            'verifiedPublisher'
+            'homepage'
+            'loginUrl'
+            'logoutUrl'
+            'replyUrls'
 
             # Application-specific fields (from CollectAppRegistrations)
             'signInAudience'
@@ -656,6 +685,13 @@
             'federatedIdentityCredentials'
             'hasFederatedCredentials'
             'federatedCredentialCount'
+            # Phase 1b: App platform config and claims
+            'identifierUris'
+            'web'
+            'publicClient'
+            'spa'
+            'optionalClaims'
+            'groupMembershipClaims'
 
             # Device-specific fields (from CollectDevices)
             'deviceId'
@@ -670,6 +706,11 @@
             'deviceVersion'
             'approximateLastSignInDateTime'
             'registrationDateTime'
+            # Phase 1b: Device MDM and sync fields
+            'extensionAttributes'
+            'mdmAppId'
+            'managementType'
+            'systemLabels'
         )
         ArrayFields = @(
             'groupTypes'
@@ -683,6 +724,14 @@
             'authMethodTypes'
             'requiredResourceAccess'
             'federatedIdentityCredentials'
+            # Phase 1b arrays
+            'proxyAddresses'
+            'businessPhones'
+            'resourceProvisioningOptions'
+            'resourceBehaviorOptions'
+            'replyUrls'
+            'identifierUris'
+            'systemLabels'
         )
         EmbeddedObjectFields = @()
         DocumentFields = @{
@@ -723,12 +772,24 @@
             hasSoftwareOath = 'hasSoftwareOath'
             authMethodCount = 'authMethodCount'
             authMethodTypes = 'authMethodTypes'
+            # Phase 1b: User identity and contact fields
+            mail = 'mail'
+            mailNickname = 'mailNickname'
+            proxyAddresses = 'proxyAddresses'
+            employeeId = 'employeeId'
+            employeeHireDate = 'employeeHireDate'
+            employeeType = 'employeeType'
+            companyName = 'companyName'
+            mobilePhone = 'mobilePhone'
+            businessPhones = 'businessPhones'
+            department = 'department'
+            jobTitle = 'jobTitle'
 
             # Group fields (from CollectEntraGroups)
             description = 'description'
             securityEnabled = 'securityEnabled'
             mailEnabled = 'mailEnabled'
-            mail = 'mail'
+            # mail already defined above in User fields
             groupTypes = 'groupTypes'
             membershipRule = 'membershipRule'
             isAssignableToRole = 'isAssignableToRole'
@@ -740,6 +801,14 @@
             groupMemberCount = 'groupMemberCount'
             servicePrincipalMemberCount = 'servicePrincipalMemberCount'
             deviceMemberCount = 'deviceMemberCount'
+            # Phase 1b: Group lifecycle and provisioning fields
+            expirationDateTime = 'expirationDateTime'
+            renewedDateTime = 'renewedDateTime'
+            resourceProvisioningOptions = 'resourceProvisioningOptions'
+            resourceBehaviorOptions = 'resourceBehaviorOptions'
+            preferredDataLocation = 'preferredDataLocation'
+            # onPremisesSamAccountName already defined in User fields
+            onPremisesLastSyncDateTime = 'onPremisesLastSyncDateTime'
 
             # ServicePrincipal fields (from CollectEntraServicePrincipals)
             appId = 'appId'
@@ -752,6 +821,15 @@
             addIns = 'addIns'
             oauth2PermissionScopes = 'oauth2PermissionScopes'
             resourceSpecificApplicationPermissions = 'resourceSpecificApplicationPermissions'
+            # Phase 1b: SP security and SSO fields
+            appOwnerOrganizationId = 'appOwnerOrganizationId'
+            preferredSingleSignOnMode = 'preferredSingleSignOnMode'
+            # signInAudience defined in App fields below
+            # verifiedPublisher defined in App fields below
+            homepage = 'homepage'
+            loginUrl = 'loginUrl'
+            logoutUrl = 'logoutUrl'
+            replyUrls = 'replyUrls'
 
             # Application fields (from CollectAppRegistrations)
             signInAudience = 'signInAudience'
@@ -768,6 +846,13 @@
             federatedIdentityCredentials = 'federatedIdentityCredentials'
             hasFederatedCredentials = 'hasFederatedCredentials'
             federatedCredentialCount = 'federatedCredentialCount'
+            # Phase 1b: App platform config and claims
+            identifierUris = 'identifierUris'
+            web = 'web'
+            publicClient = 'publicClient'
+            spa = 'spa'
+            optionalClaims = 'optionalClaims'
+            groupMembershipClaims = 'groupMembershipClaims'
 
             # Device fields (from CollectDevices)
             deviceId = 'deviceId'
@@ -782,6 +867,11 @@
             deviceVersion = 'deviceVersion'
             approximateLastSignInDateTime = 'approximateLastSignInDateTime'
             registrationDateTime = 'registrationDateTime'
+            # Phase 1b: Device MDM and sync fields
+            extensionAttributes = 'extensionAttributes'
+            mdmAppId = 'mdmAppId'
+            managementType = 'managementType'
+            systemLabels = 'systemLabels'
         }
         WriteDeletes = $true
         IncludeDeleteMarkers = $true
@@ -1180,6 +1270,32 @@
             'userAssignedIdentityCount'
             'networkInterfaces'
             'networkInterfaceCount'
+
+            # Automation Account fields (Phase 3)
+            'sku'
+            'creationTime'
+            'lastModifiedTime'
+            'disableLocalAuth'
+
+            # Function App fields (Phase 3)
+            'kind'
+            'httpsOnly'
+            'clientCertEnabled'
+            'clientCertMode'
+            'defaultHostName'
+            'hostNames'
+            'serverFarmId'
+            'siteConfig'
+            'redundancyMode'
+
+            # Logic App fields (Phase 3)
+            'accessEndpoint'
+            'triggerType'
+            'actionCount'
+            'createdTime'
+            'changedTime'
+
+            # Web App fields (Phase 3) - uses same fields as Function App
         )
         ArrayFields = @(
             'verifiedDomains'
@@ -1191,10 +1307,13 @@
             'networkInterfaces'
             'technicalNotificationMails'
             'securityComplianceNotificationMails'
+            # Phase 3 arrays
+            'hostNames'
         )
         EmbeddedObjectFields = @(
             'sku'
             'networkAcls'
+            'siteConfig'
         )
         DocumentFields = @{
             # Common fields
@@ -1266,6 +1385,30 @@
             networkInterfaceCount = 'networkInterfaceCount'
             adminUsername = 'adminUsername'
             disablePasswordAuthentication = 'disablePasswordAuthentication'
+
+            # Automation Account fields (Phase 3)
+            # sku already defined above
+            creationTime = 'creationTime'
+            lastModifiedTime = 'lastModifiedTime'
+            disableLocalAuth = 'disableLocalAuth'
+
+            # Function App / Web App fields (Phase 3)
+            kind = 'kind'
+            httpsOnly = 'httpsOnly'
+            clientCertEnabled = 'clientCertEnabled'
+            clientCertMode = 'clientCertMode'
+            defaultHostName = 'defaultHostName'
+            hostNames = 'hostNames'
+            serverFarmId = 'serverFarmId'
+            siteConfig = 'siteConfig'
+            redundancyMode = 'redundancyMode'
+
+            # Logic App fields (Phase 3)
+            accessEndpoint = 'accessEndpoint'
+            triggerType = 'triggerType'
+            actionCount = 'actionCount'
+            createdTime = 'createdTime'
+            changedTime = 'changedTime'
         }
         WriteDeletes = $true
         IncludeDeleteMarkers = $true

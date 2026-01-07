@@ -48,6 +48,9 @@ function Get-DynamicProperty {
             # Authentication methods (embedded)
             'perUserMfaState', 'hasAuthenticator', 'hasPhone', 'hasFido2', 'hasWindowsHello',
             'hasSoftwareOath', 'authMethodCount',
+            # Phase 1b: Identity and contact fields
+            'mail', 'mailNickname', 'proxyAddresses', 'employeeId', 'employeeHireDate', 'employeeType', 'companyName',
+            'mobilePhone', 'businessPhones', 'department', 'jobTitle',
             'principalType', 'collectionTimestamp', 'deleted'
         )
         "group" = @(
@@ -56,6 +59,9 @@ function Get-DynamicProperty {
             'createdDateTime', 'deletedDateTime', 'onPremisesSyncEnabled', 'onPremisesSecurityIdentifier',
             # Member statistics
             'memberCountDirect', 'userMemberCount', 'groupMemberCount', 'servicePrincipalMemberCount', 'deviceMemberCount',
+            # Phase 1b: Lifecycle and provisioning fields
+            'expirationDateTime', 'renewedDateTime', 'resourceProvisioningOptions', 'resourceBehaviorOptions',
+            'preferredDataLocation', 'onPremisesSamAccountName', 'onPremisesLastSyncDateTime',
             'principalType', 'collectionTimestamp', 'deleted'
         )
         "servicePrincipal" = @(
@@ -65,22 +71,30 @@ function Get-DynamicProperty {
             'resourceSpecificApplicationPermissions',
             # Credentials (secrets and certificates)
             'keyCredentials', 'passwordCredentials', 'secretCount', 'certificateCount',
+            # Phase 1b: Security and SSO fields
+            'appOwnerOrganizationId', 'preferredSingleSignOnMode', 'signInAudience', 'verifiedPublisher',
+            'homepage', 'loginUrl', 'logoutUrl', 'replyUrls',
             'principalType', 'collectionTimestamp', 'deleted'
         )
         "device" = @(
             'objectId', 'displayName', 'deviceId', 'accountEnabled', 'operatingSystem',
             'operatingSystemVersion', 'isCompliant', 'isManaged', 'trustType', 'profileType',
             'manufacturer', 'model', 'deviceVersion', 'approximateLastSignInDateTime',
-            'createdDateTime', 'registrationDateTime', 'principalType', 'collectionTimestamp', 'deleted'
+            'createdDateTime', 'registrationDateTime',
+            # Phase 1b: MDM and sync fields
+            'extensionAttributes', 'onPremisesSyncEnabled', 'onPremisesLastSyncDateTime', 'mdmAppId', 'managementType', 'systemLabels',
+            'principalType', 'collectionTimestamp', 'deleted'
         )
         "application" = @(
             'objectId', 'displayName', 'appId', 'createdDateTime', 'signInAudience', 'publisherDomain',
             'keyCredentials', 'passwordCredentials', 'secretCount', 'certificateCount',
             'requiredResourceAccess', 'apiPermissionCount', 'verifiedPublisher', 'isPublisherVerified',
             'federatedIdentityCredentials', 'hasFederatedCredentials', 'federatedCredentialCount',
+            # Phase 1b: Platform config and claims
+            'identifierUris', 'web', 'publicClient', 'spa', 'optionalClaims', 'groupMembershipClaims',
             'principalType', 'collectionTimestamp', 'deleted'
         )
-        # Azure Resource types (Phase 2)
+        # Azure Resource types (Phase 2 + Phase 3)
         "azureResource" = @(
             'objectId', 'displayName', 'name', 'resourceType', 'location', 'subscriptionId', 'resourceGroupName',
             # Tenant fields
@@ -94,6 +108,12 @@ function Get-DynamicProperty {
             'vmId', 'vmSize', 'osType', 'powerState', 'identityType',
             'hasSystemAssignedIdentity', 'systemAssignedPrincipalId',
             'hasUserAssignedIdentity', 'userAssignedIdentityCount',
+            # Automation Account fields (Phase 3)
+            'creationTime', 'lastModifiedTime', 'disableLocalAuth',
+            # Function App / Web App fields (Phase 3)
+            'kind', 'httpsOnly', 'clientCertEnabled', 'defaultHostName', 'hostNames', 'serverFarmId',
+            # Logic App fields (Phase 3)
+            'accessEndpoint', 'triggerType', 'actionCount', 'createdTime', 'changedTime',
             'collectionTimestamp', 'deleted'
         )
         "azureRelationship" = @(
@@ -320,12 +340,17 @@ try {
     # Process roles reference data
     $rolesData = $rolesIn ?? @()
 
-    # Process Azure Resources (Phase 2) - group by resourceType
+    # Process Azure Resources (Phase 2 + Phase 3) - group by resourceType
     # Filter out deleted resources (deleted field might be true, false, null, or undefined)
     $allAzureResources = @($azureResourcesIn | Where-Object { $_.deleted -ne $true })
     $azureHierarchyData = @($allAzureResources | Where-Object { $_.resourceType -in @('tenant', 'managementGroup', 'subscription', 'resourceGroup') })
     $keyVaultData = @($allAzureResources | Where-Object { $_.resourceType -eq 'keyVault' })
     $virtualMachineData = @($allAzureResources | Where-Object { $_.resourceType -eq 'virtualMachine' })
+    # Phase 3 resource types
+    $automationAccountData = @($allAzureResources | Where-Object { $_.resourceType -eq 'automationAccount' })
+    $functionAppData = @($allAzureResources | Where-Object { $_.resourceType -eq 'functionApp' })
+    $logicAppData = @($allAzureResources | Where-Object { $_.resourceType -eq 'logicApp' })
+    $webAppData = @($allAzureResources | Where-Object { $_.resourceType -eq 'webApp' })
 
     # Process Azure Relationships - group by relationType
     # Filter out deleted relationships
@@ -336,6 +361,7 @@ try {
 
     Write-Verbose "V2 Dashboard - Principals: Users=$($userData.Count), Groups=$($groupData.Count), SPs=$($spData.Count)"
     Write-Verbose "V2 Dashboard - Azure: Hierarchy=$($azureHierarchyData.Count), KeyVaults=$($keyVaultData.Count), VMs=$($virtualMachineData.Count)"
+    Write-Verbose "V2 Dashboard - Phase 3: AutomationAccounts=$($automationAccountData.Count), FunctionApps=$($functionAppData.Count), LogicApps=$($logicAppData.Count), WebApps=$($webAppData.Count)"
 
     # Generate tables
     $userTable = New-TableHtml -data $userData -tableId 'u-table' -dataType 'user'
@@ -361,6 +387,12 @@ try {
     $azureHierarchyTable = New-TableHtml -data $azureHierarchyData -tableId 'ah-table' -dataType 'azureResource'
     $keyVaultTable = New-TableHtml -data $keyVaultData -tableId 'kv-table' -dataType 'azureResource'
     $vmTable = New-TableHtml -data $virtualMachineData -tableId 'vm-table' -dataType 'azureResource'
+    # Azure tables (Phase 3)
+    $automationAccountTable = New-TableHtml -data $automationAccountData -tableId 'aa-table' -dataType 'azureResource'
+    $functionAppTable = New-TableHtml -data $functionAppData -tableId 'fa-table' -dataType 'azureResource'
+    $logicAppTable = New-TableHtml -data $logicAppData -tableId 'la-table' -dataType 'azureResource'
+    $webAppTable = New-TableHtml -data $webAppData -tableId 'wa-table' -dataType 'azureResource'
+    # Azure relationship tables
     $containsTable = New-TableHtml -data $containsData -tableId 'ct-table' -dataType 'azureRelationship'
     $kvAccessTable = New-TableHtml -data $keyVaultAccessData -tableId 'ka-table' -dataType 'azureRelationship'
     $miTable = New-TableHtml -data $managedIdentityData -tableId 'mi-table' -dataType 'azureRelationship'
@@ -373,6 +405,7 @@ try {
             <b>Policies:</b> CA: <b>$($caPolicyData.Count)</b> | Role Mgmt: <b>$($rolePolicyData.Count)</b><br/>
             <b>Events:</b> Sign-Ins: <b>$($signInData.Count)</b> | Audits: <b>$($auditData.Count)</b><br/>
             <b>Azure (Phase 2):</b> Hierarchy: <b>$($azureHierarchyData.Count)</b> | Key Vaults: <b>$($keyVaultData.Count)</b> | VMs: <b>$($virtualMachineData.Count)</b> | Contains: <b>$($containsData.Count)</b> | KV Access: <b>$($keyVaultAccessData.Count)</b> | Managed Identity: <b>$($managedIdentityData.Count)</b><br/>
+            <b>Azure (Phase 3):</b> Automation: <b>$($automationAccountData.Count)</b> | Functions: <b>$($functionAppData.Count)</b> | Logic Apps: <b>$($logicAppData.Count)</b> | Web Apps: <b>$($webAppData.Count)</b><br/>
             <b>Changes:</b> <b>$($changesData.Count)</b> | <b>Roles:</b> <b>$($rolesData.Count)</b><br/>
             Generated: <b>$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')</b>
         </div>
@@ -463,6 +496,10 @@ try {
             <button class="tab" onclick="showTab('ah-tab', this)">Hierarchy ($($azureHierarchyData.Count))</button>
             <button class="tab" onclick="showTab('kv-tab', this)">Key Vaults ($($keyVaultData.Count))</button>
             <button class="tab" onclick="showTab('vm-tab', this)">VMs ($($virtualMachineData.Count))</button>
+            <button class="tab" onclick="showTab('aa-tab', this)">Automation ($($automationAccountData.Count))</button>
+            <button class="tab" onclick="showTab('fa-tab', this)">Functions ($($functionAppData.Count))</button>
+            <button class="tab" onclick="showTab('la-tab', this)">Logic Apps ($($logicAppData.Count))</button>
+            <button class="tab" onclick="showTab('wa-tab', this)">Web Apps ($($webAppData.Count))</button>
             <button class="tab" onclick="showTab('ct-tab', this)">Contains ($($containsData.Count))</button>
             <button class="tab" onclick="showTab('ka-tab', this)">KV Access ($($keyVaultAccessData.Count))</button>
             <button class="tab" onclick="showTab('mi-tab', this)">Managed Identity ($($managedIdentityData.Count))</button>
@@ -544,6 +581,18 @@ try {
         </div>
         <div id="vm-tab" class="tab-content">
             <div class="table-container"><table id="vm-table"><thead><tr>$($vmTable.Headers)</tr></thead><tbody>$($vmTable.Rows)</tbody></table></div>
+        </div>
+        <div id="aa-tab" class="tab-content">
+            <div class="table-container"><table id="aa-table"><thead><tr>$($automationAccountTable.Headers)</tr></thead><tbody>$($automationAccountTable.Rows)</tbody></table></div>
+        </div>
+        <div id="fa-tab" class="tab-content">
+            <div class="table-container"><table id="fa-table"><thead><tr>$($functionAppTable.Headers)</tr></thead><tbody>$($functionAppTable.Rows)</tbody></table></div>
+        </div>
+        <div id="la-tab" class="tab-content">
+            <div class="table-container"><table id="la-table"><thead><tr>$($logicAppTable.Headers)</tr></thead><tbody>$($logicAppTable.Rows)</tbody></table></div>
+        </div>
+        <div id="wa-tab" class="tab-content">
+            <div class="table-container"><table id="wa-table"><thead><tr>$($webAppTable.Headers)</tr></thead><tbody>$($webAppTable.Rows)</tbody></table></div>
         </div>
         <div id="ct-tab" class="tab-content">
             <div class="table-container"><table id="ct-table"><thead><tr>$($containsTable.Headers)</tr></thead><tbody>$($containsTable.Rows)</tbody></table></div>

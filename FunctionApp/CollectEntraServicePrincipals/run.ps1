@@ -131,7 +131,8 @@ try {
     }
 
     # Query service principals with field selection (including credentials)
-    $selectFields = "id,appDisplayName,accountEnabled,addIns,displayName,appId,appRoleAssignmentRequired,deletedDateTime,description,oauth2PermissionScopes,resourceSpecificApplicationPermissions,servicePrincipalNames,servicePrincipalType,tags,notes,keyCredentials,passwordCredentials"
+    # Phase 1b: Added appOwnerOrganizationId, preferredSingleSignOnMode, signInAudience, verifiedPublisher, homepage, loginUrl, logoutUrl, replyUrls
+    $selectFields = "id,appDisplayName,accountEnabled,addIns,displayName,appId,appRoleAssignmentRequired,deletedDateTime,description,oauth2PermissionScopes,resourceSpecificApplicationPermissions,servicePrincipalNames,servicePrincipalType,tags,notes,keyCredentials,passwordCredentials,appOwnerOrganizationId,preferredSingleSignOnMode,signInAudience,verifiedPublisher,homepage,loginUrl,logoutUrl,replyUrls"
     $nextLink = "https://graph.microsoft.com/v1.0/servicePrincipals?`$select=$selectFields&`$top=$batchSize"
 
     Write-Verbose "Starting batch processing with streaming writes"
@@ -255,6 +256,16 @@ try {
                 keyCredentials = $processedCertificates
                 secretCount = $processedSecrets.Count
                 certificateCount = $processedCertificates.Count
+
+                # Phase 1b: Security-relevant fields
+                appOwnerOrganizationId = $sp.appOwnerOrganizationId ?? $null
+                preferredSingleSignOnMode = $sp.preferredSingleSignOnMode ?? $null
+                signInAudience = $sp.signInAudience ?? $null
+                verifiedPublisher = $sp.verifiedPublisher ?? $null
+                homepage = $sp.homepage ?? $null
+                loginUrl = $sp.loginUrl ?? $null
+                logoutUrl = $sp.logoutUrl ?? $null
+                replyUrls = $sp.replyUrls ?? @()
 
                 # Locally-generated property (collection metadata)
                 collectionTimestamp = $timestampFormatted

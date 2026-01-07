@@ -129,7 +129,8 @@ try {
 
     # Query users with field selection
     # Added: lastPasswordChangeDateTime, signInSessionsValidFromDateTime, refreshTokensValidFromDateTime, onPremisesExtensionAttributes
-    $selectFields = "userPrincipalName,id,accountEnabled,userType,createdDateTime,signInActivity,displayName,passwordPolicies,usageLocation,externalUserState,externalUserStateChangeDateTime,onPremisesSyncEnabled,onPremisesSamAccountName,onPremisesUserPrincipalName,onPremisesSecurityIdentifier,lastPasswordChangeDateTime,signInSessionsValidFromDateTime,refreshTokensValidFromDateTime,onPremisesExtensionAttributes"
+    # Phase 1b: Added mail, mailNickname, proxyAddresses, employeeId, employeeHireDate, employeeType, companyName, mobilePhone, businessPhones, department, jobTitle
+    $selectFields = "userPrincipalName,id,accountEnabled,userType,createdDateTime,signInActivity,displayName,passwordPolicies,usageLocation,externalUserState,externalUserStateChangeDateTime,onPremisesSyncEnabled,onPremisesSamAccountName,onPremisesUserPrincipalName,onPremisesSecurityIdentifier,lastPasswordChangeDateTime,signInSessionsValidFromDateTime,refreshTokensValidFromDateTime,onPremisesExtensionAttributes,mail,mailNickname,proxyAddresses,employeeId,employeeHireDate,employeeType,companyName,mobilePhone,businessPhones,department,jobTitle"
     $nextLink = "https://graph.microsoft.com/v1.0/users?`$select=$selectFields&`$top=$batchSize"
 
     Write-Verbose "Starting batch processing with streaming writes"
@@ -271,6 +272,19 @@ try {
                 lastPasswordChangeDateTime       = $user.lastPasswordChangeDateTime ?? $null
                 signInSessionsValidFromDateTime  = $user.signInSessionsValidFromDateTime ?? $null
                 refreshTokensValidFromDateTime   = $user.refreshTokensValidFromDateTime ?? $null
+
+                # Phase 1b: Security-relevant identity fields
+                mail                             = $user.mail ?? $null
+                mailNickname                     = $user.mailNickname ?? $null
+                proxyAddresses                   = $user.proxyAddresses ?? @()
+                employeeId                       = $user.employeeId ?? $null
+                employeeHireDate                 = $user.employeeHireDate ?? $null
+                employeeType                     = $user.employeeType ?? $null
+                companyName                      = $user.companyName ?? $null
+                mobilePhone                      = $user.mobilePhone ?? $null
+                businessPhones                   = $user.businessPhones ?? @()
+                department                       = $user.department ?? $null
+                jobTitle                         = $user.jobTitle ?? $null
 
                 # EMBEDDED Authentication Methods (denormalized for Power BI)
                 perUserMfaState                  = $perUserMfaState

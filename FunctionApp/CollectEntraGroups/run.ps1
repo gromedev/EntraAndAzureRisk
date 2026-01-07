@@ -161,7 +161,8 @@ try {
     }
 
     # Query groups with field selection (beta endpoint for isAssignableToRole)
-    $selectFields = "displayName,id,classification,deletedDateTime,description,groupTypes,mailEnabled,membershipRule,securityEnabled,isAssignableToRole,createdDateTime,visibility,onPremisesSyncEnabled,onPremisesSecurityIdentifier,mail"
+    # Phase 1b: Added expirationDateTime, renewedDateTime, resourceProvisioningOptions, resourceBehaviorOptions, onPremisesSamAccountName, onPremisesLastSyncDateTime, preferredDataLocation
+    $selectFields = "displayName,id,classification,deletedDateTime,description,groupTypes,mailEnabled,membershipRule,securityEnabled,isAssignableToRole,createdDateTime,visibility,onPremisesSyncEnabled,onPremisesSecurityIdentifier,mail,expirationDateTime,renewedDateTime,resourceProvisioningOptions,resourceBehaviorOptions,onPremisesSamAccountName,onPremisesLastSyncDateTime,preferredDataLocation"
     $nextLink = "https://graph.microsoft.com/beta/groups?`$select=$selectFields&`$top=$batchSize"
 
     Write-Verbose "Starting batch processing with streaming writes (including member counts)"
@@ -216,9 +217,18 @@ try {
                 # Hybrid identity
                 onPremisesSyncEnabled = if ($null -ne $group.onPremisesSyncEnabled) { $group.onPremisesSyncEnabled } else { $null }
                 onPremisesSecurityIdentifier = $group.onPremisesSecurityIdentifier ?? $null
+                onPremisesSamAccountName = $group.onPremisesSamAccountName ?? $null
+                onPremisesLastSyncDateTime = $group.onPremisesLastSyncDateTime ?? $null
 
                 # Communication
                 mail = $group.mail ?? $null
+
+                # Phase 1b: Lifecycle and provisioning
+                expirationDateTime = $group.expirationDateTime ?? $null
+                renewedDateTime = $group.renewedDateTime ?? $null
+                resourceProvisioningOptions = $group.resourceProvisioningOptions ?? @()
+                resourceBehaviorOptions = $group.resourceBehaviorOptions ?? @()
+                preferredDataLocation = $group.preferredDataLocation ?? $null
 
                 # Member statistics
                 memberCountDirect = $memberCounts.memberCountDirect

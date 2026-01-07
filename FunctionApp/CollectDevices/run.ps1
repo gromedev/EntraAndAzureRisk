@@ -117,7 +117,8 @@ try {
 
     # Query devices with field selection
     # Note: Requires Device.Read.All permission
-    $selectFields = "id,displayName,accountEnabled,deviceId,operatingSystem,operatingSystemVersion,isCompliant,isManaged,trustType,approximateLastSignInDateTime,createdDateTime,deviceVersion,manufacturer,model,profileType,registrationDateTime"
+    # Phase 1b: Added extensionAttributes, onPremisesSyncEnabled, onPremisesLastSyncDateTime, mdmAppId, managementType, systemLabels
+    $selectFields = "id,displayName,accountEnabled,deviceId,operatingSystem,operatingSystemVersion,isCompliant,isManaged,trustType,approximateLastSignInDateTime,createdDateTime,deviceVersion,manufacturer,model,profileType,registrationDateTime,extensionAttributes,onPremisesSyncEnabled,onPremisesLastSyncDateTime,mdmAppId,managementType,systemLabels"
     $nextLink = "https://graph.microsoft.com/v1.0/devices?`$select=$selectFields&`$top=$batchSize"
 
     Write-Verbose "Starting batch processing with streaming writes"
@@ -162,6 +163,15 @@ try {
                 model = $device.model ?? ""
                 profileType = $device.profileType ?? ""
                 registrationDateTime = $device.registrationDateTime ?? $null
+
+                # Phase 1b: Security-relevant fields
+                extensionAttributes = $device.extensionAttributes ?? $null
+                onPremisesSyncEnabled = if ($null -ne $device.onPremisesSyncEnabled) { $device.onPremisesSyncEnabled } else { $null }
+                onPremisesLastSyncDateTime = $device.onPremisesLastSyncDateTime ?? $null
+                mdmAppId = $device.mdmAppId ?? $null
+                managementType = $device.managementType ?? $null
+                systemLabels = $device.systemLabels ?? @()
+
                 collectionTimestamp = $timestampFormatted
             }
 
