@@ -95,6 +95,9 @@ try {
     $expiredCertificatesCount = 0
     $expiringSecretsCount = 0  # Within 30 days
     $expiringCertificatesCount = 0  # Within 30 days
+    $appsWithFederatedCredentialsCount = 0
+    $appsWithVerifiedPublisherCount = 0
+    $appsWithApiPermissionsCount = 0
 
     # Initialize append blob
     $blobName = "$timestamp/$timestamp-appregistrations.jsonl"
@@ -119,7 +122,8 @@ try {
     # Query applications with keyCredentials and passwordCredentials
     # Note: Requires Application.Read.All permission
     # Note: There's a throttling limit of 150 requests per minute for keyCredentials
-    $selectFields = "id,appId,displayName,createdDateTime,signInAudience,publisherDomain,keyCredentials,passwordCredentials"
+    # Added: requiredResourceAccess (API permissions), verifiedPublisher
+    $selectFields = "id,appId,displayName,createdDateTime,signInAudience,publisherDomain,keyCredentials,passwordCredentials,requiredResourceAccess,verifiedPublisher"
     $nextLink = "https://graph.microsoft.com/v1.0/applications?`$select=$selectFields&`$top=$batchSize"
 
     Write-Verbose "Starting batch processing with streaming writes"
@@ -214,6 +218,60 @@ try {
             if ($hasSecrets) { $appsWithSecretsCount++ }
             if ($hasCertificates) { $appsWithCertificatesCount++ }
 
+            # Process requiredResourceAccess (API permissions requested)
+            $processedApiPermissions = @()
+            if ($app.requiredResourceAccess -and $app.requiredResourceAccess.Count -gt 0) {
+                $appsWithApiPermissionsCount++
+                foreach ($resource in $app.requiredResourceAccess) {
+                    $resourceAccess = @{
+                        resourceAppId = $resource.resourceAppId ?? ""
+                        resourceAccess = @($resource.resourceAccess | ForEach-Object {
+                            @{
+                                id = $_.id ?? ""
+                                type = $_.type ?? ""  # "Role" = Application, "Scope" = Delegated
+                            }
+                        })
+                    }
+                    $processedApiPermissions += $resourceAccess
+                }
+            }
+
+            # Process verifiedPublisher
+            $verifiedPublisher = $null
+            if ($app.verifiedPublisher -and $app.verifiedPublisher.displayName) {
+                $appsWithVerifiedPublisherCount++
+                $verifiedPublisher = @{
+                    displayName = $app.verifiedPublisher.displayName ?? ""
+                    verifiedPublisherId = $app.verifiedPublisher.verifiedPublisherId ?? ""
+                    addedDateTime = $app.verifiedPublisher.addedDateTime ?? $null
+                }
+            }
+
+            # Get federated identity credentials (separate API call)
+            $federatedCredentials = @()
+            $hasFederatedCredentials = $false
+            try {
+                $fedCredsUri = "https://graph.microsoft.com/v1.0/applications/$($app.id)/federatedIdentityCredentials"
+                $fedCredsResponse = Invoke-GraphWithRetry -Uri $fedCredsUri -AccessToken $graphToken
+                if ($fedCredsResponse.value -and $fedCredsResponse.value.Count -gt 0) {
+                    $hasFederatedCredentials = $true
+                    $appsWithFederatedCredentialsCount++
+                    foreach ($fedCred in $fedCredsResponse.value) {
+                        $federatedCredentials += @{
+                            id = $fedCred.id ?? ""
+                            name = $fedCred.name ?? ""
+                            issuer = $fedCred.issuer ?? ""
+                            subject = $fedCred.subject ?? ""
+                            audiences = $fedCred.audiences ?? @()
+                            description = $fedCred.description ?? ""
+                        }
+                    }
+                }
+            }
+            catch {
+                Write-Warning "Failed to get federated credentials for app $($app.displayName): $_"
+            }
+
             # Transform to consistent structure with objectId
             $appObj = @{
                 objectId = $app.id ?? ""
@@ -227,6 +285,13 @@ try {
                 keyCredentials = $processedCertificates
                 secretCount = $processedSecrets.Count
                 certificateCount = $processedCertificates.Count
+                requiredResourceAccess = $processedApiPermissions
+                apiPermissionCount = ($processedApiPermissions | ForEach-Object { $_.resourceAccess.Count } | Measure-Object -Sum).Sum
+                verifiedPublisher = $verifiedPublisher
+                isPublisherVerified = ($null -ne $verifiedPublisher)
+                federatedIdentityCredentials = $federatedCredentials
+                hasFederatedCredentials = $hasFederatedCredentials
+                federatedCredentialCount = $federatedCredentials.Count
                 collectionTimestamp = $timestampFormatted
             }
 
@@ -293,6 +358,9 @@ try {
         expiredCertificatesCount = $expiredCertificatesCount
         expiringSecretsCount = $expiringSecretsCount
         expiringCertificatesCount = $expiringCertificatesCount
+        appsWithFederatedCredentialsCount = $appsWithFederatedCredentialsCount
+        appsWithVerifiedPublisherCount = $appsWithVerifiedPublisherCount
+        appsWithApiPermissionsCount = $appsWithApiPermissionsCount
         blobPath = $blobName
     }
 

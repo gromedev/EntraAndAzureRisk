@@ -39,7 +39,9 @@ function Get-DynamicProperties {
             'createdDateTime', 'lastSignInDateTime', 'passwordPolicies', 'usageLocation',
             'externalUserState', 'externalUserStateChangeDateTime',
             'onPremisesSyncEnabled', 'onPremisesSamAccountName', 'onPremisesUserPrincipalName',
-            'onPremisesSecurityIdentifier',
+            'onPremisesSecurityIdentifier', 'onPremisesExtensionAttributes',
+            # Password and session timestamps (security analytics)
+            'lastPasswordChangeDateTime', 'signInSessionsValidFromDateTime', 'refreshTokensValidFromDateTime',
             # Authentication methods (embedded)
             'perUserMfaState', 'hasAuthenticator', 'hasPhone', 'hasFido2', 'hasWindowsHello',
             'hasSoftwareOath', 'authMethodCount',

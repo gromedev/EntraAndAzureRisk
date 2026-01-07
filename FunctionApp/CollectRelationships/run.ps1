@@ -6,6 +6,7 @@
 
     Collects:
     1. Group memberships (groups → members)
+    1b. Transitive group memberships
     2. Directory role members (roles → members)
     3. PIM eligible role assignments
     4. PIM active role assignments
@@ -15,6 +16,10 @@
     8. Application owners
     9. Service Principal owners
     10. User license assignments
+    11. OAuth2 permission grants (consents)
+    12. App role assignments
+    13. Group owners
+    14. Device owners
 
     All output to single relationships.jsonl with relationType discriminator.
     Runs phases sequentially to manage memory, streams to blob.
@@ -95,6 +100,10 @@ try {
         AppOwners = 0
         SpOwners = 0
         Licenses = 0
+        OAuth2PermissionGrants = 0
+        AppRoleAssignments = 0
+        GroupOwners = 0
+        DeviceOwners = 0
     }
 
     # Track direct memberships for transitive comparison
@@ -882,12 +891,268 @@ try {
     Write-Verbose "User licenses complete: $($stats.Licenses)"
     #endregion
 
+    #region Phase 9: OAuth2 Permission Grants (Consents)
+    Write-Verbose "=== Phase 9: OAuth2 Permission Grants ==="
+
+    # Build SP lookup for display names
+    $spLookup = @{}
+    $spLookupUri = "https://graph.microsoft.com/v1.0/servicePrincipals?`$select=id,displayName,appId&`$top=$batchSize"
+    while ($spLookupUri) {
+        try {
+            $spLookupResponse = Invoke-GraphWithRetry -Uri $spLookupUri -AccessToken $graphToken
+            foreach ($sp in $spLookupResponse.value) {
+                $spLookup[$sp.id] = @{
+                    displayName = $sp.displayName
+                    appId = $sp.appId
+                }
+            }
+            $spLookupUri = $spLookupResponse.'@odata.nextLink'
+        }
+        catch { Write-Warning "Failed to build SP lookup: $_"; break }
+    }
+    Write-Verbose "Built lookup for $($spLookup.Count) service principals"
+
+    $grantsUri = "https://graph.microsoft.com/v1.0/oauth2PermissionGrants?`$top=$batchSize"
+    while ($grantsUri) {
+        try {
+            $response = Invoke-GraphWithRetry -Uri $grantsUri -AccessToken $graphToken
+
+            foreach ($grant in $response.value) {
+                $clientId = $grant.clientId ?? ""
+                $resourceId = $grant.resourceId ?? ""
+                $principalId = $grant.principalId  # Can be null for AllPrincipals consent
+
+                $clientInfo = $spLookup[$clientId]
+                $resourceInfo = $spLookup[$resourceId]
+
+                $relationship = @{
+                    id = $grant.id
+                    objectId = $grant.id
+                    relationType = "oauth2PermissionGrant"
+                    sourceId = if ($principalId) { $principalId } else { "AllPrincipals" }
+                    sourceType = if ($principalId) { "user" } else { "tenant" }
+                    sourceDisplayName = if ($principalId) { "User Consent" } else { "Admin Consent (All Users)" }
+                    targetId = $resourceId
+                    targetType = "servicePrincipal"
+                    targetDisplayName = if ($resourceInfo) { $resourceInfo.displayName } else { "" }
+                    targetAppId = if ($resourceInfo) { $resourceInfo.appId } else { "" }
+                    clientId = $clientId
+                    clientDisplayName = if ($clientInfo) { $clientInfo.displayName } else { "" }
+                    clientAppId = if ($clientInfo) { $clientInfo.appId } else { "" }
+                    consentType = $grant.consentType ?? ""
+                    scope = $grant.scope ?? ""
+                    collectionTimestamp = $timestampFormatted
+                }
+
+                [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress))
+                $stats.OAuth2PermissionGrants++
+            }
+            $grantsUri = $response.'@odata.nextLink'
+
+            # Periodic flush
+            if ($jsonL.Length -ge ($writeThreshold * 300)) {
+                Flush-Buffer
+                Write-Verbose "Flushed OAuth2 grants buffer ($($stats.OAuth2PermissionGrants) total)"
+            }
+        }
+        catch { Write-Warning "OAuth2 permission grants batch error: $_"; break }
+    }
+
+    Flush-Buffer
+    Write-Verbose "OAuth2 permission grants complete: $($stats.OAuth2PermissionGrants)"
+    #endregion
+
+    #region Phase 10: App Role Assignments
+    Write-Verbose "=== Phase 10: App Role Assignments ==="
+
+    # Get all service principals and their app role assignments
+    $spsForRolesUri = "https://graph.microsoft.com/v1.0/servicePrincipals?`$select=id,displayName,appId,appRoles&`$top=$batchSize"
+
+    while ($spsForRolesUri) {
+        try {
+            $spsResponse = Invoke-GraphWithRetry -Uri $spsForRolesUri -AccessToken $graphToken
+            $spsForRolesUri = $spsResponse.'@odata.nextLink'
+
+            foreach ($sp in $spsResponse.value) {
+                # Build app role lookup for this SP
+                $appRoleLookup = @{}
+                foreach ($role in $sp.appRoles) {
+                    $appRoleLookup[$role.id] = @{
+                        displayName = $role.displayName
+                        value = $role.value
+                        description = $role.description
+                    }
+                }
+
+                try {
+                    # Get assignments TO this service principal (who has access to it)
+                    $assignmentsUri = "https://graph.microsoft.com/v1.0/servicePrincipals/$($sp.id)/appRoleAssignedTo?`$top=$batchSize"
+                    $assignmentsNextLink = $assignmentsUri
+
+                    while ($assignmentsNextLink) {
+                        $assignmentsResponse = Invoke-GraphWithRetry -Uri $assignmentsNextLink -AccessToken $graphToken
+                        $assignmentsNextLink = $assignmentsResponse.'@odata.nextLink'
+
+                        foreach ($assignment in $assignmentsResponse.value) {
+                            $appRoleId = $assignment.appRoleId ?? ""
+                            $roleInfo = $appRoleLookup[$appRoleId]
+
+                            $relationship = @{
+                                id = $assignment.id
+                                objectId = $assignment.id
+                                relationType = "appRoleAssignment"
+                                sourceId = $assignment.principalId ?? ""
+                                sourceType = ($assignment.principalType ?? "").ToLower()
+                                sourceDisplayName = $assignment.principalDisplayName ?? ""
+                                targetId = $assignment.resourceId ?? ""
+                                targetType = "servicePrincipal"
+                                targetDisplayName = $assignment.resourceDisplayName ?? ""
+                                targetAppId = $sp.appId ?? ""
+                                appRoleId = $appRoleId
+                                appRoleDisplayName = if ($roleInfo) { $roleInfo.displayName } else { "" }
+                                appRoleValue = if ($roleInfo) { $roleInfo.value } else { "" }
+                                createdDateTime = $assignment.createdDateTime ?? $null
+                                collectionTimestamp = $timestampFormatted
+                            }
+
+                            [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress))
+                            $stats.AppRoleAssignments++
+                        }
+                    }
+                }
+                catch { Write-Warning "Failed to get app role assignments for SP $($sp.displayName): $_" }
+            }
+
+            # Periodic flush
+            if ($jsonL.Length -ge ($writeThreshold * 300)) {
+                Flush-Buffer
+                Write-Verbose "Flushed app role assignments buffer ($($stats.AppRoleAssignments) total)"
+            }
+        }
+        catch { Write-Warning "Failed to retrieve SPs for app role assignments: $_"; break }
+    }
+
+    Flush-Buffer
+    Write-Verbose "App role assignments complete: $($stats.AppRoleAssignments)"
+    #endregion
+
+    #region Phase 11: Group Owners
+    Write-Verbose "=== Phase 11: Group Owners ==="
+
+    # Use the groups we already fetched in Phase 1
+    foreach ($group in $groups) {
+        try {
+            $ownersUri = "https://graph.microsoft.com/v1.0/groups/$($group.id)/owners?`$select=id,displayName,userPrincipalName,mail"
+            $ownersNextLink = $ownersUri
+
+            while ($ownersNextLink) {
+                try {
+                    $ownersResponse = Invoke-GraphWithRetry -Uri $ownersNextLink -AccessToken $graphToken
+                    $ownersNextLink = $ownersResponse.'@odata.nextLink'
+
+                    foreach ($owner in $ownersResponse.value) {
+                        $ownerType = ($owner.'@odata.type' -replace '#microsoft.graph.', '')
+
+                        $relationship = @{
+                            id = "$($owner.id)_$($group.id)_groupOwner"
+                            objectId = "$($owner.id)_$($group.id)_groupOwner"
+                            relationType = "groupOwner"
+                            sourceId = $owner.id
+                            sourceType = $ownerType
+                            sourceDisplayName = $owner.displayName ?? ""
+                            sourceUserPrincipalName = if ($ownerType -eq 'user') { $owner.userPrincipalName ?? $null } else { $null }
+                            targetId = $group.id
+                            targetType = "group"
+                            targetDisplayName = $group.displayName ?? ""
+                            targetSecurityEnabled = if ($null -ne $group.securityEnabled) { $group.securityEnabled } else { $null }
+                            targetMailEnabled = if ($null -ne $group.mailEnabled) { $group.mailEnabled } else { $null }
+                            targetIsAssignableToRole = if ($null -ne $group.isAssignableToRole) { $group.isAssignableToRole } else { $null }
+                            targetVisibility = $group.visibility ?? $null
+                            collectionTimestamp = $timestampFormatted
+                        }
+
+                        [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress))
+                        $stats.GroupOwners++
+                    }
+                }
+                catch { Write-Warning "Failed to get owners for group $($group.displayName): $_"; break }
+            }
+        }
+        catch { Write-Warning "Error processing owners for group $($group.displayName): $_" }
+
+        # Periodic flush
+        if ($jsonL.Length -ge ($writeThreshold * 300)) {
+            Flush-Buffer
+            Write-Verbose "Flushed group owners buffer ($($stats.GroupOwners) total)"
+        }
+    }
+
+    Flush-Buffer
+    Write-Verbose "Group owners complete: $($stats.GroupOwners)"
+    #endregion
+
+    #region Phase 12: Device Owners
+    Write-Verbose "=== Phase 12: Device Owners ==="
+
+    # Get all devices
+    $devicesUri = "https://graph.microsoft.com/v1.0/devices?`$select=id,displayName,deviceId,operatingSystem,trustType&`$top=$batchSize"
+
+    while ($devicesUri) {
+        try {
+            $devicesResponse = Invoke-GraphWithRetry -Uri $devicesUri -AccessToken $graphToken
+            $devicesUri = $devicesResponse.'@odata.nextLink'
+
+            foreach ($device in $devicesResponse.value) {
+                try {
+                    $ownersUri = "https://graph.microsoft.com/v1.0/devices/$($device.id)/registeredOwners?`$select=id,displayName,userPrincipalName"
+                    $ownersResponse = Invoke-GraphWithRetry -Uri $ownersUri -AccessToken $graphToken
+
+                    foreach ($owner in $ownersResponse.value) {
+                        $ownerType = ($owner.'@odata.type' -replace '#microsoft.graph.', '')
+
+                        $relationship = @{
+                            id = "$($owner.id)_$($device.id)_deviceOwner"
+                            objectId = "$($owner.id)_$($device.id)_deviceOwner"
+                            relationType = "deviceOwner"
+                            sourceId = $owner.id
+                            sourceType = $ownerType
+                            sourceDisplayName = $owner.displayName ?? ""
+                            sourceUserPrincipalName = if ($ownerType -eq 'user') { $owner.userPrincipalName ?? $null } else { $null }
+                            targetId = $device.id
+                            targetType = "device"
+                            targetDisplayName = $device.displayName ?? ""
+                            targetDeviceId = $device.deviceId ?? ""
+                            targetOperatingSystem = $device.operatingSystem ?? ""
+                            targetTrustType = $device.trustType ?? ""
+                            collectionTimestamp = $timestampFormatted
+                        }
+
+                        [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress))
+                        $stats.DeviceOwners++
+                    }
+                }
+                catch { Write-Warning "Failed to get owners for device $($device.displayName): $_" }
+            }
+
+            # Periodic flush
+            if ($jsonL.Length -ge ($writeThreshold * 300)) {
+                Flush-Buffer
+                Write-Verbose "Flushed device owners buffer ($($stats.DeviceOwners) total)"
+            }
+        }
+        catch { Write-Warning "Failed to retrieve devices batch: $_"; break }
+    }
+
+    Flush-Buffer
+    Write-Verbose "Device owners complete: $($stats.DeviceOwners)"
+    #endregion
+
     # Cleanup
     $jsonL = $null
     [System.GC]::Collect()
     [System.GC]::WaitForPendingFinalizers()
 
-    $totalRelationships = $stats.GroupMembershipsDirect + $stats.GroupMembershipsTransitive + $stats.DirectoryRoles + $stats.PimEligible + $stats.PimActive + $stats.PimGroupEligible + $stats.PimGroupActive + $stats.AzureRbac + $stats.AppOwners + $stats.SpOwners + $stats.Licenses
+    $totalRelationships = $stats.GroupMembershipsDirect + $stats.GroupMembershipsTransitive + $stats.DirectoryRoles + $stats.PimEligible + $stats.PimActive + $stats.PimGroupEligible + $stats.PimGroupActive + $stats.AzureRbac + $stats.AppOwners + $stats.SpOwners + $stats.Licenses + $stats.OAuth2PermissionGrants + $stats.AppRoleAssignments + $stats.GroupOwners + $stats.DeviceOwners
 
     Write-Verbose "Combined relationships collection complete: $totalRelationships total"
 
@@ -911,6 +1176,10 @@ try {
             appOwners = $stats.AppOwners
             spOwners = $stats.SpOwners
             licenses = $stats.Licenses
+            oauth2PermissionGrants = $stats.OAuth2PermissionGrants
+            appRoleAssignments = $stats.AppRoleAssignments
+            groupOwners = $stats.GroupOwners
+            deviceOwners = $stats.DeviceOwners
         }
     }
 }

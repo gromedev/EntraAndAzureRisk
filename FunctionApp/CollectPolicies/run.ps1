@@ -1,11 +1,12 @@
 <#
 .SYNOPSIS
-    Combined collector for ALL policy types: CA policies and role management policies
+    Combined collector for ALL policy types: CA policies, role management policies, and named locations
 .DESCRIPTION
     Consolidates policy collections into a single activity function:
     1. Conditional Access policies (policyType = "conditionalAccess")
     2. Role management policies (policyType = "roleManagement")
     3. Role management policy assignments (policyType = "roleManagementAssignment")
+    4. Named locations for CA (policyType = "namedLocation") - IP ranges, country locations
 
     All output goes to a single policies.jsonl file with policyType discriminator.
     This enables unified indexing to the 'policies' container.
@@ -87,6 +88,7 @@ try {
         ConditionalAccess = @{ Success = $false; Count = 0 }
         RoleManagementPolicies = @{ Success = $false; Count = 0 }
         RoleManagementAssignments = @{ Success = $false; Count = 0 }
+        NamedLocations = @{ Success = $false; Count = 0 }
     }
 
     # Initialize unified blob
@@ -319,6 +321,94 @@ try {
     }
     #endregion
 
+    # Periodic flush
+    if ($policiesJsonL.Length -ge $writeThreshold) {
+        try {
+            Add-BlobContent -StorageAccountName $storageAccountName `
+                           -ContainerName $containerName `
+                           -BlobName $policiesBlobName `
+                           -Content $policiesJsonL.ToString() `
+                           -AccessToken $storageToken
+            Write-Verbose "Flushed $($policiesJsonL.Length) characters after role management assignments"
+            $policiesJsonL.Clear()
+        }
+        catch {
+            Write-Error "Blob flush failed: $_"
+        }
+    }
+
+    #region 4. Collect Named Locations (used by CA policies for location conditions)
+    Write-Verbose "=== Phase 4: Collecting named locations ==="
+
+    $namedLocationCount = 0
+    $ipLocationCount = 0
+    $countryLocationCount = 0
+
+    try {
+        $nextLink = "https://graph.microsoft.com/v1.0/identity/conditionalAccess/namedLocations?`$top=$batchSize"
+
+        while ($nextLink) {
+            try {
+                $response = Invoke-GraphWithRetry -Uri $nextLink -AccessToken $graphToken
+                foreach ($location in $response.value) {
+                    $locationType = $location.'@odata.type' -replace '#microsoft.graph.', ''
+
+                    $locationObj = @{
+                        id = $location.id ?? ""
+                        objectId = $location.id ?? ""
+                        policyType = "namedLocation"
+                        locationType = $locationType
+                        displayName = $location.displayName ?? ""
+                        createdDateTime = $location.createdDateTime ?? $null
+                        modifiedDateTime = $location.modifiedDateTime ?? $null
+                        collectionTimestamp = $timestampFormatted
+                    }
+
+                    # Add type-specific properties
+                    if ($locationType -eq 'ipNamedLocation') {
+                        $locationObj.isTrusted = $location.isTrusted ?? $false
+                        $locationObj.ipRanges = @($location.ipRanges | ForEach-Object {
+                            @{
+                                cidrAddress = $_.'@odata.type' -match 'iPv4' ? $_.cidrAddress : $null
+                                cidrAddressV6 = $_.'@odata.type' -match 'iPv6' ? $_.cidrAddress : $null
+                                type = $_.'@odata.type' -replace '#microsoft.graph.', ''
+                            }
+                        })
+                        $locationObj.ipRangeCount = $location.ipRanges.Count
+                        $ipLocationCount++
+                    }
+                    elseif ($locationType -eq 'countryNamedLocation') {
+                        $locationObj.countriesAndRegions = $location.countriesAndRegions ?? @()
+                        $locationObj.countryLookupMethod = $location.countryLookupMethod ?? ""
+                        $locationObj.includeUnknownCountriesAndRegions = $location.includeUnknownCountriesAndRegions ?? $false
+                        $countryLocationCount++
+                    }
+
+                    [void]$policiesJsonL.AppendLine(($locationObj | ConvertTo-Json -Compress -Depth 10))
+                    $namedLocationCount++
+                }
+                $nextLink = $response.'@odata.nextLink'
+            }
+            catch {
+                Write-Warning "Named locations batch error: $_"
+                break
+            }
+        }
+
+        $results.NamedLocations = @{
+            Success = $true
+            Count = $namedLocationCount
+            IpLocationCount = $ipLocationCount
+            CountryLocationCount = $countryLocationCount
+        }
+        Write-Verbose "Named locations complete: $namedLocationCount locations ($ipLocationCount IP-based, $countryLocationCount country-based)"
+    }
+    catch {
+        Write-Warning "Named locations collection failed: $_"
+        $results.NamedLocations.Error = $_.Exception.Message
+    }
+    #endregion
+
     #region Final Flush
     if ($policiesJsonL.Length -gt 0) {
         try {
@@ -345,8 +435,8 @@ try {
     [System.GC]::WaitForPendingFinalizers()
 
     # Determine overall success
-    $overallSuccess = $results.ConditionalAccess.Success -or $results.RoleManagementPolicies.Success -or $results.RoleManagementAssignments.Success
-    $totalCount = $results.ConditionalAccess.Count + $results.RoleManagementPolicies.Count + $results.RoleManagementAssignments.Count
+    $overallSuccess = $results.ConditionalAccess.Success -or $results.RoleManagementPolicies.Success -or $results.RoleManagementAssignments.Success -or $results.NamedLocations.Success
+    $totalCount = $results.ConditionalAccess.Count + $results.RoleManagementPolicies.Count + $results.RoleManagementAssignments.Count + $results.NamedLocations.Count
 
     Write-Verbose "Combined policies collection complete: $totalCount total policies"
 
@@ -360,6 +450,7 @@ try {
         ConditionalAccessCount = $results.ConditionalAccess.Count
         RoleManagementPolicyCount = $results.RoleManagementPolicies.Count
         RoleManagementAssignmentCount = $results.RoleManagementAssignments.Count
+        NamedLocationCount = $results.NamedLocations.Count
 
         # Detailed results
         Results = $results
@@ -376,6 +467,11 @@ try {
             roleManagement = @{
                 policies = $results.RoleManagementPolicies.Count
                 assignments = $results.RoleManagementAssignments.Count
+            }
+            namedLocations = @{
+                total = $results.NamedLocations.Count
+                ipLocations = $results.NamedLocations.IpLocationCount
+                countryLocations = $results.NamedLocations.CountryLocationCount
             }
         }
     }

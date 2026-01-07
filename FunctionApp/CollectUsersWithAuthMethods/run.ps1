@@ -128,7 +128,8 @@ try {
     }
 
     # Query users with field selection
-    $selectFields = "userPrincipalName,id,accountEnabled,userType,createdDateTime,signInActivity,displayName,passwordPolicies,usageLocation,externalUserState,externalUserStateChangeDateTime,onPremisesSyncEnabled,onPremisesSamAccountName,onPremisesUserPrincipalName,onPremisesSecurityIdentifier"
+    # Added: lastPasswordChangeDateTime, signInSessionsValidFromDateTime, refreshTokensValidFromDateTime, onPremisesExtensionAttributes
+    $selectFields = "userPrincipalName,id,accountEnabled,userType,createdDateTime,signInActivity,displayName,passwordPolicies,usageLocation,externalUserState,externalUserStateChangeDateTime,onPremisesSyncEnabled,onPremisesSamAccountName,onPremisesUserPrincipalName,onPremisesSecurityIdentifier,lastPasswordChangeDateTime,signInSessionsValidFromDateTime,refreshTokensValidFromDateTime,onPremisesExtensionAttributes"
     $nextLink = "https://graph.microsoft.com/v1.0/users?`$select=$selectFields&`$top=$batchSize"
 
     Write-Verbose "Starting batch processing with streaming writes"
@@ -264,6 +265,12 @@ try {
                 onPremisesSamAccountName         = $user.onPremisesSamAccountName ?? $null
                 onPremisesUserPrincipalName      = $user.onPremisesUserPrincipalName ?? $null
                 onPremisesSecurityIdentifier     = $user.onPremisesSecurityIdentifier ?? $null
+                onPremisesExtensionAttributes    = $user.onPremisesExtensionAttributes ?? $null
+
+                # Password and session timestamps (security analytics)
+                lastPasswordChangeDateTime       = $user.lastPasswordChangeDateTime ?? $null
+                signInSessionsValidFromDateTime  = $user.signInSessionsValidFromDateTime ?? $null
+                refreshTokensValidFromDateTime   = $user.refreshTokensValidFromDateTime ?? $null
 
                 # EMBEDDED Authentication Methods (denormalized for Power BI)
                 perUserMfaState                  = $perUserMfaState

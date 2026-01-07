@@ -24,9 +24,13 @@
             'onPremisesSamAccountName'
             'onPremisesUserPrincipalName'
             'onPremisesSecurityIdentifier'
+            'onPremisesExtensionAttributes'
+            'lastPasswordChangeDateTime'
+            'signInSessionsValidFromDateTime'
+            'refreshTokensValidFromDateTime'
             'deleted'
         )
-        ArrayFields = @()
+        ArrayFields = @('authMethodTypes')
         DocumentFields = @{
             userPrincipalName = 'userPrincipalName'
             accountEnabled = 'accountEnabled'
@@ -42,6 +46,10 @@
             onPremisesSamAccountName = 'onPremisesSamAccountName'
             onPremisesUserPrincipalName = 'onPremisesUserPrincipalName'
             onPremisesSecurityIdentifier = 'onPremisesSecurityIdentifier'
+            onPremisesExtensionAttributes = 'onPremisesExtensionAttributes'
+            lastPasswordChangeDateTime = 'lastPasswordChangeDateTime'
+            signInSessionsValidFromDateTime = 'signInSessionsValidFromDateTime'
+            refreshTokensValidFromDateTime = 'refreshTokensValidFromDateTime'
             collectionTimestamp = 'collectionTimestamp'
         }
         WriteDeletes = $true
@@ -289,9 +297,16 @@
             'keyCredentials'
             'secretCount'
             'certificateCount'
+            'requiredResourceAccess'
+            'apiPermissionCount'
+            'verifiedPublisher'
+            'isPublisherVerified'
+            'federatedIdentityCredentials'
+            'hasFederatedCredentials'
+            'federatedCredentialCount'
             'deleted'
         )
-        ArrayFields = @('passwordCredentials', 'keyCredentials')
+        ArrayFields = @('passwordCredentials', 'keyCredentials', 'requiredResourceAccess', 'federatedIdentityCredentials')
         DocumentFields = @{
             appId = 'appId'
             displayName = 'displayName'
@@ -302,6 +317,13 @@
             keyCredentials = 'keyCredentials'
             secretCount = 'secretCount'
             certificateCount = 'certificateCount'
+            requiredResourceAccess = 'requiredResourceAccess'
+            apiPermissionCount = 'apiPermissionCount'
+            verifiedPublisher = 'verifiedPublisher'
+            isPublisherVerified = 'isPublisherVerified'
+            federatedIdentityCredentials = 'federatedIdentityCredentials'
+            hasFederatedCredentials = 'hasFederatedCredentials'
+            federatedCredentialCount = 'federatedCredentialCount'
             collectionTimestamp = 'collectionTimestamp'
         }
         WriteDeletes = $true
@@ -571,6 +593,11 @@
             'onPremisesSamAccountName'
             'onPremisesUserPrincipalName'
             'onPremisesSecurityIdentifier'
+            'onPremisesExtensionAttributes'
+            # Password and session timestamps (security analytics)
+            'lastPasswordChangeDateTime'
+            'signInSessionsValidFromDateTime'
+            'refreshTokensValidFromDateTime'
             # User auth methods (embedded in user - from CollectUsersWithAuthMethods)
             'perUserMfaState'
             'hasAuthenticator'
@@ -621,6 +648,14 @@
             'passwordCredentials'
             'secretCount'
             'certificateCount'
+            # API permissions and federated credentials (from CollectAppRegistrations)
+            'requiredResourceAccess'
+            'apiPermissionCount'
+            'verifiedPublisher'
+            'isPublisherVerified'
+            'federatedIdentityCredentials'
+            'hasFederatedCredentials'
+            'federatedCredentialCount'
 
             # Device-specific fields (from CollectDevices)
             'deviceId'
@@ -646,6 +681,8 @@
             'keyCredentials'
             'passwordCredentials'
             'authMethodTypes'
+            'requiredResourceAccess'
+            'federatedIdentityCredentials'
         )
         EmbeddedObjectFields = @()
         DocumentFields = @{
@@ -669,6 +706,11 @@
             onPremisesSamAccountName = 'onPremisesSamAccountName'
             onPremisesUserPrincipalName = 'onPremisesUserPrincipalName'
             onPremisesSecurityIdentifier = 'onPremisesSecurityIdentifier'
+            onPremisesExtensionAttributes = 'onPremisesExtensionAttributes'
+            # Password and session timestamps (security analytics)
+            lastPasswordChangeDateTime = 'lastPasswordChangeDateTime'
+            signInSessionsValidFromDateTime = 'signInSessionsValidFromDateTime'
+            refreshTokensValidFromDateTime = 'refreshTokensValidFromDateTime'
             # User auth methods (embedded - from CollectUsersWithAuthMethods)
             perUserMfaState = 'perUserMfaState'
             hasAuthenticator = 'hasAuthenticator'
@@ -718,6 +760,14 @@
             passwordCredentials = 'passwordCredentials'
             secretCount = 'secretCount'
             certificateCount = 'certificateCount'
+            # API permissions and federated credentials
+            requiredResourceAccess = 'requiredResourceAccess'
+            apiPermissionCount = 'apiPermissionCount'
+            verifiedPublisher = 'verifiedPublisher'
+            isPublisherVerified = 'isPublisherVerified'
+            federatedIdentityCredentials = 'federatedIdentityCredentials'
+            hasFederatedCredentials = 'hasFederatedCredentials'
+            federatedCredentialCount = 'federatedCredentialCount'
 
             # Device fields (from CollectDevices)
             deviceId = 'deviceId'
@@ -881,7 +931,7 @@
     }
 
     # ============================================
-    # POLICIES (Unified: CA policies, role policies)
+    # POLICIES (Unified: CA policies, role policies, named locations)
     # ============================================
     policies = @{
         EntityType = 'policies'
@@ -905,6 +955,15 @@
             'scopeType'
             'rules'
             'effectiveRules'
+
+            # Named Location fields (policyType = 'namedLocation')
+            'locationType'
+            'isTrusted'
+            'ipRanges'
+            'ipRangeCount'
+            'countriesAndRegions'
+            'countryLookupMethod'
+            'includeUnknownCountriesAndRegions'
         )
         ArrayFields = @(
             'conditions'
@@ -912,6 +971,8 @@
             'sessionControls'
             'rules'
             'effectiveRules'
+            'ipRanges'
+            'countriesAndRegions'
         )
         EmbeddedObjectFields = @(
             'conditions'
@@ -939,6 +1000,15 @@
             scopeType = 'scopeType'
             rules = 'rules'
             effectiveRules = 'effectiveRules'
+
+            # Named Location fields (policyType = 'namedLocation')
+            locationType = 'locationType'
+            isTrusted = 'isTrusted'
+            ipRanges = 'ipRanges'
+            ipRangeCount = 'ipRangeCount'
+            countriesAndRegions = 'countriesAndRegions'
+            countryLookupMethod = 'countryLookupMethod'
+            includeUnknownCountriesAndRegions = 'includeUnknownCountriesAndRegions'
         }
         WriteDeletes = $true
         IncludeDeleteMarkers = $true
