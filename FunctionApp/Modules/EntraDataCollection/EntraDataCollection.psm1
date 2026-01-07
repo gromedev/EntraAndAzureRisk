@@ -1095,6 +1095,29 @@ function Invoke-DeltaIndexing {
     }
 
     Write-Verbose "Parsed $($currentEntities.Count) $entityPlural from Blob"
+
+    # For unified containers (principals), determine the type being indexed
+    # This is used to filter existing data so we only compare like-with-like
+    $targetPrincipalType = $null
+    $targetRelationType = $null
+    $targetPolicyType = $null
+
+    if ($currentEntities.Count -gt 0) {
+        $firstEntity = $currentEntities.Values | Select-Object -First 1
+        $targetPrincipalType = $firstEntity.principalType
+        $targetRelationType = $firstEntity.relationType
+        $targetPolicyType = $firstEntity.policyType
+
+        if ($targetPrincipalType) {
+            Write-Verbose "Detected principalType: $targetPrincipalType"
+        }
+        if ($targetRelationType) {
+            Write-Verbose "Detected relationType: $targetRelationType"
+        }
+        if ($targetPolicyType) {
+            Write-Verbose "Detected policyType: $targetPolicyType"
+        }
+    }
     #endregion
 
     #region Step 2: Build existing entities hashtable from input binding
@@ -1104,10 +1127,31 @@ function Invoke-DeltaIndexing {
         Write-Verbose "Processing existing $entityPlural from Cosmos DB (input binding)..."
 
         foreach ($doc in $ExistingData) {
-            $existingEntities[$doc.objectId] = $doc
+            # For unified containers, only include documents matching the same type discriminator
+            # This prevents marking entities of different types as "deleted"
+            $includeDoc = $true
+
+            if ($targetPrincipalType -and $doc.principalType) {
+                $includeDoc = ($doc.principalType -eq $targetPrincipalType)
+            }
+            elseif ($targetRelationType -and $doc.relationType) {
+                $includeDoc = ($doc.relationType -eq $targetRelationType)
+            }
+            elseif ($targetPolicyType -and $doc.policyType) {
+                $includeDoc = ($doc.policyType -eq $targetPolicyType)
+            }
+
+            if ($includeDoc) {
+                $existingEntities[$doc.objectId] = $doc
+            }
         }
 
-        Write-Verbose "Found $($existingEntities.Count) existing $entityPlural in Cosmos"
+        $filterDesc = if ($targetPrincipalType) { "principalType=$targetPrincipalType" }
+                      elseif ($targetRelationType) { "relationType=$targetRelationType" }
+                      elseif ($targetPolicyType) { "policyType=$targetPolicyType" }
+                      else { "no filter" }
+
+        Write-Verbose "Found $($existingEntities.Count) existing $entityPlural in Cosmos (filtered by $filterDesc)"
     }
     #endregion
 
