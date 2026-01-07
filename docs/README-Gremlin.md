@@ -25,14 +25,24 @@ This proposal outlines how to add graph-based attack path visualization to the E
 
 ### What Gremlin Is NOT
 - Not a replacement for `principals`, `relationships`, or `changes` containers
-- Not a source of truth—blobs remain authoritative
+- Not a source of truth—Cosmos SQL containers are authoritative (delta-updated)
 - Not a history or audit store
 - Not part of the dashboard polling loop
 
 ### Core Assumption
-> "I can drop and fully rebuild Gremlin from blobs at any time."
+> "I can drop and fully rebuild Gremlin from Cosmos SQL containers at any time."
 
 This makes Gremlin **disposable**, eliminating migration complexity and schema evolution pain.
+
+### Data Source Clarification
+
+| Source | Retention | Use for Gremlin? |
+|--------|-----------|------------------|
+| **JSONL Blobs** | 90 days (lifecycle policy) | ❌ Not reliable long-term |
+| **Cosmos SQL** (`principals`, `relationships`) | Permanent (delta-updated) | ✅ **Primary source** |
+| **Changes container** | Permanent (audit trail) | For historical graph replay |
+
+**Important:** The cost optimization strategy relies on **delta change tracking**—only changed entities are written to Cosmos. Gremlin projection should follow the same pattern: project from Cosmos SQL (current state), not from blobs.
 
 ---
 
@@ -345,9 +355,201 @@ User → Group → Role → Subscription → Resource
 
 ---
 
-## Appendix: One-Sentence Summary
+## Appendix A: Current Data Structure Assessment
 
-> Use Blob Storage as immutable truth, project a minimal, disposable relationship graph into Gremlin, render static snapshots for dashboards, and treat Gremlin as an on-demand query accelerator—not a database.
+> **Verdict:** The current structure is **already graph-friendly**. No restructuring required.
+
+### Current Cosmos DB Containers
+
+| Container | Partition Key | Purpose | Gremlin Role |
+|-----------|---------------|---------|--------------|
+| `principals` | `/objectId` | Users, groups, SPs, apps, devices | **Vertices** |
+| `relationships` | `/sourceId` | Entra relationships (memberships, roles, ownership) | **Edges** |
+| `azureResources` | `/resourceType` | Tenant, MGs, subs, RGs, KeyVaults, VMs | **Vertices** |
+| `azureRelationships` | `/sourceId` | Azure hierarchy, keyVaultAccess, managedIdentity | **Edges** |
+| `policies` | `/policyType` | CA policies, role policies, named locations | Not needed |
+| `changes` | `/changeDate` | Immutable change history | Not needed |
+| `events` | `/eventDate` | Sign-in and audit events | Not needed |
+
+### Why This Structure Works
+
+**1. Clear Vertex Sources**
+```
+principals        → Gremlin vertices (label = principalType)
+azureResources    → Gremlin vertices (label = resourceType)
+```
+
+Every entity has a stable `objectId` that becomes the Gremlin vertex ID.
+
+**2. Clear Edge Sources**
+```
+relationships      → Gremlin edges (label = relationType)
+azureRelationships → Gremlin edges (label = relationType)
+```
+
+Every relationship has explicit `sourceId` → `targetId` linking—exactly what Gremlin needs.
+
+**3. Partition Keys Support Traversal**
+
+The `sourceId` partition key on relationship containers means:
+- Source-rooted queries are partition-efficient
+- "What can user X reach?" queries stay within partition
+- No cross-partition scatter for typical traversal patterns
+
+### Document-to-Gremlin Mapping
+
+**Principals → Vertices**
+
+```
+Cosmos SQL Document:                    Gremlin Vertex:
+┌─────────────────────────────────┐     ┌─────────────────────────┐
+│ {                               │     │ g.addV('user')          │
+│   "objectId": "user-123",       │ ──► │   .property('id', 'user-123')
+│   "principalType": "user",      │     │   .property('tenantId', 'tenant-abc')
+│   "displayName": "John Doe",    │     │                         │
+│   "accountEnabled": true,       │     │ // displayName, etc.    │
+│   ...40 more fields...          │     │ // NOT copied to Gremlin│
+│ }                               │     └─────────────────────────┘
+└─────────────────────────────────┘
+```
+
+**Relationships → Edges**
+
+```
+Cosmos SQL Document:                    Gremlin Edge:
+┌─────────────────────────────────┐     ┌─────────────────────────┐
+│ {                               │     │ g.V('group-456')        │
+│   "sourceId": "group-456",      │ ──► │   .addE('groupMember')  │
+│   "targetId": "user-123",       │     │   .to(g.V('user-123'))  │
+│   "relationType": "groupMember",│     │                         │
+│   "sourceDisplayName": "...",   │     │ // Denormalized fields  │
+│   "membershipType": "direct",   │     │ // NOT copied to Gremlin│
+│   ...20 more fields...          │     └─────────────────────────┘
+│ }                               │
+└─────────────────────────────────┘
+```
+
+### What Maps Directly (No Changes)
+
+| Current Field | Gremlin Element | Notes |
+|---------------|-----------------|-------|
+| `objectId` | Vertex `id` | Stable, immutable |
+| `principalType` / `resourceType` | Vertex `label` | Enables `hasLabel()` filtering |
+| `sourceId` | Edge source vertex | Direct mapping |
+| `targetId` | Edge target vertex | Direct mapping |
+| `relationType` | Edge `label` | Enables edge-type filtering |
+
+### What We Intentionally Skip
+
+These fields exist in SQL but should **NOT** go into Gremlin:
+
+| Field | Why Skip |
+|-------|----------|
+| `displayName` | Resolve from SQL when needed |
+| `accountEnabled`, `userType`, etc. | Property data, not graph structure |
+| `collectionTimestamp` | History stays in blobs |
+| `memberCountDirect`, analytics fields | Computed summaries, not edges |
+| `inheritancePath` (on transitive) | Already represented as edges |
+
+### Projection Logic (Pseudocode)
+
+```powershell
+# From principals container → Gremlin vertices
+foreach ($principal in $principals) {
+    $vertex = @{
+        id    = $principal.objectId
+        label = $principal.principalType  # user, group, servicePrincipal, etc.
+        tenantId = $tenantId
+    }
+    Add-GremlinVertex $vertex
+}
+
+# From azureResources container → Gremlin vertices
+foreach ($resource in $azureResources) {
+    $vertex = @{
+        id    = $resource.objectId
+        label = $resource.resourceType  # subscription, keyVault, virtualMachine, etc.
+        tenantId = $tenantId
+    }
+    Add-GremlinVertex $vertex
+}
+
+# From relationships container → Gremlin edges
+foreach ($rel in $relationships | Where-Object { $_.relationType -in $traversableTypes }) {
+    $edge = @{
+        from  = $rel.sourceId
+        to    = $rel.targetId
+        label = $rel.relationType
+    }
+    # Optional: add scopeId for RBAC edges
+    if ($rel.relationType -eq 'azureRbac') {
+        $edge.scopeId = $rel.scope
+    }
+    Add-GremlinEdge $edge
+}
+
+# From azureRelationships container → Gremlin edges
+foreach ($rel in $azureRelationships) {
+    $edge = @{
+        from  = $rel.sourceId
+        to    = $rel.targetId
+        label = $rel.relationType
+    }
+    Add-GremlinEdge $edge
+}
+```
+
+### Special Cases
+
+**1. Transitive Group Membership**
+
+We store `groupMemberTransitive` relationships with `inheritancePath`. For Gremlin:
+- **Option A:** Skip transitive edges (Gremlin computes them via `repeat().out()`)
+- **Option B:** Include them as edges for faster bounded queries
+
+Recommendation: **Option A** initially. Gremlin excels at transitive traversal.
+
+**2. Azure RBAC Scoping**
+
+RBAC relationships have a `scope` field (subscription, resource group, resource). For Gremlin:
+- Store `scopeId` as edge property if needed for filtered traversal
+- Or resolve scope from SQL after path discovery
+
+**3. Directory Roles**
+
+Directory roles are stored as relationships with `targetId` = role template ID. The role itself isn't in `principals`. Options:
+- Add role template IDs as synthetic vertices (label = `directoryRole`)
+- Or query relationships directly by role template ID
+
+Recommendation: Add synthetic role vertices for cleaner traversal.
+
+### Conclusion
+
+**No restructuring needed.** The current design with:
+- `principals` + `azureResources` → vertices
+- `relationships` + `azureRelationships` → edges
+
+...maps directly to Gremlin. The Graph Projector function simply:
+1. Reads from **Cosmos SQL containers** (not blobs—they expire after 90 days)
+2. Extracts `id`, `label`, `sourceId`, `targetId`
+3. Writes minimal vertices + edges to Gremlin
+
+The denormalized fields in SQL remain untouched—they're for BI and dashboards, not graph traversal.
+
+### Delta Strategy for Gremlin
+
+To align with the cost optimization strategy (delta change tracking), the Graph Projector should:
+
+1. **Full rebuild (initial or periodic):** Query all principals + relationships → write to Gremlin
+2. **Incremental updates:** Subscribe to `changes` container or use change feed to update only modified vertices/edges
+
+This mirrors the existing pattern: expensive operations happen once, incremental updates are cheap.
+
+---
+
+## Appendix B: One-Sentence Summary
+
+> Use Cosmos SQL containers as the delta-updated source of truth, project a minimal, disposable relationship graph into Gremlin, render static snapshots for dashboards, and treat Gremlin as an on-demand query accelerator—not a database.
 
 ---
 

@@ -1148,15 +1148,41 @@ function Invoke-DeltaIndexing {
     $currentEntities = @{}
     $lineNumber = 0
 
-    foreach ($line in ($blobContent -split "`n")) {
-        $lineNumber++
-        if ($line.Trim()) {
-            try {
-                $entity = $line | ConvertFrom-Json
-                $currentEntities[$entity.objectId] = $entity
+    # Handle case where Invoke-RestMethod auto-parses single-line JSON as PSCustomObject
+    # This happens when the blob contains exactly 1 JSON line (e.g., a single VM)
+    if ($blobContent -is [PSCustomObject]) {
+        if ($blobContent.objectId) {
+            $currentEntities[$blobContent.objectId] = $blobContent
+            $lineNumber = 1
+        } else {
+            Write-Warning "Blob content is PSCustomObject but has no objectId"
+        }
+    }
+    elseif ($blobContent -is [array]) {
+        # Handle case where blob contains a JSON array
+        foreach ($item in $blobContent) {
+            $lineNumber++
+            if ($item.objectId) {
+                $currentEntities[$item.objectId] = $item
+            } else {
+                Write-Warning "Array item $lineNumber has no objectId"
             }
-            catch {
-                Write-Warning "Failed to parse line $lineNumber`: $_"
+        }
+    }
+    else {
+        # Normal JSONL string processing
+        foreach ($line in ($blobContent -split "`n")) {
+            $lineNumber++
+            if ($line.Trim()) {
+                try {
+                    $entity = $line | ConvertFrom-Json
+                    if ($entity.objectId) {
+                        $currentEntities[$entity.objectId] = $entity
+                    }
+                }
+                catch {
+                    Write-Warning "Failed to parse line $lineNumber`: $_"
+                }
             }
         }
     }
@@ -1169,6 +1195,7 @@ function Invoke-DeltaIndexing {
     $targetPrincipalType = $null
     $targetRelationType = $null
     $targetPolicyType = $null
+    $targetResourceTypes = @()  # Initialize before the if block to ensure it's always defined
     $isMixedTypeCollection = ($Config.EntityType -eq 'relationships')  # Relationships contain multiple types
 
     if ($currentEntities.Count -gt 0 -and -not $isMixedTypeCollection) {
@@ -1179,18 +1206,24 @@ function Invoke-DeltaIndexing {
 
         # For Azure resources, detect ALL resourceTypes in the current collection
         # This allows filtering existing data by the set of resourceTypes being indexed
-        $targetResourceTypes = @()
         if ($Config.EntityType -eq 'azureResources') {
             $targetResourceTypes = @($currentEntities.Values | Select-Object -ExpandProperty resourceType -Unique)
             if ($targetResourceTypes.Count -gt 0) {
                 Write-Verbose "Detected resourceTypes: $($targetResourceTypes -join ', ')"
             }
         }
+        # For Azure relationships, detect ALL relationTypes in the current collection
+        if ($Config.EntityType -eq 'azureRelationships') {
+            $targetRelationType = @($currentEntities.Values | Select-Object -ExpandProperty relationType -Unique)
+            if ($targetRelationType.Count -gt 0) {
+                Write-Verbose "Detected relationTypes: $($targetRelationType -join ', ')"
+            }
+        }
 
         if ($targetPrincipalType) {
             Write-Verbose "Detected principalType: $targetPrincipalType"
         }
-        if ($targetRelationType) {
+        if ($targetRelationType -and $targetRelationType -isnot [array]) {
             Write-Verbose "Detected relationType: $targetRelationType"
         }
         if ($targetPolicyType) {
@@ -1200,12 +1233,25 @@ function Invoke-DeltaIndexing {
     elseif ($isMixedTypeCollection) {
         Write-Verbose "Processing mixed-type collection (relationships) - no type filtering"
     }
+    elseif ($currentEntities.Count -eq 0 -and $Config.EntityType -in @('azureResources', 'azureRelationships')) {
+        # SAFEGUARD: If blob is empty for Azure types, skip delta detection entirely
+        # This prevents false deletions when the blob couldn't be read or is genuinely empty
+        Write-Warning "No entities found in blob for $($Config.EntityType) - skipping delta detection to prevent false deletions"
+    }
     #endregion
 
     #region Step 2: Build existing entities hashtable from input binding
     $existingEntities = @{}
 
-    if ($enableDelta -and $ExistingData) {
+    # SAFEGUARD: Skip loading existing data for Azure types if blob is empty
+    # This prevents false deletions when the blob couldn't be read or is genuinely empty
+    $skipExistingDataLoad = $false
+    if ($Config.EntityType -in @('azureResources', 'azureRelationships') -and $currentEntities.Count -eq 0) {
+        $skipExistingDataLoad = $true
+        Write-Verbose "Skipping existing data load for $($Config.EntityType) - blob was empty, preventing false deletions"
+    }
+
+    if ($enableDelta -and $ExistingData -and -not $skipExistingDataLoad) {
         Write-Verbose "Processing existing $entityPlural from Cosmos DB (input binding)..."
 
         foreach ($doc in $ExistingData) {
@@ -1219,7 +1265,12 @@ function Invoke-DeltaIndexing {
                     $includeDoc = ($doc.principalType -eq $targetPrincipalType)
                 }
                 elseif ($targetRelationType -and $doc.relationType) {
-                    $includeDoc = ($doc.relationType -eq $targetRelationType)
+                    # Handle both single relationType and array of relationTypes
+                    if ($targetRelationType -is [array]) {
+                        $includeDoc = ($doc.relationType -in $targetRelationType)
+                    } else {
+                        $includeDoc = ($doc.relationType -eq $targetRelationType)
+                    }
                 }
                 elseif ($targetPolicyType -and $doc.policyType) {
                     $includeDoc = ($doc.policyType -eq $targetPolicyType)
@@ -1237,6 +1288,7 @@ function Invoke-DeltaIndexing {
 
         $filterDesc = if ($isMixedTypeCollection) { "no filter (mixed-type)" }
                       elseif ($targetPrincipalType) { "principalType=$targetPrincipalType" }
+                      elseif ($targetRelationType -and $targetRelationType -is [array]) { "relationType in ($($targetRelationType -join ', '))" }
                       elseif ($targetRelationType) { "relationType=$targetRelationType" }
                       elseif ($targetPolicyType) { "policyType=$targetPolicyType" }
                       elseif ($targetResourceTypes.Count -gt 0) { "resourceType in ($($targetResourceTypes -join ', '))" }
@@ -1247,6 +1299,39 @@ function Invoke-DeltaIndexing {
     #endregion
 
     #region Step 3: Delta detection
+    # ============================================================================
+    # CHANGE LOG STORAGE OPTIMIZATION (Fixed 2026-01-07)
+    # ============================================================================
+    # PROBLEM: The changes container was storing FULL ENTITY COPIES for each change:
+    #   - NEW:      { ...metadata, newValue: <full 600-byte entity> }
+    #   - MODIFIED: { ...metadata, previousValue: <600 bytes>, newValue: <600 bytes>, delta: <100 bytes> }
+    #   - DELETED:  { ...metadata, previousValue: <full 600-byte entity> }
+    #
+    # This caused the changes container to consume 93% of total Cosmos DB storage,
+    # growing ~6 MB/month for a 1000-user tenant instead of ~1 MB/month.
+    #
+    # FIX: Store only minimal metadata + delta (changed fields with old/new values):
+    #   - NEW:      { objectId, displayName, entityType, principalType, changeType, timestamps }
+    #   - MODIFIED: { objectId, displayName, entityType, principalType, changeType, timestamps, changedFields, delta }
+    #   - DELETED:  { objectId, displayName, entityType, principalType, changeType, timestamps }
+    #
+    # WHY THIS WORKS:
+    #   - Full current state is always in the 'principals' container (delta-updated)
+    #   - For NEW: the full entity exists in principals, no need to duplicate
+    #   - For MODIFIED: only the delta matters for audit; current state is in principals
+    #   - For DELETED: entity is soft-deleted in principals (deleted=true, ttl set)
+    #
+    # STORAGE SAVINGS: ~80% reduction in changes container size
+    #   - Before: ~1,400 bytes per modified change (prev + new + delta + metadata)
+    #   - After:  ~250 bytes per modified change (delta + metadata only)
+    #
+    # ADDED FIELDS for better queryability:
+    #   - entityType: the collection type (users, groups, etc.)
+    #   - principalType: the entity's principalType field
+    #   - changeDate: YYYY-MM-DD format for partition key queries
+    #   - changedFields: array of field names that changed (for quick filtering)
+    # ============================================================================
+
     $newEntities = @()
     $modifiedEntities = @()
     $unchangedEntities = @()
@@ -1261,14 +1346,17 @@ function Invoke-DeltaIndexing {
             # NEW entity
             $newEntities += $currentEntity
 
+            # Store minimal change record - full entity is in principals container
             $changeLog += @{
                 id = [Guid]::NewGuid().ToString()
                 objectId = $objectId
                 displayName = $currentEntity.displayName
+                entityType = $EntityType
+                principalType = $currentEntity.principalType
                 changeType = 'new'
                 changeTimestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+                changeDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
                 snapshotId = $Timestamp
-                newValue = $currentEntity
             }
         }
         else {
@@ -1314,15 +1402,19 @@ function Invoke-DeltaIndexing {
                 # MODIFIED entity
                 $modifiedEntities += $currentEntity
 
+                # Store only delta (changed fields) - not full entity copies
+                # Full current state is in principals container
                 $changeLog += @{
                     id = [Guid]::NewGuid().ToString()
                     objectId = $objectId
                     displayName = $currentEntity.displayName
+                    entityType = $EntityType
+                    principalType = $currentEntity.principalType
                     changeType = 'modified'
                     changeTimestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+                    changeDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
                     snapshotId = $Timestamp
-                    previousValue = $existingEntity
-                    newValue = $currentEntity
+                    changedFields = @($delta.Keys)
                     delta = $delta
                 }
             }
@@ -1340,14 +1432,18 @@ function Invoke-DeltaIndexing {
                 # DELETED entity
                 $deletedEntities += $existingEntities[$objectId]
 
+                # Store minimal delete record - no need to duplicate the full entity
+                # The entity is soft-deleted in principals container with deleted=true
                 $changeLog += @{
                     id = [Guid]::NewGuid().ToString()
                     objectId = $objectId
                     displayName = $existingEntities[$objectId].displayName
+                    entityType = $EntityType
+                    principalType = $existingEntities[$objectId].principalType
                     changeType = 'deleted'
                     changeTimestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+                    changeDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
                     snapshotId = $Timestamp
-                    previousValue = $existingEntities[$objectId]
                 }
             }
         }
