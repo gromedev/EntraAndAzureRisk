@@ -19,7 +19,10 @@ param(
     # Changes (unified audit trail)
     $changesIn,
     # Reference data
-    $rolesIn
+    $rolesIn,
+    # Azure Resources (Phase 2)
+    $azureResourcesIn,
+    $azureRelationshipsIn
 )
 
 Add-Type -AssemblyName System.Web
@@ -27,7 +30,7 @@ $modulePath = Join-Path $PSScriptRoot "..\Modules\EntraDataCollection\EntraDataC
 Import-Module $modulePath -Force
 
 # Helper: Get dynamic properties with smart ordering and type-specific filtering
-function Get-DynamicProperties {
+function Get-DynamicProperty {
     param($dataArray, [string]$dataType = "")
 
     if ($null -eq $dataArray -or $dataArray.Count -eq 0) { return @() }
@@ -73,7 +76,37 @@ function Get-DynamicProperties {
         "application" = @(
             'objectId', 'displayName', 'appId', 'createdDateTime', 'signInAudience', 'publisherDomain',
             'keyCredentials', 'passwordCredentials', 'secretCount', 'certificateCount',
+            'requiredResourceAccess', 'apiPermissionCount', 'verifiedPublisher', 'isPublisherVerified',
+            'federatedIdentityCredentials', 'hasFederatedCredentials', 'federatedCredentialCount',
             'principalType', 'collectionTimestamp', 'deleted'
+        )
+        # Azure Resource types (Phase 2)
+        "azureResource" = @(
+            'objectId', 'displayName', 'name', 'resourceType', 'location', 'subscriptionId', 'resourceGroupName',
+            # Tenant fields
+            'tenantType', 'defaultDomain', 'verifiedDomains',
+            # Subscription fields
+            'state', 'authorizationSource',
+            # Key Vault fields
+            'vaultUri', 'sku', 'enableRbacAuthorization', 'enableSoftDelete', 'enablePurgeProtection',
+            'publicNetworkAccess', 'accessPolicyCount',
+            # VM fields
+            'vmId', 'vmSize', 'osType', 'powerState', 'identityType',
+            'hasSystemAssignedIdentity', 'systemAssignedPrincipalId',
+            'hasUserAssignedIdentity', 'userAssignedIdentityCount',
+            'collectionTimestamp', 'deleted'
+        )
+        "azureRelationship" = @(
+            'id', 'relationType', 'sourceId', 'sourceType', 'sourceDisplayName',
+            'targetId', 'targetType', 'targetDisplayName',
+            # Contains fields
+            'targetLocation', 'targetSubscriptionId',
+            # Key Vault access fields
+            'accessType', 'canGetSecrets', 'canListSecrets', 'canSetSecrets',
+            'canGetKeys', 'canDecryptWithKey', 'canGetCertificates',
+            # Managed identity fields
+            'identityType', 'userAssignedIdentityId',
+            'collectionTimestamp', 'deleted'
         )
     }
 
@@ -83,13 +116,15 @@ function Get-DynamicProperties {
         "group" { @('objectId', 'displayName', 'securityEnabled', 'memberCountDirect', 'userMemberCount', 'groupMemberCount', 'groupTypes') }
         "servicePrincipal" { @('objectId', 'displayName', 'appId', 'servicePrincipalType', 'accountEnabled', 'secretCount', 'certificateCount') }
         "device" { @('objectId', 'displayName', 'deviceId', 'isCompliant', 'isManaged', 'operatingSystem') }
-        "application" { @('objectId', 'displayName', 'appId', 'signInAudience', 'secretCount', 'certificateCount') }
+        "application" { @('objectId', 'displayName', 'appId', 'signInAudience', 'secretCount', 'certificateCount', 'apiPermissionCount', 'hasFederatedCredentials') }
         "relationship" { @('id', 'sourceDisplayName', 'relationType', 'targetDisplayName', 'membershipType', 'inheritanceDepth', 'status') }
         "policy" { @('objectId', 'displayName', 'policyType', 'state') }
         "signIn" { @('id', 'userPrincipalName', 'errorCode', 'riskLevelAggregated', 'createdDateTime') }
         "audit" { @('id', 'activityDisplayName', 'category', 'result', 'activityDateTime') }
         "changes" { @('entityType', 'displayName', 'objectId', 'changeType', 'changeTimestamp') }
         "role" { @('objectId', 'displayName', 'roleType', 'isPrivileged', 'isBuiltIn') }
+        "azureResource" { @('objectId', 'displayName', 'resourceType', 'location', 'subscriptionId', 'vaultUri', 'vmSize', 'powerState') }
+        "azureRelationship" { @('id', 'sourceDisplayName', 'relationType', 'targetDisplayName', 'identityType', 'canGetSecrets') }
         default { @('objectId', 'displayName') }
     }
 
@@ -203,7 +238,7 @@ function Format-Delta {
 }
 
 # Helper: De-duplicate by objectId
-function Remove-Duplicates {
+function Remove-Duplicate {
     param($dataArray)
     if ($null -eq $dataArray -or $dataArray.Count -eq 0) { return @() }
 
@@ -231,7 +266,7 @@ function New-TableHtml {
 
     if ($data.Count -eq 0) { return @{ Headers = ""; Rows = ""; Props = @() } }
 
-    $props = Get-DynamicProperties -dataArray $data -dataType $dataType
+    $props = Get-DynamicProperty -dataArray $data -dataType $dataType
 
     $headers = (0..($props.Count - 1) | ForEach-Object {
         "<th onclick=`"sortTable($_, '$tableId')`">$($props[$_])</th>"
@@ -252,11 +287,11 @@ function New-TableHtml {
 
 try {
     # Process principals
-    $userData = Remove-Duplicates ($usersIn ?? @())
-    $groupData = Remove-Duplicates ($groupsIn ?? @())
-    $spData = Remove-Duplicates ($servicePrincipalsIn ?? @())
-    $deviceData = Remove-Duplicates ($devicesIn ?? @())
-    $appData = Remove-Duplicates ($applicationsIn ?? @())
+    $userData = Remove-Duplicate ($usersIn ?? @())
+    $groupData = Remove-Duplicate ($groupsIn ?? @())
+    $spData = Remove-Duplicate ($servicePrincipalsIn ?? @())
+    $deviceData = Remove-Duplicate ($devicesIn ?? @())
+    $appData = Remove-Duplicate ($applicationsIn ?? @())
 
     # Process relationships - group by relationType
     $allRelationships = $relationshipsIn ?? @()
@@ -285,7 +320,22 @@ try {
     # Process roles reference data
     $rolesData = $rolesIn ?? @()
 
+    # Process Azure Resources (Phase 2) - group by resourceType
+    # Filter out deleted resources (deleted field might be true, false, null, or undefined)
+    $allAzureResources = @($azureResourcesIn | Where-Object { $_.deleted -ne $true })
+    $azureHierarchyData = @($allAzureResources | Where-Object { $_.resourceType -in @('tenant', 'managementGroup', 'subscription', 'resourceGroup') })
+    $keyVaultData = @($allAzureResources | Where-Object { $_.resourceType -eq 'keyVault' })
+    $virtualMachineData = @($allAzureResources | Where-Object { $_.resourceType -eq 'virtualMachine' })
+
+    # Process Azure Relationships - group by relationType
+    # Filter out deleted relationships
+    $allAzureRelationships = @($azureRelationshipsIn | Where-Object { $_.deleted -ne $true })
+    $containsData = @($allAzureRelationships | Where-Object { $_.relationType -eq 'contains' })
+    $keyVaultAccessData = @($allAzureRelationships | Where-Object { $_.relationType -eq 'keyVaultAccess' })
+    $managedIdentityData = @($allAzureRelationships | Where-Object { $_.relationType -eq 'hasManagedIdentity' })
+
     Write-Verbose "V2 Dashboard - Principals: Users=$($userData.Count), Groups=$($groupData.Count), SPs=$($spData.Count)"
+    Write-Verbose "V2 Dashboard - Azure: Hierarchy=$($azureHierarchyData.Count), KeyVaults=$($keyVaultData.Count), VMs=$($virtualMachineData.Count)"
 
     # Generate tables
     $userTable = New-TableHtml -data $userData -tableId 'u-table' -dataType 'user'
@@ -307,6 +357,13 @@ try {
     $auditTable = New-TableHtml -data $auditData -tableId 'au-table' -dataType 'audit'
     $changesTable = New-TableHtml -data $changesData -tableId 'ch-table' -dataType 'changes'
     $rolesTable = New-TableHtml -data $rolesData -tableId 'ro-table' -dataType 'role'
+    # Azure tables (Phase 2)
+    $azureHierarchyTable = New-TableHtml -data $azureHierarchyData -tableId 'ah-table' -dataType 'azureResource'
+    $keyVaultTable = New-TableHtml -data $keyVaultData -tableId 'kv-table' -dataType 'azureResource'
+    $vmTable = New-TableHtml -data $virtualMachineData -tableId 'vm-table' -dataType 'azureResource'
+    $containsTable = New-TableHtml -data $containsData -tableId 'ct-table' -dataType 'azureRelationship'
+    $kvAccessTable = New-TableHtml -data $keyVaultAccessData -tableId 'ka-table' -dataType 'azureRelationship'
+    $miTable = New-TableHtml -data $managedIdentityData -tableId 'mi-table' -dataType 'azureRelationship'
 
     $debugInfo = @"
         <div style='background:#e8f4fd;padding:10px;margin:10px 0;border-left:4px solid #0078d4;border-radius:5px;font-size:0.85em;'>
@@ -315,6 +372,7 @@ try {
             <b>Relationships:</b> Group Members: <b>$($groupMembershipData.Count)</b> | Dir Roles: <b>$($directoryRoleData.Count)</b> | PIM Roles: <b>$($pimRoleData.Count)</b> | PIM Groups: <b>$($pimGroupData.Count)</b> | Azure RBAC: <b>$($azureRbacData.Count)</b> | Owners: <b>$($ownershipData.Count)</b> | Licenses: <b>$($licenseData.Count)</b><br/>
             <b>Policies:</b> CA: <b>$($caPolicyData.Count)</b> | Role Mgmt: <b>$($rolePolicyData.Count)</b><br/>
             <b>Events:</b> Sign-Ins: <b>$($signInData.Count)</b> | Audits: <b>$($auditData.Count)</b><br/>
+            <b>Azure (Phase 2):</b> Hierarchy: <b>$($azureHierarchyData.Count)</b> | Key Vaults: <b>$($keyVaultData.Count)</b> | VMs: <b>$($virtualMachineData.Count)</b> | Contains: <b>$($containsData.Count)</b> | KV Access: <b>$($keyVaultAccessData.Count)</b> | Managed Identity: <b>$($managedIdentityData.Count)</b><br/>
             <b>Changes:</b> <b>$($changesData.Count)</b> | <b>Roles:</b> <b>$($rolesData.Count)</b><br/>
             Generated: <b>$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')</b>
         </div>
@@ -400,6 +458,14 @@ try {
             <span class="tab-divider"></span>
             <span class="section-label">REFERENCE:</span>
             <button class="tab" onclick="showTab('ro-tab', this)">Roles ($($rolesData.Count))</button>
+            <span class="tab-divider"></span>
+            <span class="section-label">AZURE:</span>
+            <button class="tab" onclick="showTab('ah-tab', this)">Hierarchy ($($azureHierarchyData.Count))</button>
+            <button class="tab" onclick="showTab('kv-tab', this)">Key Vaults ($($keyVaultData.Count))</button>
+            <button class="tab" onclick="showTab('vm-tab', this)">VMs ($($virtualMachineData.Count))</button>
+            <button class="tab" onclick="showTab('ct-tab', this)">Contains ($($containsData.Count))</button>
+            <button class="tab" onclick="showTab('ka-tab', this)">KV Access ($($keyVaultAccessData.Count))</button>
+            <button class="tab" onclick="showTab('mi-tab', this)">Managed Identity ($($managedIdentityData.Count))</button>
         </div>
 
         <!-- Principals -->
@@ -467,6 +533,26 @@ try {
         <!-- Reference -->
         <div id="ro-tab" class="tab-content">
             <div class="table-container"><table id="ro-table"><thead><tr>$($rolesTable.Headers)</tr></thead><tbody>$($rolesTable.Rows)</tbody></table></div>
+        </div>
+
+        <!-- Azure Resources (Phase 2) -->
+        <div id="ah-tab" class="tab-content">
+            <div class="table-container"><table id="ah-table"><thead><tr>$($azureHierarchyTable.Headers)</tr></thead><tbody>$($azureHierarchyTable.Rows)</tbody></table></div>
+        </div>
+        <div id="kv-tab" class="tab-content">
+            <div class="table-container"><table id="kv-table"><thead><tr>$($keyVaultTable.Headers)</tr></thead><tbody>$($keyVaultTable.Rows)</tbody></table></div>
+        </div>
+        <div id="vm-tab" class="tab-content">
+            <div class="table-container"><table id="vm-table"><thead><tr>$($vmTable.Headers)</tr></thead><tbody>$($vmTable.Rows)</tbody></table></div>
+        </div>
+        <div id="ct-tab" class="tab-content">
+            <div class="table-container"><table id="ct-table"><thead><tr>$($containsTable.Headers)</tr></thead><tbody>$($containsTable.Rows)</tbody></table></div>
+        </div>
+        <div id="ka-tab" class="tab-content">
+            <div class="table-container"><table id="ka-table"><thead><tr>$($kvAccessTable.Headers)</tr></thead><tbody>$($kvAccessTable.Rows)</tbody></table></div>
+        </div>
+        <div id="mi-tab" class="tab-content">
+            <div class="table-container"><table id="mi-table"><thead><tr>$($miTable.Headers)</tr></thead><tbody>$($miTable.Rows)</tbody></table></div>
         </div>
     </div>
 </body>

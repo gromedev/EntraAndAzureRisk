@@ -1,6 +1,6 @@
 # Centralized Indexer Configurations
 # Each entity type has its own configuration for delta indexing
-# Used by Invoke-DeltaIndexingWithBindings to reduce code duplication in indexers
+# Used by Invoke-DeltaIndexingWithBinding to reduce code duplication in indexers
 
 @{
     # ============================================
@@ -1114,5 +1114,244 @@
         # No TTL on changes - permanent history
         RawOutBinding = 'changesOut'
         ChangesOutBinding = $null
+    }
+
+    # ============================================
+    # AZURE RESOURCES (Phase 2: Hierarchy, Key Vaults, VMs)
+    # ============================================
+    azureResources = @{
+        EntityType = 'azureResources'
+        EntityNameSingular = 'azureResource'
+        EntityNamePlural = 'AzureResources'
+        # Partition key is /resourceType for efficient queries
+        CompareFields = @(
+            # Common fields
+            'resourceType'
+            'displayName'
+            'location'
+            'subscriptionId'
+            'resourceGroupName'
+            'tags'
+
+            # Tenant fields
+            'tenantType'
+            'defaultDomain'
+            'verifiedDomains'
+
+            # Management Group fields
+            'managementGroupId'
+            'parentId'
+            'childCount'
+
+            # Subscription fields
+            'state'
+            'authorizationSource'
+
+            # Resource Group fields
+            'provisioningState'
+            'managedBy'
+
+            # Key Vault fields
+            'vaultUri'
+            'sku'
+            'enableRbacAuthorization'
+            'enableSoftDelete'
+            'enablePurgeProtection'
+            'softDeleteRetentionInDays'
+            'publicNetworkAccess'
+            'networkAcls'
+            'accessPolicies'
+            'accessPolicyCount'
+            'privateEndpointConnections'
+
+            # VM fields
+            'vmId'
+            'vmSize'
+            'zones'
+            'osType'
+            'osName'
+            'computerName'
+            'powerState'
+            'identityType'
+            'hasSystemAssignedIdentity'
+            'systemAssignedPrincipalId'
+            'hasUserAssignedIdentity'
+            'userAssignedIdentities'
+            'userAssignedIdentityCount'
+            'networkInterfaces'
+            'networkInterfaceCount'
+        )
+        ArrayFields = @(
+            'verifiedDomains'
+            'managedByTenants'
+            'accessPolicies'
+            'privateEndpointConnections'
+            'zones'
+            'userAssignedIdentities'
+            'networkInterfaces'
+            'technicalNotificationMails'
+            'securityComplianceNotificationMails'
+        )
+        EmbeddedObjectFields = @(
+            'sku'
+            'networkAcls'
+        )
+        DocumentFields = @{
+            # Common fields
+            resourceType = 'resourceType'
+            displayName = 'displayName'
+            name = 'name'
+            location = 'location'
+            subscriptionId = 'subscriptionId'
+            resourceGroupName = 'resourceGroupName'
+            resourceGroupId = 'resourceGroupId'
+            tenantId = 'tenantId'
+            tags = 'tags'
+            collectionTimestamp = 'collectionTimestamp'
+
+            # Tenant fields
+            tenantType = 'tenantType'
+            defaultDomain = 'defaultDomain'
+            verifiedDomains = 'verifiedDomains'
+            technicalNotificationMails = 'technicalNotificationMails'
+            securityComplianceNotificationMails = 'securityComplianceNotificationMails'
+
+            # Management Group fields
+            managementGroupId = 'managementGroupId'
+            parentId = 'parentId'
+            parentDisplayName = 'parentDisplayName'
+            childCount = 'childCount'
+
+            # Subscription fields
+            state = 'state'
+            authorizationSource = 'authorizationSource'
+            managedByTenants = 'managedByTenants'
+
+            # Resource Group fields
+            provisioningState = 'provisioningState'
+            managedBy = 'managedBy'
+
+            # Key Vault fields
+            vaultUri = 'vaultUri'
+            sku = 'sku'
+            enableRbacAuthorization = 'enableRbacAuthorization'
+            enableSoftDelete = 'enableSoftDelete'
+            enablePurgeProtection = 'enablePurgeProtection'
+            softDeleteRetentionInDays = 'softDeleteRetentionInDays'
+            publicNetworkAccess = 'publicNetworkAccess'
+            enabledForDeployment = 'enabledForDeployment'
+            enabledForDiskEncryption = 'enabledForDiskEncryption'
+            enabledForTemplateDeployment = 'enabledForTemplateDeployment'
+            networkAcls = 'networkAcls'
+            accessPolicies = 'accessPolicies'
+            accessPolicyCount = 'accessPolicyCount'
+            privateEndpointConnections = 'privateEndpointConnections'
+
+            # VM fields
+            vmId = 'vmId'
+            vmSize = 'vmSize'
+            zones = 'zones'
+            osType = 'osType'
+            osName = 'osName'
+            computerName = 'computerName'
+            powerState = 'powerState'
+            identityType = 'identityType'
+            hasSystemAssignedIdentity = 'hasSystemAssignedIdentity'
+            systemAssignedPrincipalId = 'systemAssignedPrincipalId'
+            systemAssignedTenantId = 'systemAssignedTenantId'
+            hasUserAssignedIdentity = 'hasUserAssignedIdentity'
+            userAssignedIdentities = 'userAssignedIdentities'
+            userAssignedIdentityCount = 'userAssignedIdentityCount'
+            networkInterfaces = 'networkInterfaces'
+            networkInterfaceCount = 'networkInterfaceCount'
+            adminUsername = 'adminUsername'
+            disablePasswordAuthentication = 'disablePasswordAuthentication'
+        }
+        WriteDeletes = $true
+        IncludeDeleteMarkers = $true
+        RawOutBinding = 'azureResourcesRawOut'
+        ChangesOutBinding = 'azureResourceChangesOut'
+    }
+
+    # ============================================
+    # AZURE RELATIONSHIPS (Phase 2: Contains, Access, Identity)
+    # ============================================
+    azureRelationships = @{
+        EntityType = 'azureRelationships'
+        EntityNameSingular = 'azureRelationship'
+        EntityNamePlural = 'AzureRelationships'
+        # Partition key is /sourceId for efficient traversal
+        CompareFields = @(
+            'relationType'
+            'sourceType'
+            'sourceDisplayName'
+            'targetType'
+            'targetDisplayName'
+
+            # Contains relationship fields
+            'targetLocation'
+            'targetSubscriptionId'
+
+            # Key Vault access fields
+            'accessType'
+            'keyPermissions'
+            'secretPermissions'
+            'certificatePermissions'
+            'storagePermissions'
+            'canGetSecrets'
+            'canListSecrets'
+            'canSetSecrets'
+            'canGetKeys'
+            'canDecryptWithKey'
+            'canGetCertificates'
+
+            # Managed Identity fields
+            'identityType'
+            'userAssignedIdentityId'
+        )
+        ArrayFields = @(
+            'keyPermissions'
+            'secretPermissions'
+            'certificatePermissions'
+            'storagePermissions'
+        )
+        DocumentFields = @{
+            # Common fields
+            relationType = 'relationType'
+            sourceId = 'sourceId'
+            sourceType = 'sourceType'
+            sourceDisplayName = 'sourceDisplayName'
+            targetId = 'targetId'
+            targetType = 'targetType'
+            targetDisplayName = 'targetDisplayName'
+            collectionTimestamp = 'collectionTimestamp'
+
+            # Contains relationship fields
+            targetLocation = 'targetLocation'
+            targetSubscriptionId = 'targetSubscriptionId'
+            targetDeviceId = 'targetDeviceId'
+            sourceSubscriptionId = 'sourceSubscriptionId'
+
+            # Key Vault access fields
+            accessType = 'accessType'
+            keyPermissions = 'keyPermissions'
+            secretPermissions = 'secretPermissions'
+            certificatePermissions = 'certificatePermissions'
+            storagePermissions = 'storagePermissions'
+            canGetSecrets = 'canGetSecrets'
+            canListSecrets = 'canListSecrets'
+            canSetSecrets = 'canSetSecrets'
+            canGetKeys = 'canGetKeys'
+            canDecryptWithKey = 'canDecryptWithKey'
+            canGetCertificates = 'canGetCertificates'
+
+            # Managed Identity fields
+            identityType = 'identityType'
+            userAssignedIdentityId = 'userAssignedIdentityId'
+        }
+        WriteDeletes = $true
+        IncludeDeleteMarkers = $true
+        RawOutBinding = 'azureRelationshipsRawOut'
+        ChangesOutBinding = 'azureRelationshipChangesOut'
     }
 }

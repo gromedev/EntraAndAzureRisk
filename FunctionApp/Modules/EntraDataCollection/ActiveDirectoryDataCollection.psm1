@@ -157,7 +157,7 @@ function Get-Progress {
     )
     
     if (Test-Path $ProgressFile) {
-        Write-Host "Resuming from previous progress..."
+        Write-Verbose "Resuming from previous progress..."
         return Get-Content $ProgressFile | ConvertFrom-Json -AsHashtable
     }
     
@@ -171,7 +171,7 @@ function Get-ADGroupFilter {
         [object]$Config
     )
     if ($Config.ScopeToGroup -and $Config.TargetGroup) {
-        Write-Host "Scoping AD collection to group: $($Config.TargetGroup)"
+        Write-Verbose "Scoping AD collection to group: $($Config.TargetGroup)"
         # Get group DN
         $domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()
         $searchBase = $domain.GetDirectoryEntry().distinguishedName
@@ -183,12 +183,12 @@ function Get-ADGroupFilter {
             throw "Group '$($Config.TargetGroup)' not found in Active Directory"
         }
         $groupDN = $groupResult.Properties["distinguishedName"][0]
-        Write-Host "Found group DN: $groupDN"
+        Write-Verbose "Found group DN: $groupDN"
         # Return filter for users who are members of this group
         return "(&(objectCategory=user)(memberOf=$groupDN))"
     }
     else {
-        Write-Host "Collecting all users in Active Directory"
+        Write-Verbose "Collecting all users in Active Directory"
         return "(objectCategory=user)"
     }
 } 
@@ -219,7 +219,7 @@ function Get-ADGroupMemberCount {
         return "All AD Users"
     }
 }
-function Get-ADGroupTypes {
+function Get-ADGroupType {
     param (
         [int]$GroupType
     )
@@ -270,7 +270,7 @@ Export-ModuleMember -Function @(
     'Save-Progress',
     'Get-Progress'
     'Convert-LDAPDateTimeString',
-    'Get-ADGroupTypes',
+    'Get-ADGroupType',
     'Get-ADGroupFilter',
     'Get-ADGroupMemberCount'
 )

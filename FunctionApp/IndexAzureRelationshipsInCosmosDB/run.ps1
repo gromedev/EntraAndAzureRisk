@@ -1,21 +1,21 @@
-#region Index Relationships in Cosmos DB - Unified Container
+#region Index Azure Relationships in Cosmos DB - Unified Container
 <#
 .SYNOPSIS
-    Indexes relationships (memberships, roles, permissions) in unified Cosmos DB container
+    Indexes Azure relationships (contains, keyVaultAccess, hasManagedIdentity) in unified Cosmos DB container
 .DESCRIPTION
     Uses Invoke-DeltaIndexingWithBinding with config from IndexerConfigs.psd1.
-    All relationship types are stored in a single container with relationType discriminator.
+    All Azure relationship types are stored in a single container with relationType discriminator.
     Configuration and binding logic handled by the shared function.
 #>
 #endregion
 
-param($ActivityInput, $relationshipsRawIn)
+param($ActivityInput, $azureRelationshipsRawIn)
 
 $modulePath = Join-Path $PSScriptRoot "..\Modules\EntraDataCollection"
 Import-Module $modulePath -Force -ErrorAction Stop
 
 # Use shared function with entity type - all config loaded from IndexerConfigs.psd1
 return Invoke-DeltaIndexingWithBinding `
-    -EntityType 'relationships' `
+    -EntityType 'azureRelationships' `
     -ActivityInput $ActivityInput `
-    -ExistingData $relationshipsRawIn
+    -ExistingData $azureRelationshipsRawIn

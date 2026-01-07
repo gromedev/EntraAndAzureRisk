@@ -102,6 +102,24 @@
       "containerName": "roles",
       "connection": "CosmosDbConnectionString",
       "sqlQuery": "SELECT * FROM c"
+    },
+    {
+      "name": "azureResourcesIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "azureResources",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT * FROM c"
+    },
+    {
+      "name": "azureRelationshipsIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "azureRelationships",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT * FROM c"
     }
   ]
 }

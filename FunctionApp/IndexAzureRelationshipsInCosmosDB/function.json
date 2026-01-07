@@ -1,0 +1,48 @@
+{
+  "bindings": [
+    {
+      "name": "ActivityInput",
+      "type": "activityTrigger",
+      "direction": "in"
+    },
+    {
+      "name": "azureRelationshipsRawOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "azureRelationships",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/sourceId"
+    },
+    {
+      "name": "azureRelationshipChangesOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "changes",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/changeDate"
+    },
+    {
+      "name": "snapshotsOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "snapshots",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/id"
+    },
+    {
+      "name": "azureRelationshipsRawIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "azureRelationships",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT c.objectId, c.relationType, c.sourceId, c.sourceType, c.sourceDisplayName, c.targetId, c.targetType, c.targetDisplayName, c.deleted, c.targetLocation, c.targetSubscriptionId, c.targetDeviceId, c.sourceSubscriptionId, c.accessType, c.keyPermissions, c.secretPermissions, c.certificatePermissions, c.storagePermissions, c.canGetSecrets, c.canListSecrets, c.canSetSecrets, c.canGetKeys, c.canDecryptWithKey, c.canGetCertificates, c.identityType, c.userAssignedIdentityId, c.collectionTimestamp FROM c"
+    }
+  ]
+}

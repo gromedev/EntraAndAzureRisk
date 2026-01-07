@@ -120,7 +120,7 @@ try {
     }
 
     # Helper function to get member counts for a group
-    function Get-GroupMemberCounts {
+    function Get-GroupMemberCount {
         param(
             [string]$GroupId,
             [string]$AccessToken
@@ -188,7 +188,7 @@ try {
         # Sequential process batch
         foreach ($group in $groupBatch) {
             # Get member counts for this group
-            $memberCounts = Get-GroupMemberCounts -GroupId $group.id -AccessToken $graphToken
+            $memberCounts = Get-GroupMemberCount -GroupId $group.id -AccessToken $graphToken
 
             # Transform to consistent camelCase structure with objectId
             $groupObj = @{

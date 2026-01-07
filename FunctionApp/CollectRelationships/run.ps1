@@ -130,18 +130,14 @@ try {
     $jsonL = New-Object System.Text.StringBuilder(2097152)
     $writeThreshold = 5000
 
-    # Helper function to flush buffer
-    function Flush-Buffer {
-        if ($jsonL.Length -gt 0) {
-            Add-BlobContent -StorageAccountName $storageAccountName `
-                           -ContainerName $containerName `
-                           -BlobName $blobName `
-                           -Content $jsonL.ToString() `
-                           -AccessToken $storageToken `
-                           -MaxRetries 3 `
-                           -BaseRetryDelaySeconds 2
-            $jsonL.Clear()
-        }
+    # Splatting params for Write-BlobBuffer (consolidates Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams pattern)
+    $flushParams = @{
+        StorageAccountName = $storageAccountName
+        ContainerName = $containerName
+        BlobName = $blobName
+        AccessToken = $storageToken
+        MaxRetries = 3
+        BaseRetryDelaySeconds = 2
     }
 
     #region Phase 1: Direct Group Memberships
@@ -233,11 +229,11 @@ try {
 
         # Periodic flush
         if ($jsonL.Length -ge ($writeThreshold * 300)) {
-            Flush-Buffer
+            Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
             Write-Verbose "Flushed group memberships buffer ($($stats.GroupMembershipsDirect) direct total)"
         }
     }
-    Flush-Buffer
+    Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
     Write-Verbose "Direct group memberships complete: $($stats.GroupMembershipsDirect)"
     #endregion
 
@@ -350,11 +346,11 @@ try {
 
         # Periodic flush
         if ($jsonL.Length -ge ($writeThreshold * 300)) {
-            Flush-Buffer
+            Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
             Write-Verbose "Flushed transitive memberships buffer ($($stats.GroupMembershipsTransitive) total)"
         }
     }
-    Flush-Buffer
+    Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
     Write-Verbose "Transitive group memberships complete: $($stats.GroupMembershipsTransitive)"
     #endregion
 
@@ -418,7 +414,7 @@ try {
     }
     catch { Write-Warning "Failed to retrieve directory roles: $_" }
 
-    Flush-Buffer
+    Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
     Write-Verbose "Directory roles complete: $($stats.DirectoryRoles)"
     #endregion
 
@@ -500,7 +496,7 @@ try {
         catch { Write-Warning "Active roles batch error: $_"; break }
     }
 
-    Flush-Buffer
+    Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
     Write-Verbose "PIM roles complete: $($stats.PimEligible) eligible, $($stats.PimActive) active"
     #endregion
 
@@ -601,7 +597,7 @@ try {
         }
     }
 
-    Flush-Buffer
+    Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
     Write-Verbose "PIM groups complete: $($stats.PimGroupEligible) eligible, $($stats.PimGroupActive) active"
     #endregion
 
@@ -609,7 +605,7 @@ try {
     Write-Verbose "=== Phase 5: Azure RBAC Assignments ==="
 
     # Discover subscriptions
-    $subscriptions = Get-AzureManagementPagedResults `
+    $subscriptions = Get-AzureManagementPagedResult `
         -Uri "https://management.azure.com/subscriptions?api-version=2022-12-01" `
         -AccessToken $azureToken
 
@@ -672,11 +668,11 @@ try {
 
         # Periodic flush
         if ($jsonL.Length -ge ($writeThreshold * 300)) {
-            Flush-Buffer
+            Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
         }
     }
 
-    Flush-Buffer
+    Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
     Write-Verbose "Azure RBAC complete: $($stats.AzureRbac)"
     #endregion
 
@@ -727,14 +723,14 @@ try {
 
             # Periodic flush
             if ($jsonL.Length -ge ($writeThreshold * 300)) {
-                Flush-Buffer
+                Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
                 Write-Verbose "Flushed app owners buffer ($($stats.AppOwners) total)"
             }
         }
         catch { Write-Warning "Failed to retrieve applications batch: $_"; break }
     }
 
-    Flush-Buffer
+    Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
     Write-Verbose "Application owners complete: $($stats.AppOwners)"
     #endregion
 
@@ -786,14 +782,14 @@ try {
 
             # Periodic flush
             if ($jsonL.Length -ge ($writeThreshold * 300)) {
-                Flush-Buffer
+                Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
                 Write-Verbose "Flushed SP owners buffer ($($stats.SpOwners) total)"
             }
         }
         catch { Write-Warning "Failed to retrieve service principals batch: $_"; break }
     }
 
-    Flush-Buffer
+    Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
     Write-Verbose "Service principal owners complete: $($stats.SpOwners)"
     #endregion
 
@@ -880,14 +876,14 @@ try {
 
             # Periodic flush
             if ($jsonL.Length -ge ($writeThreshold * 300)) {
-                Flush-Buffer
+                Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
                 Write-Verbose "Flushed licenses buffer ($($stats.Licenses) total)"
             }
         }
         catch { Write-Warning "Failed to retrieve users batch for licenses: $_"; break }
     }
 
-    Flush-Buffer
+    Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
     Write-Verbose "User licenses complete: $($stats.Licenses)"
     #endregion
 
@@ -951,14 +947,14 @@ try {
 
             # Periodic flush
             if ($jsonL.Length -ge ($writeThreshold * 300)) {
-                Flush-Buffer
+                Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
                 Write-Verbose "Flushed OAuth2 grants buffer ($($stats.OAuth2PermissionGrants) total)"
             }
         }
         catch { Write-Warning "OAuth2 permission grants batch error: $_"; break }
     }
 
-    Flush-Buffer
+    Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
     Write-Verbose "OAuth2 permission grants complete: $($stats.OAuth2PermissionGrants)"
     #endregion
 
@@ -1025,14 +1021,14 @@ try {
 
             # Periodic flush
             if ($jsonL.Length -ge ($writeThreshold * 300)) {
-                Flush-Buffer
+                Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
                 Write-Verbose "Flushed app role assignments buffer ($($stats.AppRoleAssignments) total)"
             }
         }
         catch { Write-Warning "Failed to retrieve SPs for app role assignments: $_"; break }
     }
 
-    Flush-Buffer
+    Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
     Write-Verbose "App role assignments complete: $($stats.AppRoleAssignments)"
     #endregion
 
@@ -1082,12 +1078,12 @@ try {
 
         # Periodic flush
         if ($jsonL.Length -ge ($writeThreshold * 300)) {
-            Flush-Buffer
+            Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
             Write-Verbose "Flushed group owners buffer ($($stats.GroupOwners) total)"
         }
     }
 
-    Flush-Buffer
+    Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
     Write-Verbose "Group owners complete: $($stats.GroupOwners)"
     #endregion
 
@@ -1136,14 +1132,14 @@ try {
 
             # Periodic flush
             if ($jsonL.Length -ge ($writeThreshold * 300)) {
-                Flush-Buffer
+                Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
                 Write-Verbose "Flushed device owners buffer ($($stats.DeviceOwners) total)"
             }
         }
         catch { Write-Warning "Failed to retrieve devices batch: $_"; break }
     }
 
-    Flush-Buffer
+    Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
     Write-Verbose "Device owners complete: $($stats.DeviceOwners)"
     #endregion
 

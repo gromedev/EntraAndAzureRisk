@@ -1,0 +1,48 @@
+{
+  "bindings": [
+    {
+      "name": "ActivityInput",
+      "type": "activityTrigger",
+      "direction": "in"
+    },
+    {
+      "name": "azureResourcesRawOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "azureResources",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/resourceType"
+    },
+    {
+      "name": "azureResourceChangesOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "changes",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/changeDate"
+    },
+    {
+      "name": "snapshotsOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "snapshots",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/id"
+    },
+    {
+      "name": "azureResourcesRawIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "azureResources",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT c.objectId, c.resourceType, c.displayName, c.name, c.location, c.subscriptionId, c.resourceGroupName, c.resourceGroupId, c.tenantId, c.tags, c.deleted, c.tenantType, c.defaultDomain, c.verifiedDomains, c.technicalNotificationMails, c.securityComplianceNotificationMails, c.managementGroupId, c.parentId, c.parentDisplayName, c.childCount, c.state, c.authorizationSource, c.managedByTenants, c.provisioningState, c.managedBy, c.vaultUri, c.sku, c.enableRbacAuthorization, c.enableSoftDelete, c.enablePurgeProtection, c.softDeleteRetentionInDays, c.publicNetworkAccess, c.enabledForDeployment, c.enabledForDiskEncryption, c.enabledForTemplateDeployment, c.networkAcls, c.accessPolicies, c.accessPolicyCount, c.privateEndpointConnections, c.vmId, c.vmSize, c.zones, c.osType, c.osName, c.computerName, c.powerState, c.identityType, c.hasSystemAssignedIdentity, c.systemAssignedPrincipalId, c.systemAssignedTenantId, c.hasUserAssignedIdentity, c.userAssignedIdentities, c.userAssignedIdentityCount, c.networkInterfaces, c.networkInterfaceCount, c.adminUsername, c.disablePasswordAuthentication, c.collectionTimestamp FROM c"
+    }
+  ]
+}

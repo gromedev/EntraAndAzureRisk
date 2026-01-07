@@ -102,7 +102,7 @@ function Get-CachedManagedIdentityToken {
 
 #region Azure Management Functions
 
-function Get-AzureManagementPagedResults {
+function Get-AzureManagementPagedResult {
     <#
     .SYNOPSIS
         Gets paginated results from Azure Management API with automatic nextLink handling
@@ -118,7 +118,7 @@ function Get-AzureManagementPagedResults {
         Bearer token for authentication
 
     .EXAMPLE
-        $subscriptions = Get-AzureManagementPagedResults -Uri "https://management.azure.com/subscriptions?api-version=2022-12-01" -AccessToken $token
+        $subscriptions = Get-AzureManagementPagedResult -Uri "https://management.azure.com/subscriptions?api-version=2022-12-01" -AccessToken $token
     #>
     [CmdletBinding()]
     param(
@@ -304,7 +304,7 @@ function Invoke-GraphWithRetry {
     throw "Max retries ($MaxRetries) exceeded for Graph API request: $Method $Uri"
 }
 
-function Get-GraphPagedResults {
+function Get-GraphPagedResult {
     <#
     .SYNOPSIS
         Gets all pages of results from a Graph API endpoint with optimized memory management
@@ -337,14 +337,14 @@ function Get-GraphPagedResults {
         Displays page number and cumulative count.
     
     .EXAMPLE
-        $users = Get-GraphPagedResults -Uri "https://graph.microsoft.com/v1.0/users?`$select=id,displayName" -AccessToken $token
+        $users = Get-GraphPagedResult -Uri "https://graph.microsoft.com/v1.0/users?`$select=id,displayName" -AccessToken $token
         
     .EXAMPLE
-        $devices = Get-GraphPagedResults -Uri "https://graph.microsoft.com/v1.0/devices" -AccessToken $token -PageSize 500 -ShowProgress
+        $devices = Get-GraphPagedResult -Uri "https://graph.microsoft.com/v1.0/devices" -AccessToken $token -PageSize 500 -ShowProgress
         
     .EXAMPLE
         # Get all groups with specific properties
-        $groups = Get-GraphPagedResults -Uri "https://graph.microsoft.com/v1.0/groups?`$select=id,displayName,groupTypes" -AccessToken $token -ShowProgress
+        $groups = Get-GraphPagedResult -Uri "https://graph.microsoft.com/v1.0/groups?`$select=id,displayName,groupTypes" -AccessToken $token -ShowProgress
     #>
     [CmdletBinding()]
     param(
@@ -589,6 +589,74 @@ function Add-BlobContent {
     }
 }
 
+function Write-BlobBuffer {
+    <#
+    .SYNOPSIS
+        Flushes a StringBuilder buffer to an append blob if it has content
+
+    .DESCRIPTION
+        Generic helper for writing buffered content to Azure Blob Storage.
+        Checks if the buffer has content, writes it using Add-BlobContent, then clears the buffer.
+
+    .PARAMETER Buffer
+        Reference to the StringBuilder object containing buffered content
+
+    .PARAMETER StorageAccountName
+        Name of the Azure Storage account
+
+    .PARAMETER ContainerName
+        Name of the blob container
+
+    .PARAMETER BlobName
+        Name of the append blob to write to
+
+    .PARAMETER AccessToken
+        Access token for Storage authentication
+
+    .PARAMETER MaxRetries
+        Maximum number of retry attempts for transient errors. Default: 3
+
+    .PARAMETER BaseRetryDelaySeconds
+        Base delay for exponential backoff. Default: 2
+
+    .EXAMPLE
+        $buffer = New-Object System.Text.StringBuilder(2097152)
+        # ... add content to buffer ...
+        Write-BlobBuffer -Buffer ([ref]$buffer) -StorageAccountName $account -ContainerName $container -BlobName $blob -AccessToken $token
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ref]$Buffer,
+
+        [Parameter(Mandatory)]
+        [string]$StorageAccountName,
+
+        [Parameter(Mandatory)]
+        [string]$ContainerName,
+
+        [Parameter(Mandatory)]
+        [string]$BlobName,
+
+        [Parameter(Mandatory)]
+        [string]$AccessToken,
+
+        [int]$MaxRetries = 3,
+        [int]$BaseRetryDelaySeconds = 2
+    )
+
+    if ($Buffer.Value.Length -gt 0) {
+        Add-BlobContent -StorageAccountName $StorageAccountName `
+                       -ContainerName $ContainerName `
+                       -BlobName $BlobName `
+                       -Content $Buffer.Value.ToString() `
+                       -AccessToken $AccessToken `
+                       -MaxRetries $MaxRetries `
+                       -BaseRetryDelaySeconds $BaseRetryDelaySeconds
+        $Buffer.Value.Clear()
+    }
+}
+
 function Write-BlobContent {
     <#
     .SYNOPSIS
@@ -660,7 +728,6 @@ function Write-BlobContent {
 }
 
 #endregion
-
 
 function Write-CosmosDocument {
     [CmdletBinding()]
@@ -780,7 +847,7 @@ function Write-CosmosBatch {
     return $writtenCount
 }
 
-function Get-CosmosDocuments {
+function Get-CosmosDocument {
     <#
     .SYNOPSIS
         Queries Cosmos DB with callback pattern for memory-efficient processing
@@ -796,7 +863,7 @@ function Get-CosmosDocuments {
         
     .EXAMPLE
         $existingUsers = @{}
-        Get-CosmosDocuments -Endpoint $endpoint -Database $db -Container $container `
+        Get-CosmosDocument -Endpoint $endpoint -Database $db -Container $container `
             -Query $query -AccessToken $token -ProcessPage {
                 param($Documents)
                 foreach ($doc in $Documents) {
@@ -1110,6 +1177,16 @@ function Invoke-DeltaIndexing {
         $targetRelationType = $firstEntity.relationType
         $targetPolicyType = $firstEntity.policyType
 
+        # For Azure resources, detect ALL resourceTypes in the current collection
+        # This allows filtering existing data by the set of resourceTypes being indexed
+        $targetResourceTypes = @()
+        if ($Config.EntityType -eq 'azureResources') {
+            $targetResourceTypes = @($currentEntities.Values | Select-Object -ExpandProperty resourceType -Unique)
+            if ($targetResourceTypes.Count -gt 0) {
+                Write-Verbose "Detected resourceTypes: $($targetResourceTypes -join ', ')"
+            }
+        }
+
         if ($targetPrincipalType) {
             Write-Verbose "Detected principalType: $targetPrincipalType"
         }
@@ -1147,6 +1224,10 @@ function Invoke-DeltaIndexing {
                 elseif ($targetPolicyType -and $doc.policyType) {
                     $includeDoc = ($doc.policyType -eq $targetPolicyType)
                 }
+                elseif ($targetResourceTypes.Count -gt 0 -and $doc.resourceType) {
+                    # For Azure resources, only include existing docs that match resource types in current blob
+                    $includeDoc = ($doc.resourceType -in $targetResourceTypes)
+                }
             }
 
             if ($includeDoc) {
@@ -1158,6 +1239,7 @@ function Invoke-DeltaIndexing {
                       elseif ($targetPrincipalType) { "principalType=$targetPrincipalType" }
                       elseif ($targetRelationType) { "relationType=$targetRelationType" }
                       elseif ($targetPolicyType) { "policyType=$targetPolicyType" }
+                      elseif ($targetResourceTypes.Count -gt 0) { "resourceType in ($($targetResourceTypes -join ', '))" }
                       else { "no filter" }
 
         Write-Verbose "Found $($existingEntities.Count) existing $entityPlural in Cosmos (filtered by $filterDesc)"
@@ -1372,7 +1454,7 @@ function Invoke-DeltaIndexing {
     }
 }
 
-function Invoke-DeltaIndexingWithBindings {
+function Invoke-DeltaIndexingWithBinding {
     <#
     .SYNOPSIS
         Wrapper around Invoke-DeltaIndexing that handles output bindings and config loading
@@ -1392,7 +1474,7 @@ function Invoke-DeltaIndexingWithBindings {
         The existing data from Cosmos DB input binding
 
     .EXAMPLE
-        $result = Invoke-DeltaIndexingWithBindings -EntityType 'users' -ActivityInput $ActivityInput -ExistingData $usersRawIn
+        $result = Invoke-DeltaIndexingWithBinding -EntityType 'users' -ActivityInput $ActivityInput -ExistingData $usersRawIn
     #>
     [CmdletBinding()]
     param(
@@ -1479,14 +1561,17 @@ function Invoke-DeltaIndexingWithBindings {
 Export-ModuleMember -Function @(
     'Get-ManagedIdentityToken',
     'Get-CachedManagedIdentityToken',
-    'Get-AzureManagementPagedResults',
+    'Get-AzureManagementPagedResult',
     'Invoke-GraphWithRetry',
+    'Get-GraphPagedResult',
     'Initialize-AppendBlob',
     'Add-BlobContent',
+    'Write-BlobBuffer',
+    'Write-BlobContent',
     'Write-CosmosDocument',
     'Write-CosmosBatch',
     'Write-CosmosParallelBatch',
-    'Get-CosmosDocuments',
+    'Get-CosmosDocument',
     'Invoke-DeltaIndexing',
-    'Invoke-DeltaIndexingWithBindings'
+    'Invoke-DeltaIndexingWithBinding'
 )

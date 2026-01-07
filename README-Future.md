@@ -7,11 +7,12 @@
 ## Executive Summary
 
 This project already collects the foundational data for attack path analysis:
-- **8 entity types** (users, groups, service principals, apps, devices, etc.)
-- **15+ relationship types** (memberships, roles, PIM, RBAC, ownership, OAuth2, app roles)
+- **8 Entra ID entity types** (users, groups, service principals, apps, devices, etc.)
+- **6 Azure resource types** (tenant, management groups, subscriptions, resource groups, key vaults, VMs)
+- **18+ relationship types** (memberships, roles, PIM, RBAC, ownership, OAuth2, app roles, Azure hierarchy, managed identities)
 - **Delta detection** with permanent change history
 
-**✅ Recently Completed (Part 1 - Property & Collection Gaps):**
+**✅ Completed (Part 1 - Property & Collection Gaps):**
 - OAuth2 permission grants collection
 - App role assignments collection
 - Federated identity credentials on apps
@@ -23,26 +24,33 @@ This project already collects the foundational data for attack path analysis:
 - Verified publisher info on apps
 - Extension attributes on users
 
+**✅ Completed (Part 2 - Azure Resource Collection):**
+- Azure hierarchy collection (tenant → management groups → subscriptions → resource groups)
+- Key Vault collection with access policies and abuse flags
+- Virtual Machine collection with managed identity linking
+- Azure resource indexing to Cosmos DB
+- Azure relationship indexing (contains, keyVaultAccess, hasManagedIdentity)
+
 **What's remaining:**
-1. **Abusable permission edges** - Derive attack paths from collected API permissions
-2. **Azure resource hierarchy** - Subscriptions, resource groups, key vaults, VMs
-3. **Graph visualization layer** - Path discovery and rendering
-4. **Risk detection** - Risky users (requires P2 license)
+1. **Abusable permission edges** - Derive attack paths from collected API permissions (Phase 1)
+2. **Graph visualization layer** - Path discovery and rendering (Phase 4)
+3. **Risk detection** - Risky users (requires P2 license)
+4. **Additional Azure resources** - Automation accounts, Function Apps, Logic Apps, AKS (Phase 3)
 
 ---
 
 ## Part 1: Property & Collection Gaps
 
-### Quick Reference: What's Missing
+### Quick Reference: Implementation Status
 
-| Entity | Critical Gaps | Priority |
-|--------|--------------|----------|
-| **Users** | `lastPasswordChangeDateTime`, risk detection, session tokens | 🔴 High |
-| **Groups** | Group owners, lifecycle policies, sensitivity labels | 🔴 High |
-| **Service Principals** | OAuth2 consents, app role assignments, federated credentials | 🔴 Critical |
-| **Applications** | `requiredResourceAccess` (API permissions), verified publisher | 🔴 Critical |
-| **Devices** | Device owners, BitLocker keys, extension attributes | 🟡 Medium |
-| **Policies** | Named locations, auth methods policies, cross-tenant access | 🟡 Medium |
+| Entity | Status | Remaining Gaps |
+|--------|--------|----------------|
+| **Users** | ✅ Complete | Risk detection (requires P2 license) |
+| **Groups** | ✅ Complete | Lifecycle policies, sensitivity labels (low priority) |
+| **Service Principals** | ✅ Complete | None |
+| **Applications** | ✅ Complete | None |
+| **Devices** | ✅ Complete | BitLocker keys (Intune API, low priority) |
+| **Policies** | ✅ Complete | Auth methods policies, cross-tenant access (medium priority) |
 
 ---
 
@@ -473,12 +481,12 @@ foreach ($location in $response.value) {
 | Applications | AZApp | ✅ | Complete |
 | Devices | AZDevice | ✅ | Complete |
 | Directory Roles | AZRole | ✅ | Complete |
-| Tenant | AZTenant | ❌ | Phase 2 |
-| Subscriptions | AZSubscription | ⚠️ | Phase 2 |
-| Management Groups | AZManagementGroup | ❌ | Phase 2 |
-| Resource Groups | AZResourceGroup | ⚠️ | Phase 2 |
-| Key Vaults | AZKeyVault | ❌ | Phase 2 |
-| Virtual Machines | AZVM | ❌ | Phase 2 |
+| Tenant | AZTenant | ✅ | **Complete** |
+| Subscriptions | AZSubscription | ✅ | **Complete** |
+| Management Groups | AZManagementGroup | ✅ | **Complete** |
+| Resource Groups | AZResourceGroup | ✅ | **Complete** |
+| Key Vaults | AZKeyVault | ✅ | **Complete** |
+| Virtual Machines | AZVM | ✅ | **Complete** |
 | VM Scale Sets | AZVMScaleSet | ❌ | Phase 3 |
 | Automation Accounts | AZAutomationAccount | ❌ | Phase 3 |
 | Function Apps | AZFunctionApp | ❌ | Phase 3 |
@@ -496,13 +504,15 @@ foreach ($location in $response.value) {
 | Directory Roles | AZHasRole | ✅ `directoryRole` | Complete |
 | PIM Eligible | AZRoleEligible | ✅ `pimEligible` | Complete |
 | PIM Active | (active) | ✅ `pimActive` | Complete |
-| Ownership | AZOwns | ✅ `appOwner`, `spOwner` | Complete |
+| Ownership | AZOwns | ✅ `appOwner`, `spOwner`, `groupOwner`, `deviceOwner` | Complete |
 | Azure RBAC | AZContributor, etc. | ✅ `azureRbac` | Complete |
+| OAuth2 Grants | AZMGGrantAppRoles | ✅ `oauth2PermissionGrant` | **Complete** |
+| App Role Assignments | AZAppRoleAssignment | ✅ `appRoleAssignment` | **Complete** |
+| Hierarchy Containment | AZContains | ✅ `contains` | **Complete** |
+| Managed Identity Link | AZManagedIdentity | ✅ `hasManagedIdentity` | **Complete** |
+| Key Vault Access | AZGetSecrets, etc. | ✅ `keyVaultAccess` | **Complete** |
 | **API Permission Abuse** | AZMGxxx edges | ❌ | **Phase 1** |
-| Hierarchy Containment | AZContains | ❌ | Phase 2 |
-| Managed Identity Link | AZManagedIdentity | ❌ | Phase 2 |
 | Add Secret Ability | AZAddSecret | ❌ | Phase 1 |
-| Key Vault Access | AZGetSecrets, etc. | ❌ | Phase 2 |
 | VM Execution | AZExecuteCommand | ❌ | Phase 2 |
 
 ---
@@ -626,14 +636,17 @@ abuseEdges = @{
 
 ---
 
-## Phase 2: Azure Resource Collection
+## Phase 2: Azure Resource Collection ✅ COMPLETE
 
 **Effort:** Medium - New API integrations required
 **Impact:** High - Enables Azure attack path discovery
+**Status:** ✅ **IMPLEMENTED** - All Phase 2 collectors and indexers are operational
 
-### 2.1 Azure Resource Hierarchy
+### 2.1 Azure Resource Hierarchy ✅ IMPLEMENTED
 
-Need to collect the containment hierarchy:
+**File:** `FunctionApp/CollectAzureHierarchy/run.ps1`
+
+Collects the full containment hierarchy:
 ```
 Tenant
   └── Management Groups
@@ -732,9 +745,11 @@ foreach ($sub in $subscriptions) {
 # 5. Output to hierarchy.jsonl with contains relationships
 ```
 
-### 2.2 Key Vault Collection
+### 2.2 Key Vault Collection ✅ IMPLEMENTED
 
-Critical for secret access attack paths.
+**File:** `FunctionApp/CollectKeyVaults/run.ps1`
+
+Critical for secret access attack paths. Collects vault metadata, security configuration, access policies, and derives abuse flags (canGetSecrets, canSetSecrets, canDecryptWithKey, etc.).
 
 #### Entity Schema
 
@@ -804,9 +819,11 @@ GET /subscriptions/{sub}/providers/Microsoft.KeyVault/vaults?api-version=2023-07
 GET /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.KeyVault/vaults/{name}?api-version=2023-07-01
 ```
 
-### 2.3 Virtual Machine Collection
+### 2.3 Virtual Machine Collection ✅ IMPLEMENTED
 
-For lateral movement and execution attack paths.
+**File:** `FunctionApp/CollectVirtualMachines/run.ps1`
+
+For lateral movement and execution attack paths. Collects VM metadata, OS info, power state, and managed identity information. Creates `hasManagedIdentity` relationships linking VMs to their service principals.
 
 #### Entity Schema
 
@@ -875,13 +892,11 @@ GET /subscriptions/{sub}/providers/Microsoft.Compute/virtualMachines?api-version
 GET /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Compute/virtualMachines/{name}?$expand=instanceView&api-version=2024-03-01
 ```
 
-### 2.4 Managed Identity Linking
+### 2.4 Managed Identity Linking ✅ IMPLEMENTED
 
 Connect managed identities (already collected as SPs) to their resources.
 
-**Current gap:** We collect managed identity SPs but don't know which resource owns them.
-
-**Solution:** When collecting VMs, Function Apps, etc., capture identity info and create `hasManagedIdentity` relationships.
+**Implementation:** When collecting VMs, the collector captures identity info and creates `hasManagedIdentity` relationships for both system-assigned and user-assigned identities.
 
 ```json
 {
@@ -992,17 +1007,17 @@ RETURN p, target
 
 ## Implementation Priority Matrix
 
-| Phase | Item | Effort | Impact | Dependencies |
-|-------|------|--------|--------|--------------|
-| **1.1** | Dangerous permission mapping | Low | Critical | Existing data |
-| **1.2** | Role-based abuse edges | Low | High | Existing data |
-| **1.3** | Ownership abuse edges | Low | High | Existing data |
-| **2.1** | Azure hierarchy | Medium | High | ARM API access |
-| **2.2** | Key Vault collection | Medium | Critical | ARM API access |
-| **2.3** | VM collection | Medium | High | ARM API access |
-| **2.4** | Managed Identity linking | Low | High | Phase 2.3 |
-| **3.x** | Additional resources | High | Medium | ARM API access |
-| **4.x** | Graph visualization | High | High | Phases 1-2 |
+| Phase | Item | Effort | Impact | Dependencies | Status |
+|-------|------|--------|--------|--------------|--------|
+| **1.1** | Dangerous permission mapping | Low | Critical | Existing data | ❌ Not started |
+| **1.2** | Role-based abuse edges | Low | High | Existing data | ❌ Not started |
+| **1.3** | Ownership abuse edges | Low | High | Existing data | ❌ Not started |
+| **2.1** | Azure hierarchy | Medium | High | ARM API access | ✅ **Complete** |
+| **2.2** | Key Vault collection | Medium | Critical | ARM API access | ✅ **Complete** |
+| **2.3** | VM collection | Medium | High | ARM API access | ✅ **Complete** |
+| **2.4** | Managed Identity linking | Low | High | Phase 2.3 | ✅ **Complete** |
+| **3.x** | Additional resources | High | Medium | ARM API access | ❌ Not started |
+| **4.x** | Graph visualization | High | High | Phases 1-2 | ❌ Not started |
 
 ---
 
@@ -1033,30 +1048,36 @@ az role assignment create \
 
 ## New Files to Create
 
-### Phase 1
+### Phase 1 - Still Needed
 - `FunctionApp/DeriveAbuseEdges/run.ps1` - Abuse edge derivation logic
 - `FunctionApp/DeriveAbuseEdges/function.json` - Timer/orchestrator trigger
 - `FunctionApp/Modules/EntraDataCollection/DangerousPermissions.psd1` - Permission reference
 
-### Phase 2
-- `FunctionApp/CollectAzureHierarchy/run.ps1` - Tenant, MGs, Subs, RGs
-- `FunctionApp/CollectKeyVaults/run.ps1` - Key Vault collection
-- `FunctionApp/CollectVirtualMachines/run.ps1` - VM collection
-- `FunctionApp/IndexAzureResourcesInCosmosDB/run.ps1` - Azure resource indexer
+### Phase 2 - ✅ Created
+- ✅ `FunctionApp/CollectAzureHierarchy/run.ps1` - Tenant, MGs, Subs, RGs
+- ✅ `FunctionApp/CollectAzureHierarchy/function.json`
+- ✅ `FunctionApp/CollectKeyVaults/run.ps1` - Key Vault collection with access policies
+- ✅ `FunctionApp/CollectKeyVaults/function.json`
+- ✅ `FunctionApp/CollectVirtualMachines/run.ps1` - VM collection with managed identities
+- ✅ `FunctionApp/CollectVirtualMachines/function.json`
+- ✅ `FunctionApp/IndexAzureResourcesInCosmosDB/run.ps1` - Azure resource indexer
+- ✅ `FunctionApp/IndexAzureResourcesInCosmosDB/function.json`
+- ✅ `FunctionApp/IndexAzureRelationshipsInCosmosDB/run.ps1` - Azure relationship indexer
+- ✅ `FunctionApp/IndexAzureRelationshipsInCosmosDB/function.json`
 
 ### Phase 3+
-- Additional collectors as needed
+- Additional collectors as needed (Automation Accounts, Function Apps, Logic Apps, etc.)
 
 ---
 
 ## Success Metrics
 
-| Metric | Phase 1 | Phase 2 | Phase 3 |
-|--------|---------|---------|---------|
-| Attack path queries possible | Basic (role-based) | Azure resources | Complete |
-| BloodHound edge parity | ~30% | ~70% | ~95% |
-| New relationship types | 5-8 | 15-20 | 40+ |
-| Visualization | None | Dashboard queries | Full graph UI |
+| Metric | Phase 1 | Phase 2 | Phase 3 | Current Status |
+|--------|---------|---------|---------|----------------|
+| Attack path queries possible | Basic (role-based) | Azure resources | Complete | ✅ **Phase 2 Complete** |
+| BloodHound edge parity | ~30% | ~70% | ~95% | **~60%** (need abuse edges) |
+| New relationship types | 5-8 | 15-20 | 40+ | **18 types** implemented |
+| Visualization | None | Dashboard queries | Full graph UI | Basic dashboard |
 
 ---
 
@@ -1072,232 +1093,415 @@ az role assignment create \
 
 ## Appendix A: Property-Level Gap Analysis vs BloodHound/AzureHound
 
-> **Last Updated:** 2026-01-07
+> **Last Updated:** 2026-01-07 (Status review completed)
 > This section provides a detailed property-by-property comparison between this project and BloodHound/AzureHound.
 
 ### A.1 User Properties (AZUser)
 
-| Property | BloodHound | This Project | Status |
-|----------|------------|--------------|--------|
-| `id` / `objectId` | ✅ | ✅ | ✅ Match |
-| `displayName` | ✅ | ✅ | ✅ Match |
-| `userPrincipalName` | ✅ | ✅ | ✅ Match |
-| `enabled` / `accountEnabled` | ✅ | ✅ | ✅ Match |
-| `userType` (Member/Guest) | ✅ | ✅ | ✅ Match |
-| `tenantId` | ✅ | ❌ | ⚠️ Gap (implicit) |
-| `createdDateTime` | ❌ | ✅ | ✅ We have more |
-| `lastSignInDateTime` | ❌ | ✅ | ✅ We have more |
-| `lastPasswordChangeDateTime` | ❌ | ✅ | ✅ We have more |
-| `signInSessionsValidFromDateTime` | ❌ | ✅ | ✅ We have more |
-| `refreshTokensValidFromDateTime` | ❌ | ✅ | ✅ We have more |
-| `passwordPolicies` | ❌ | ✅ | ✅ We have more |
-| `usageLocation` | ❌ | ✅ | ✅ We have more |
-| `onPremisesSyncEnabled` | ✅ | ✅ | ✅ Match |
-| `onPremisesSamAccountName` | ✅ | ✅ | ✅ Match |
-| `onPremisesSecurityIdentifier` | ✅ | ✅ | ✅ Match |
-| `onPremisesDomainName` | ✅ | ❌ | ⚠️ Gap |
-| `onPremisesUserPrincipalName` | ❌ | ✅ | ✅ We have more |
-| `onPremisesExtensionAttributes` | ❌ | ✅ | ✅ We have more |
-| `externalUserState` | ❌ | ✅ | ✅ We have more |
-| `externalUserStateChangeDateTime` | ❌ | ✅ | ✅ We have more |
-| **Authentication Methods** | | | |
-| `perUserMfaState` | ❌ | ✅ | ✅ We have more |
-| `hasAuthenticator` | ❌ | ✅ | ✅ We have more |
-| `hasPhone` | ❌ | ✅ | ✅ We have more |
-| `hasFido2` | ❌ | ✅ | ✅ We have more |
-| `hasWindowsHello` | ❌ | ✅ | ✅ We have more |
-| `hasSoftwareOath` | ❌ | ✅ | ✅ We have more |
-| `authMethodCount` | ❌ | ✅ | ✅ We have more |
-| **Risk (Requires P2)** | | | |
-| `riskLevel` | ❌ | ❌ | ⏳ Future |
-| `riskState` | ❌ | ❌ | ⏳ Future |
+| AzureHound (~65 fields) | This Project (~20 fields) |
+|------------------------|---------------------------|
+| AboutMe | ❌ |
+| AccountEnabled | ✅ accountEnabled |
+| AgeGroup | ❌ |
+| AssignedLicenses | ❌ |
+| AssignedPlans | ❌ |
+| Birthday | ❌ |
+| BusinessPhones | ❌ |
+| City | ❌ |
+| CompanyName | ❌ |
+| ConsentProvidedForMinor | ❌ |
+| Country | ❌ |
+| CreatedDateTime | ✅ createdDateTime |
+| CreationType | ❌ |
+| DeletedDateTime | ❌ |
+| Department | ❌ |
+| DisplayName | ✅ displayName |
+| EmployeeHireDate | ❌ |
+| EmployeeId | ❌ |
+| EmployeeOrgData | ❌ |
+| EmployeeType | ❌ |
+| ExternalUserState | ✅ externalUserState |
+| ExternalUserStateChangeDateTime | ✅ externalUserStateChangeDateTime |
+| FaxNumber | ❌ |
+| GivenName | ❌ |
+| HireDate | ❌ |
+| Identities | ❌ |
+| ImAddresses | ❌ |
+| Interests | ❌ |
+| JobTitle | ❌ |
+| LastPasswordChangeDateTime | ✅ lastPasswordChangeDateTime |
+| LegalAgeGroupClassification | ❌ |
+| LicenseAssignmentStates | ❌ |
+| Mail | ❌ |
+| MailboxSettings | ❌ |
+| MailNickname | ❌ |
+| MobilePhone | ❌ |
+| MySite | ❌ |
+| OfficeLocation | ❌ |
+| OnPremisesDistinguishedName | ❌ |
+| OnPremisesDomainName | ❌ |
+| OnPremisesExtensionAttributes | ✅ onPremisesExtensionAttributes |
+| OnPremisesImmutableId | ❌ |
+| OnPremisesLastSyncDateTime | ❌ |
+| OnPremisesProvisioningErrors | ❌ |
+| OnPremisesSamAccountName | ✅ onPremisesSamAccountName |
+| OnPremisesSecurityIdentifier | ✅ onPremisesSecurityIdentifier |
+| OnPremisesSyncEnabled | ✅ onPremisesSyncEnabled |
+| OnPremisesUserPrincipalName | ✅ onPremisesUserPrincipalName |
+| OtherMails | ❌ |
+| PasswordPolicies | ✅ passwordPolicies |
+| PasswordProfile | ❌ |
+| PastProjects | ❌ |
+| PostalCode | ❌ |
+| PreferredDataLocation | ❌ |
+| PreferredName | ❌ |
+| ProvisionedPlans | ❌ |
+| ProxyAddresses | ❌ |
+| RefreshTokensValidFromDateTime | ✅ refreshTokensValidFromDateTime |
+| Responsibilities | ❌ |
+| Schools | ❌ |
+| ShowInAddressList | ❌ |
+| Skills | ❌ |
+| SignInSessionsValidFromDateTime | ✅ signInSessionsValidFromDateTime |
+| State | ❌ |
+| StreetAddress | ❌ |
+| Surname | ❌ |
+| UsageLocation | ✅ usageLocation |
+| UserPrincipalName | ✅ userPrincipalName |
+| UserType | ✅ userType |
+| ❌ | ✅ **signInActivity** (unique to us) |
+| ❌ | ✅ **perUserMfaState** (unique to us) |
+| ❌ | ✅ **hasAuthenticator** (unique to us) |
+| ❌ | ✅ **hasPhone** (unique to us) |
+| ❌ | ✅ **hasFido2** (unique to us) |
+| ❌ | ✅ **hasWindowsHello** (unique to us) |
+| ❌ | ✅ **hasSoftwareOath** (unique to us) |
+| ❌ | ✅ **authMethodCount** (unique to us) |
 
-**Summary:** We collect **significantly more** user properties than BloodHound, especially around authentication methods, sign-in activity, and security timestamps. BloodHound focuses on identity for attack path traversal; we focus on security posture assessment.
-
-**Minor Gap:** `onPremisesDomainName` - can add to $selectFields if needed.
+**Summary:** AzureHound: ~65 fields | We have: ~20 fields + 8 auth method fields = ~28 total. **Gap: ~37 fields.**
 
 ---
 
 ### A.2 Group Properties (AZGroup)
 
-| Property | BloodHound | This Project | Status |
-|----------|------------|--------------|--------|
-| `id` / `objectId` | ✅ | ✅ | ✅ Match |
-| `displayName` | ✅ | ✅ | ✅ Match |
-| `description` | ✅ | ✅ | ✅ Match |
-| `securityEnabled` | ✅ | ✅ | ✅ Match |
-| `mailEnabled` | ✅ | ✅ | ✅ Match |
-| `isAssignableToRole` | ✅ | ✅ | ✅ Match |
-| `membershipRule` | ✅ | ✅ | ✅ Match |
-| `membershipRuleProcessingState` | ✅ | ✅ | ✅ Match |
-| `groupTypes` | ✅ | ✅ | ✅ Match |
-| `visibility` | ❌ | ✅ | ✅ We have more |
-| `classification` | ❌ | ✅ | ✅ We have more |
-| `createdDateTime` | ❌ | ✅ | ✅ We have more |
-| `mail` | ❌ | ✅ | ✅ We have more |
-| `onPremisesSyncEnabled` | ✅ | ✅ | ✅ Match |
-| `onPremisesSecurityIdentifier` | ✅ | ✅ | ✅ Match |
-| `onPremisesDomainName` | ✅ | ❌ | ⚠️ Gap |
-| `onPremisesSamAccountName` | ❌ | ✅ | ✅ We have more |
-| **Member Counts** | | | |
-| `memberCount` | ❌ | ✅ | ✅ We have more |
-| `userMemberCount` | ❌ | ✅ | ✅ We have more |
-| `groupMemberCount` | ❌ | ✅ | ✅ We have more |
-| `servicePrincipalMemberCount` | ❌ | ✅ | ✅ We have more |
+| AzureHound (~38 fields) | This Project (~15 fields) |
+|------------------------|---------------------------|
+| AllowExternalSenders | ❌ |
+| AssignedLabels | ❌ |
+| AssignedLicenses | ❌ |
+| AutoSubscribeNewMembers | ❌ |
+| Classification | ✅ classification |
+| CreatedDateTime | ✅ createdDateTime |
+| DeletedDateTime | ✅ deletedDateTime |
+| Description | ✅ description |
+| DisplayName | ✅ displayName |
+| ExpirationDateTime | ❌ |
+| GroupTypes | ✅ groupTypes |
+| HasMembersWithLicenseErrors | ❌ |
+| HideFromAddressLists | ❌ |
+| HideFromOutlookClients | ❌ |
+| IsAssignableToRole | ✅ isAssignableToRole |
+| IsSubscribedByMail | ❌ |
+| LicenseProcessingState | ❌ |
+| Mail | ✅ mail |
+| MailEnabled | ✅ mailEnabled |
+| MailNickname | ❌ |
+| MembershipRule | ✅ membershipRule |
+| MembershipRuleProcessingState | ❌ |
+| OnPremisesLastSyncDateTime | ❌ |
+| OnPremisesProvisioningErrors | ❌ |
+| OnPremisesSamAccountName | ❌ |
+| OnPremisesSecurityIdentifier | ✅ onPremisesSecurityIdentifier |
+| OnPremisesSyncEnabled | ✅ onPremisesSyncEnabled |
+| PreferredDataLocation | ❌ |
+| PreferredLanguage | ❌ |
+| ProxyAddresses | ❌ |
+| RenewedDateTime | ❌ |
+| ResourceBehaviorOptions | ❌ |
+| ResourceProvisioningOptions | ❌ |
+| SecurityEnabled | ✅ securityEnabled |
+| SecurityIdentifier | ❌ |
+| Theme | ❌ |
+| UnseenCount | ❌ |
+| Visibility | ✅ visibility |
+| ❌ | ✅ **memberCountDirect** (unique to us) |
+| ❌ | ✅ **userMemberCount** (unique to us) |
+| ❌ | ✅ **groupMemberCount** (unique to us) |
+| ❌ | ✅ **servicePrincipalMemberCount** (unique to us) |
+| ❌ | ✅ **deviceMemberCount** (unique to us) |
 
-**Summary:** Full parity with BloodHound plus additional analytics fields.
-
-**Minor Gap:** `onPremisesDomainName` - can add if needed.
+**Summary:** AzureHound: ~38 fields | We have: ~15 fields + 5 member count fields = ~20 total. **Gap: ~18 fields.**
 
 ---
 
 ### A.3 Service Principal Properties (AZServicePrincipal)
 
-| Property | BloodHound | This Project | Status |
-|----------|------------|--------------|--------|
-| `id` / `objectId` | ✅ | ✅ | ✅ Match |
-| `displayName` | ✅ | ✅ | ✅ Match |
-| `appId` | ✅ | ✅ | ✅ Match |
-| `accountEnabled` | ✅ | ✅ | ✅ Match |
-| `servicePrincipalType` | ✅ | ✅ | ✅ Match |
-| `appOwnerOrganizationId` | ✅ | ✅ | ✅ Match |
-| `createdDateTime` | ❌ | ✅ | ✅ We have more |
-| **Credentials** | | | |
-| `passwordCredentials` | ✅ | ✅ | ✅ Match |
-| `keyCredentials` | ✅ | ✅ | ✅ Match |
-| `secretCount` | ❌ | ✅ | ✅ We have more |
-| `certificateCount` | ❌ | ✅ | ✅ We have more |
-| **Credential Expiry Analysis** | | | |
-| Expired/expiring counts | ❌ | ✅ | ✅ We have more |
-| **Tags** | | | |
-| `tags` (WindowsAzureActiveDirectoryIntegratedApp, etc.) | ✅ | ✅ | ✅ Match |
-| `appDisplayName` | ❌ | ✅ | ✅ We have more |
+| AzureHound (~32 fields) | This Project (~17 fields) |
+|------------------------|---------------------------|
+| AccountEnabled | ✅ accountEnabled |
+| AddIns | ✅ addIns |
+| AlternativeNames | ❌ |
+| AppDescription | ❌ |
+| AppDisplayName | ✅ appDisplayName |
+| AppId | ✅ appId |
+| ApplicationTemplateId | ❌ |
+| AppOwnerOrganizationId | ❌ |
+| AppRoleAssignmentRequired | ✅ appRoleAssignmentRequired |
+| AppRoles | ❌ |
+| DeletedDateTime | ✅ deletedDateTime |
+| Description | ✅ description |
+| DisabledByMicrosoftStatus | ❌ |
+| DisplayName | ✅ displayName |
+| Homepage | ❌ |
+| Info | ❌ |
+| KeyCredentials | ✅ keyCredentials |
+| LoginUrl | ❌ |
+| LogoutUrl | ❌ |
+| Notes | ✅ notes |
+| NotificationEmailAddresses | ❌ |
+| OAuth2PermissionScopes | ✅ oauth2PermissionScopes |
+| PasswordCredentials | ✅ passwordCredentials |
+| PreferredSingleSignOnMode | ❌ |
+| ReplyUrls | ❌ |
+| SamlSingleSignOnSettings | ❌ |
+| ServicePrincipalNames | ✅ servicePrincipalNames |
+| ServicePrincipalType | ✅ servicePrincipalType |
+| SignInAudience | ❌ |
+| Tags | ✅ tags |
+| TokenEncryptionKeyId | ❌ |
+| VerifiedPublisher | ❌ |
+| ❌ | ✅ resourceSpecificApplicationPermissions |
+| ❌ | ✅ **secretCount** (unique - credential analytics) |
+| ❌ | ✅ **certificateCount** (unique - credential analytics) |
+| ❌ | ✅ **expiredSecretsCount** (unique - expiry analysis) |
+| ❌ | ✅ **expiringSecretsCount** (unique - 30-day warning) |
+| ❌ | ✅ **credentialStatus** per secret (unique) |
 
-**Summary:** Full parity plus credential expiry analytics.
+**Summary:** AzureHound: ~32 fields | We have: ~17 fields + 5 credential analytics = ~22 total. **Gap: ~10 fields.**
 
 ---
 
 ### A.4 Application Properties (AZApp)
 
-| Property | BloodHound | This Project | Status |
-|----------|------------|--------------|--------|
-| `id` / `objectId` | ✅ | ✅ | ✅ Match |
-| `displayName` | ✅ | ✅ | ✅ Match |
-| `appId` | ✅ | ✅ | ✅ Match |
-| `publisherDomain` | ✅ | ✅ | ✅ Match |
-| `signInAudience` | ✅ | ✅ | ✅ Match |
-| `createdDateTime` | ❌ | ✅ | ✅ We have more |
-| **Credentials** | | | |
-| `passwordCredentials` | ✅ | ✅ | ✅ Match |
-| `keyCredentials` | ✅ | ✅ | ✅ Match |
-| Expiry status per credential | ❌ | ✅ | ✅ We have more |
-| **API Permissions** | | | |
-| `requiredResourceAccess` | ❌ | ✅ | ✅ We have more |
-| `apiPermissionCount` | ❌ | ✅ | ✅ We have more |
-| **Federated Identity** | | | |
-| `federatedIdentityCredentials` | ❌ | ✅ | ✅ We have more |
-| `hasFederatedCredentials` | ❌ | ✅ | ✅ We have more |
-| **Publisher Verification** | | | |
-| `verifiedPublisher` | ❌ | ✅ | ✅ We have more |
-| `isPublisherVerified` | ❌ | ✅ | ✅ We have more |
+| AzureHound (~31 fields) | This Project (~12 fields) |
+|------------------------|---------------------------|
+| AddIns | ❌ |
+| Api | ❌ |
+| AppId | ✅ appId |
+| ApplicationTemplateId | ❌ |
+| AppRoles | ❌ |
+| CreatedDateTime | ✅ createdDateTime |
+| DeletedDateTime | ❌ |
+| Description | ❌ |
+| DisabledByMicrosoftStatus | ❌ |
+| DisplayName | ✅ displayName |
+| GroupMembershipClaims | ❌ |
+| IdentifierUris | ❌ |
+| Info | ❌ |
+| IsDeviceOnlyAuthSupported | ❌ |
+| IsFallbackPublicClient | ❌ |
+| KeyCredentials | ✅ keyCredentials |
+| Logo | ❌ |
+| Notes | ❌ |
+| OAuth2RequiredPostResponse | ❌ |
+| OptionalClaims | ❌ |
+| ParentalControlSettings | ❌ |
+| PasswordCredentials | ✅ passwordCredentials |
+| PublicClient | ❌ |
+| PublisherDomain | ✅ publisherDomain |
+| RequiredResourceAccess | ✅ requiredResourceAccess |
+| SignInAudience | ✅ signInAudience |
+| SPA | ❌ |
+| Tags | ❌ |
+| TokenEncryptionKeyId | ❌ |
+| VerifiedPublisher | ✅ verifiedPublisher |
+| Web | ❌ |
+| ❌ | ✅ **federatedIdentityCredentials** (unique - separate API call) |
+| ❌ | ✅ **hasFederatedCredentials** (unique) |
+| ❌ | ✅ **secretCount** (unique - credential analytics) |
+| ❌ | ✅ **certificateCount** (unique - credential analytics) |
+| ❌ | ✅ **credentialStatus** per secret (unique - expiry analysis) |
+| ❌ | ✅ **apiPermissionCount** (unique) |
 
-**Summary:** We collect significantly more than BloodHound, especially federated identity credentials (workload identity federation) and API permissions.
+**Summary:** AzureHound: ~31 fields | We have: ~12 fields + 6 unique analytics = ~18 total. **Gap: ~13 fields.** However, we have federated identity credentials which AzureHound doesn't fetch.
 
 ---
 
 ### A.5 Device Properties (AZDevice)
 
-| Property | BloodHound | This Project | Status |
-|----------|------------|--------------|--------|
-| `id` / `objectId` | ✅ | ✅ | ✅ Match |
-| `displayName` | ✅ | ✅ | ✅ Match |
-| `deviceId` | ✅ | ✅ | ✅ Match |
-| `accountEnabled` | ✅ | ✅ | ✅ Match |
-| `operatingSystem` | ✅ | ✅ | ✅ Match |
-| `operatingSystemVersion` | ✅ | ✅ | ✅ Match |
-| `trustType` | ✅ | ✅ | ✅ Match |
-| `isManaged` | ✅ | ✅ | ✅ Match |
-| `isCompliant` | ✅ | ✅ | ✅ Match |
-| `profileType` | ❌ | ✅ | ✅ We have more |
-| `createdDateTime` | ❌ | ✅ | ✅ We have more |
-| `registrationDateTime` | ❌ | ✅ | ✅ We have more |
-| `approximateLastSignInDateTime` | ❌ | ✅ | ✅ We have more |
-| `manufacturer` | ❌ | ✅ | ✅ We have more |
-| `model` | ❌ | ✅ | ✅ We have more |
-| `mdmAppId` | ❌ | ✅ | ✅ We have more |
+| AzureHound (~22 fields) | This Project (~16 fields) |
+|------------------------|---------------------------|
+| AccountEnabled | ✅ accountEnabled |
+| AlternativeSecurityIds | ❌ |
+| ApproximateLastSignInDateTime | ✅ approximateLastSignInDateTime |
+| ComplianceExpirationDateTime | ❌ |
+| DeviceId | ✅ deviceId |
+| DeviceMetadata | ❌ |
+| DeviceVersion | ✅ deviceVersion |
+| DisplayName | ✅ displayName |
+| ExtensionAttributes | ❌ |
+| IsCompliant | ✅ isCompliant |
+| IsManaged | ✅ isManaged |
+| Manufacturer | ✅ manufacturer |
+| MdmAppId | ❌ |
+| Model | ✅ model |
+| OnPremisesLastSyncDateTime | ❌ |
+| OnPremisesSyncEnabled | ❌ |
+| OperatingSystem | ✅ operatingSystem |
+| OperatingSystemVersion | ✅ operatingSystemVersion |
+| PhysicalIds | ❌ |
+| ProfileType | ✅ profileType |
+| SystemLabels | ❌ |
+| TrustType | ✅ trustType |
+| ❌ | ✅ createdDateTime |
+| ❌ | ✅ registrationDateTime |
 
-**Summary:** Full parity plus hardware and activity details.
-
----
-
-### A.6 Relationship/Edge Comparison
-
-| Relationship Type | BloodHound | This Project | Status |
-|-------------------|------------|--------------|--------|
-| **Membership** | | | |
-| Group Membership | AZMemberOf | ✅ `groupMember` | ✅ Match |
-| Transitive Membership | (computed) | ✅ `groupMemberTransitive` | ✅ We have more |
-| Nested Groups | AZMemberOf | ✅ `nestedGroup` | ✅ We have more |
-| **Roles** | | | |
-| Directory Roles | AZHasRole | ✅ `directoryRole` | ✅ Match |
-| **PIM** | | | |
-| PIM Role Eligible | AZPIMRoleEligible | ✅ `pimEligible` | ✅ Match |
-| PIM Role Active | AZPIMRoleActive | ✅ `pimActive` | ✅ Match |
-| PIM Group Eligible | AZPIMGroupEligible | ✅ `pimGroupEligible` | ✅ Match |
-| PIM Group Active | AZPIMGroupActive | ✅ `pimGroupActive` | ✅ Match |
-| **Ownership** | | | |
-| App Ownership | AZOwns | ✅ `appOwner` | ✅ Match |
-| SP Ownership | AZOwns | ✅ `spOwner` | ✅ Match |
-| Group Ownership | AZOwns | ✅ `groupOwner` | ✅ Match |
-| Device Ownership | AZOwns | ✅ `deviceOwner` | ✅ Match |
-| **Azure RBAC** | | | |
-| Azure Role Assignments | AZContributor, etc. | ✅ `azureRbac` | ✅ Match |
-| **OAuth/App Roles** | | | |
-| OAuth2 Permission Grants | AZMGGrantAppRoles | ✅ `oauth2PermissionGrant` | ✅ Match |
-| App Role Assignments | AZAppRoleAssignment | ✅ `appRoleAssignment` | ✅ Match |
-| **Licensing** | | | |
-| License Assignments | ❌ | ✅ `licenseAssignment` | ✅ We have more |
-| **Azure Resources (Phase 2)** | | | |
-| Contains (hierarchy) | AZContains | ❌ | ⏳ Phase 2 |
-| Key Vault Access | AZGetSecrets, etc. | ❌ | ⏳ Phase 2 |
-| VM Execution | AZVMContributor | ❌ | ⏳ Phase 2 |
-| Managed Identity | AZManagedIdentity | ❌ | ⏳ Phase 2 |
-
-**Summary:** We have **full parity** on Entra ID relationships and collect additional relationship types (licenses, transitive memberships) that BloodHound doesn't. Azure resource relationships are planned for Phase 2.
+**Summary:** AzureHound: ~22 fields | We have: ~16 fields. **Gap: ~6 fields.** Closest parity of all entities.
 
 ---
 
-### A.7 Overall Parity Summary
+### A.6 Relationship/Edge Comparison - REVISED
 
-| Category | BloodHound Coverage | Our Coverage | Gap Status |
-|----------|---------------------|--------------|------------|
-| **Entra ID Entities** | 6 types | 8 types | ✅ **Exceeds** |
-| **User Properties** | ~12 fields | ~30 fields | ✅ **Exceeds** |
-| **Group Properties** | ~10 fields | ~15 fields | ✅ **Exceeds** |
-| **SP Properties** | ~10 fields | ~15 fields | ✅ **Exceeds** |
-| **App Properties** | ~8 fields | ~18 fields | ✅ **Exceeds** |
-| **Device Properties** | ~10 fields | ~15 fields | ✅ **Exceeds** |
-| **Entra ID Relationships** | ~10 types | ~15 types | ✅ **Exceeds** |
-| **Azure Resources** | ~12 types | 0 types | ⏳ Phase 2 |
-| **Azure Relationships** | ~10 types | 0 types | ⏳ Phase 2 |
-| **Attack Path Derivation** | Built-in | ❌ | ⏳ Phase 1 |
-| **Graph Visualization** | Neo4j/BloodHound UI | ❌ | ⏳ Phase 4 |
+> **Critical:** BloodHound has ~46 Azure edge types. We have 15. This is a **major gap**.
 
-### Remaining Gaps to Address
+**BloodHound's 46 Azure Edge Types:**
 
-**Minor Property Gaps (Easy Fix):**
-1. `onPremisesDomainName` for users and groups - add to $selectFields
-2. `tenantId` - add tenant context to all entities
+| Category | Edge Types | We Have? |
+|----------|-----------|----------|
+| **Basic Membership** | AZMemberOf, AZHasRole | ✅ Yes |
+| **PIM** | AZRoleEligible, AZRoleApprover | ✅ Partial |
+| **Ownership** | AZOwns, AZOwner | ✅ Yes |
+| **Hierarchy** | AZContains, AZScopedTo, AZRunsAs | ✅ Partial |
+| **Managed Identity** | AZManagedIdentity, AZNodeResourceGroup | ✅ Partial |
+| **Admin Roles** | AZGlobalAdmin, AZAppAdmin, AZCloudAppAdmin, AZPrivilegedAuthAdmin, AZPrivilegedRoleAdmin, AZUserAccessAdministrator | ❌ **No** |
+| **Resource Contributor** | AZContributor, AZVMContributor, AZWebsiteContributor, AZAutomationContributor, AZAKSContributor, AZAvereContributor, AZKeyVaultKVContributor, AZLogicAppContributor | ❌ **No** |
+| **Key Vault** | AZGetCertificates, AZGetKeys, AZGetSecrets | ✅ Partial (`keyVaultAccess`) |
+| **Abuse Capabilities** | AZAddMembers, AZAddOwner, AZAddSecret, AZResetPassword | ❌ **No** |
+| **VM/Execution** | AZExecuteCommand, AZVMAdminLogin | ❌ **No** |
+| **Graph API Abuse** | AZMGAddMember, AZMGAddOwner, AZMGAddSecret, AZMGGrantAppRoles, AZMGGrantRole | ❌ **No** |
+| **API Permission Abuse** | AZMGAppRoleAssignment_ReadWrite_All, AZMGApplication_ReadWrite_All, AZMGDirectory_ReadWrite_All, AZMGGroupMember_ReadWrite_All, AZMGGroup_ReadWrite_All, AZMGRoleManagement_ReadWrite_Directory, AZMGServicePrincipalEndpoint_ReadWrite_All | ❌ **No** |
 
-**Phase 1 Gaps (Abuse Edge Derivation):**
-- Derive attack path edges from collected appRoleAssignment data
-- Map dangerous API permissions to abuse capabilities
+**What we collect (15 types):**
 
-**Phase 2 Gaps (Azure Resources):**
-- Azure hierarchy (Management Groups, Subscriptions, Resource Groups)
-- Key Vaults with access policies
-- Virtual Machines with managed identities
-- Function Apps, Logic Apps, Automation Accounts
+| Our Relationship | BloodHound Equivalent | Status |
+|-----------------|----------------------|--------|
+| `groupMember` | AZMemberOf | ✅ Match |
+| `groupMemberTransitive` | (computed at query) | ✅ Extra |
+| `directoryRole` | AZHasRole | ✅ Match |
+| `pimEligible` | AZRoleEligible | ✅ Match |
+| `pimActive` | (computed) | ✅ Extra |
+| `pimGroupEligible` | (not separate) | ✅ Extra |
+| `pimGroupActive` | (not separate) | ✅ Extra |
+| `appOwner` | AZOwns | ✅ Match |
+| `spOwner` | AZOwns | ✅ Match |
+| `groupOwner` | AZOwns | ✅ Match |
+| `deviceOwner` | AZOwns | ✅ Match |
+| `azureRbac` | AZContributor, etc. | ⚠️ Raw only |
+| `oauth2PermissionGrant` | (used for AZMGxxx) | ⚠️ Raw only |
+| `appRoleAssignment` | (used for AZMGxxx) | ⚠️ Raw only |
+| `license` | ❌ Not in BloodHound | ✅ Extra |
+| `contains` | AZContains | ✅ Match |
+| `keyVaultAccess` | AZGetSecrets, etc. | ✅ Match |
+| `hasManagedIdentity` | AZManagedIdentity | ✅ Match |
+
+**The Critical Gap: Abuse Edge Derivation**
+
+BloodHound doesn't just collect raw relationships - it **derives abuse edges** from the data:
+
+```
+Raw: Service Principal X has appRoleAssignment with Application.ReadWrite.All
+Derived: X → AZMGApplication_ReadWrite_All → All Apps (can add secrets to any app)
+```
+
+We collect the raw `appRoleAssignment` but don't derive the abuse capabilities. This is the core value of BloodHound.
+
+**Summary:** We have ~33% of BloodHound's edge types. The biggest gap is **abuse edge derivation** - we collect the raw data but don't compute attack paths from it.
+
+---
+
+### A.7 Overall Parity Summary (REVISED - Accurate Comparison)
+
+> **Note:** Previous versions of this document overstated our coverage. This section provides an honest comparison based on actual AzureHound source code analysis (January 2026).
+
+| Category | AzureHound/BloodHound | This Project | Actual Status |
+|----------|----------------------|--------------|---------------|
+| **User Properties** | ~65 fields | ~20 fields | ⚠️ **Gap** - but we have auth methods |
+| **Group Properties** | ~38 fields | ~15 fields | ⚠️ **Gap** |
+| **SP Properties** | ~32 fields | ~16 fields | ⚠️ **Gap** |
+| **App Properties** | ~31 fields | ~20 fields | ⚠️ **Gap** - but we have federated creds |
+| **Device Properties** | ~22 fields | ~15 fields | ⚠️ **Gap** |
+| **Azure Resource Types** | ~12 types | 6 types | ⚠️ **Partial** |
+| **Edge/Relationship Types** | ~46 types | 15 types | 🔴 **Major Gap** |
+| **Abuse Edge Derivation** | Built-in (AZMGxxx) | ❌ None | 🔴 **Critical Gap** |
+| **Graph Visualization** | Neo4j + Full UI | Dashboard only | 🔴 **Major Gap** |
+
+### What We Have That AzureHound Doesn't
+
+| Feature | AzureHound | This Project | Advantage |
+|---------|------------|--------------|-----------|
+| **Authentication Methods** | ❌ | ✅ Per-user MFA state, Authenticator, FIDO2, Phone | Security posture |
+| **Sign-in Activity** | ❌ | ✅ Last sign-in timestamps | Inactive account detection |
+| **Credential Expiry Analysis** | ❌ | ✅ Expired/expiring status | Hygiene monitoring |
+| **Transitive Group Membership** | Computed at query | ✅ Pre-computed | Faster queries |
+| **License Assignments** | ❌ | ✅ Per-user licenses | Compliance |
+| **Delta Change Detection** | ❌ | ✅ Permanent change history | Audit trail |
+
+### Critical Gaps to Address
+
+**🔴 CRITICAL - Abuse Edge Derivation (Phase 1):**
+AzureHound derives ~20+ abuse edges that we don't have:
+- `AZMGApplication_ReadWrite_All` - Can add secrets to any app
+- `AZMGRoleManagement_ReadWrite_Directory` - Can assign any role
+- `AZMGGroupMember_ReadWrite_All` - Can add members to any group
+- `AZMGDirectory_ReadWrite_All` - Can modify directory objects
+- `AZAddSecret`, `AZAddOwner`, `AZAddMembers` - Derived from permissions
+
+**These abuse edges are the core value of BloodHound for attack path discovery.**
+
+**🔴 MAJOR - Missing Raw Properties:**
+
+*Users (missing ~45 fields):*
+- AboutMe, AgeGroup, AssignedLicenses, AssignedPlans, Birthday, BusinessPhones
+- City, CompanyName, Country, Department, EmployeeHireDate, EmployeeId
+- FaxNumber, GivenName, Identities, ImAddresses, JobTitle, Mail
+- MailboxSettings, MailNickname, MobilePhone, OfficeLocation, OtherMails
+- PostalCode, ProxyAddresses, State, StreetAddress, Surname, and more
+
+*Groups (missing ~23 fields):*
+- AllowExternalSenders, AssignedLabels, AssignedLicenses, AutoSubscribeNewMembers
+- ExpirationDateTime, HasMembersWithLicenseErrors, HideFromAddressLists
+- LicenseProcessingState, PreferredDataLocation, PreferredLanguage
+- ResourceBehaviorOptions, ResourceProvisioningOptions, Theme, and more
+
+*Service Principals (missing ~16 fields):*
+- AlternativeNames, AppDescription, ApplicationTemplateId, DisabledByMicrosoftStatus
+- Homepage, Info, LoginUrl, LogoutUrl, NotificationEmailAddresses
+- PreferredSingleSignOnMode, ReplyUrls, SamlSingleSignOnSettings, and more
+
+**⚠️ MEDIUM - Missing Azure Resources (Phase 3):**
+- VM Scale Sets, Automation Accounts, Function Apps, Logic Apps
+- Web Apps, AKS Clusters, Container Registries, Storage Accounts
+
+### Recommended Priority
+
+1. **Phase 1 (HIGH):** Implement `DeriveAbuseEdges` - This is the core BloodHound value
+2. **Phase 1b (MEDIUM):** Add missing raw properties to existing collectors
+3. **Phase 3 (LOW):** Add remaining Azure resource types
+4. **Phase 4 (LOW):** Graph visualization
+
+### Honest Assessment
+
+**Our Strengths:**
+- Security posture analysis (auth methods, MFA state, credential health)
+- Change detection and audit trail
+- Pre-computed transitive memberships
+
+**Our Weaknesses:**
+- No attack path derivation (the main point of BloodHound)
+- Missing ~50% of raw property fields
+- Only 33% of edge/relationship types
+
+**Conclusion:** This project excels at **security posture monitoring** but is NOT currently a BloodHound replacement for **attack path discovery**. Phase 1 (abuse edge derivation) is critical to close this gap.
 
 ---
 
