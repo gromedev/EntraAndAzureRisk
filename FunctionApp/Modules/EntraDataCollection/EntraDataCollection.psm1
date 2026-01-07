@@ -1098,11 +1098,13 @@ function Invoke-DeltaIndexing {
 
     # For unified containers (principals), determine the type being indexed
     # This is used to filter existing data so we only compare like-with-like
+    # NOTE: For 'relationships', we don't filter by relationType since all types are in one file
     $targetPrincipalType = $null
     $targetRelationType = $null
     $targetPolicyType = $null
+    $isMixedTypeCollection = ($Config.EntityType -eq 'relationships')  # Relationships contain multiple types
 
-    if ($currentEntities.Count -gt 0) {
+    if ($currentEntities.Count -gt 0 -and -not $isMixedTypeCollection) {
         $firstEntity = $currentEntities.Values | Select-Object -First 1
         $targetPrincipalType = $firstEntity.principalType
         $targetRelationType = $firstEntity.relationType
@@ -1118,6 +1120,9 @@ function Invoke-DeltaIndexing {
             Write-Verbose "Detected policyType: $targetPolicyType"
         }
     }
+    elseif ($isMixedTypeCollection) {
+        Write-Verbose "Processing mixed-type collection (relationships) - no type filtering"
+    }
     #endregion
 
     #region Step 2: Build existing entities hashtable from input binding
@@ -1129,16 +1134,19 @@ function Invoke-DeltaIndexing {
         foreach ($doc in $ExistingData) {
             # For unified containers, only include documents matching the same type discriminator
             # This prevents marking entities of different types as "deleted"
+            # EXCEPTION: For mixed-type collections like relationships, include all
             $includeDoc = $true
 
-            if ($targetPrincipalType -and $doc.principalType) {
-                $includeDoc = ($doc.principalType -eq $targetPrincipalType)
-            }
-            elseif ($targetRelationType -and $doc.relationType) {
-                $includeDoc = ($doc.relationType -eq $targetRelationType)
-            }
-            elseif ($targetPolicyType -and $doc.policyType) {
-                $includeDoc = ($doc.policyType -eq $targetPolicyType)
+            if (-not $isMixedTypeCollection) {
+                if ($targetPrincipalType -and $doc.principalType) {
+                    $includeDoc = ($doc.principalType -eq $targetPrincipalType)
+                }
+                elseif ($targetRelationType -and $doc.relationType) {
+                    $includeDoc = ($doc.relationType -eq $targetRelationType)
+                }
+                elseif ($targetPolicyType -and $doc.policyType) {
+                    $includeDoc = ($doc.policyType -eq $targetPolicyType)
+                }
             }
 
             if ($includeDoc) {
@@ -1146,7 +1154,8 @@ function Invoke-DeltaIndexing {
             }
         }
 
-        $filterDesc = if ($targetPrincipalType) { "principalType=$targetPrincipalType" }
+        $filterDesc = if ($isMixedTypeCollection) { "no filter (mixed-type)" }
+                      elseif ($targetPrincipalType) { "principalType=$targetPrincipalType" }
                       elseif ($targetRelationType) { "relationType=$targetRelationType" }
                       elseif ($targetPolicyType) { "policyType=$targetPolicyType" }
                       else { "no filter" }

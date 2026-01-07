@@ -81,7 +81,8 @@ try {
 
     # Results tracking
     $stats = @{
-        GroupMemberships = 0
+        GroupMembershipsDirect = 0
+        GroupMembershipsTransitive = 0
         DirectoryRoles = 0
         PimEligible = 0
         PimActive = 0
@@ -89,6 +90,11 @@ try {
         PimGroupActive = 0
         AzureRbac = 0
     }
+
+    # Track direct memberships for transitive comparison
+    $directMembershipKeys = [System.Collections.Generic.HashSet[string]]::new()
+    # Track group nesting (which groups contain which groups)
+    $groupNesting = @{}
 
     # Initialize append blob
     $blobName = "$timestamp/$timestamp-relationships.jsonl"
@@ -123,8 +129,8 @@ try {
         }
     }
 
-    #region Phase 1: Group Memberships
-    Write-Verbose "=== Phase 1: Group Memberships ==="
+    #region Phase 1: Direct Group Memberships
+    Write-Verbose "=== Phase 1: Direct Group Memberships ==="
 
     # Get all groups
     $groupSelectFields = "id,displayName,securityEnabled,mailEnabled,groupTypes,isAssignableToRole,visibility"
@@ -139,6 +145,10 @@ try {
         }
         catch { Write-Warning "Failed to retrieve groups: $_"; break }
     }
+
+    # Build group lookup by ID for inheritance path resolution
+    $groupLookup = @{}
+    foreach ($g in $groups) { $groupLookup[$g.id] = $g }
 
     Write-Verbose "Found $($groups.Count) groups to process for memberships"
 
@@ -162,6 +172,18 @@ try {
                             default { 'unknown' }
                         }
 
+                        # Track for transitive comparison
+                        $membershipKey = "$($member.id)_$($group.id)"
+                        [void]$directMembershipKeys.Add($membershipKey)
+
+                        # Track group nesting (which groups contain other groups)
+                        if ($memberType -eq 'group') {
+                            if (-not $groupNesting.ContainsKey($member.id)) {
+                                $groupNesting[$member.id] = @()
+                            }
+                            $groupNesting[$member.id] += $group.id
+                        }
+
                         $relationship = @{
                             id = "$($member.id)_$($group.id)_groupMember"
                             objectId = "$($member.id)_$($group.id)_groupMember"
@@ -180,11 +202,13 @@ try {
                             targetVisibility = $group.visibility ?? $null
                             targetIsAssignableToRole = if ($null -ne $group.isAssignableToRole) { $group.isAssignableToRole } else { $null }
                             membershipType = "Direct"
+                            inheritancePath = @()  # Empty for direct memberships
+                            inheritanceDepth = 0
                             collectionTimestamp = $timestampFormatted
                         }
 
-                        [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress))
-                        $stats.GroupMemberships++
+                        [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress -Depth 10))
+                        $stats.GroupMembershipsDirect++
                     }
                 }
                 catch { Write-Warning "Failed to get members for group $($group.displayName): $_"; break }
@@ -195,11 +219,133 @@ try {
         # Periodic flush
         if ($jsonL.Length -ge ($writeThreshold * 300)) {
             Flush-Buffer
-            Write-Verbose "Flushed group memberships buffer ($($stats.GroupMemberships) total)"
+            Write-Verbose "Flushed group memberships buffer ($($stats.GroupMembershipsDirect) direct total)"
         }
     }
     Flush-Buffer
-    Write-Verbose "Group memberships complete: $($stats.GroupMemberships)"
+    Write-Verbose "Direct group memberships complete: $($stats.GroupMembershipsDirect)"
+    #endregion
+
+    #region Phase 1b: Transitive Group Memberships
+    Write-Verbose "=== Phase 1b: Transitive Group Memberships ==="
+
+    # Helper function to find inheritance path using BFS
+    function Get-InheritancePath {
+        param(
+            [string]$MemberId,
+            [string]$TargetGroupId,
+            [hashtable]$GroupNesting
+        )
+
+        # BFS to find path from member to target group through nested groups
+        $queue = [System.Collections.Generic.Queue[object]]::new()
+        $visited = [System.Collections.Generic.HashSet[string]]::new()
+
+        # Find which groups this member belongs to directly
+        foreach ($groupId in $GroupNesting.Keys) {
+            if ($GroupNesting[$groupId] -contains $TargetGroupId) {
+                # This group is directly in target group
+                if ($directMembershipKeys.Contains("$MemberId`_$groupId")) {
+                    # Member is directly in this intermediate group
+                    return @($groupId)
+                }
+            }
+        }
+
+        # For deeper nesting, we'd need recursive lookup
+        # For now, return empty path if direct intermediate not found
+        return @()
+    }
+
+    # Only process groups that have nested groups (optimization)
+    $groupsWithNesting = $groups | Where-Object { $groupNesting.Values | Where-Object { $_ -contains $_.id } }
+    $groupsToProcess = $groups  # Process all groups for transitive
+
+    Write-Verbose "Processing $($groupsToProcess.Count) groups for transitive memberships"
+
+    foreach ($group in $groupsToProcess) {
+        try {
+            # Get transitive members
+            $transitiveMembersUri = "https://graph.microsoft.com/v1.0/groups/$($group.id)/transitiveMembers?`$select=id,displayName,userPrincipalName,accountEnabled,userType"
+            $transitiveMembersNextLink = $transitiveMembersUri
+
+            while ($transitiveMembersNextLink) {
+                try {
+                    $transitiveResponse = Invoke-GraphWithRetry -Uri $transitiveMembersNextLink -AccessToken $graphToken
+                    $transitiveMembersNextLink = $transitiveResponse.'@odata.nextLink'
+
+                    foreach ($member in $transitiveResponse.value) {
+                        $membershipKey = "$($member.id)_$($group.id)"
+
+                        # Skip if this is a direct membership (already recorded)
+                        if ($directMembershipKeys.Contains($membershipKey)) {
+                            continue
+                        }
+
+                        $odataType = $member.'@odata.type'
+                        $memberType = switch ($odataType) {
+                            '#microsoft.graph.user' { 'user' }
+                            '#microsoft.graph.group' { 'group' }
+                            '#microsoft.graph.servicePrincipal' { 'servicePrincipal' }
+                            '#microsoft.graph.device' { 'device' }
+                            default { 'unknown' }
+                        }
+
+                        # Find the intermediate groups this member belongs to that are nested in target group
+                        $inheritancePath = @()
+                        foreach ($directGroupId in $groupNesting.Keys) {
+                            # Check if member is directly in this group AND this group is in target group (directly or transitively)
+                            if ($directMembershipKeys.Contains("$($member.id)_$directGroupId")) {
+                                if ($groupNesting[$directGroupId] -contains $group.id) {
+                                    # Found: member → directGroupId → targetGroup
+                                    $inheritancePath += $directGroupId
+                                }
+                            }
+                        }
+
+                        # Calculate depth based on inheritance path
+                        $inheritanceDepth = if ($inheritancePath.Count -gt 0) { $inheritancePath.Count } else { 1 }
+
+                        $relationship = @{
+                            id = "$($member.id)_$($group.id)_groupMemberTransitive"
+                            objectId = "$($member.id)_$($group.id)_groupMemberTransitive"
+                            relationType = "groupMemberTransitive"
+                            sourceId = $member.id
+                            sourceType = $memberType
+                            sourceDisplayName = $member.displayName ?? ""
+                            targetId = $group.id
+                            targetType = "group"
+                            targetDisplayName = $group.displayName ?? ""
+                            sourceUserPrincipalName = if ($memberType -eq 'user') { $member.userPrincipalName ?? $null } else { $null }
+                            sourceAccountEnabled = if ($null -ne $member.accountEnabled) { $member.accountEnabled } else { $null }
+                            sourceUserType = if ($memberType -eq 'user') { $member.userType ?? $null } else { $null }
+                            targetSecurityEnabled = if ($null -ne $group.securityEnabled) { $group.securityEnabled } else { $null }
+                            targetMailEnabled = if ($null -ne $group.mailEnabled) { $group.mailEnabled } else { $null }
+                            targetVisibility = $group.visibility ?? $null
+                            targetIsAssignableToRole = if ($null -ne $group.isAssignableToRole) { $group.isAssignableToRole } else { $null }
+                            membershipType = "Transitive"
+                            inheritancePath = $inheritancePath
+                            inheritanceDepth = $inheritanceDepth
+                            collectionTimestamp = $timestampFormatted
+                        }
+
+                        [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress -Depth 10))
+                        $stats.GroupMembershipsTransitive++
+                    }
+                }
+                catch { Write-Warning "Failed to get transitive members for group $($group.displayName): $_"; break }
+            }
+        }
+        catch { Write-Warning "Error processing transitive members for group $($group.displayName): $_" }
+
+        # Periodic flush
+        if ($jsonL.Length -ge ($writeThreshold * 300)) {
+            Flush-Buffer
+            Write-Verbose "Flushed transitive memberships buffer ($($stats.GroupMembershipsTransitive) total)"
+        }
+    }
+    Flush-Buffer
+    Write-Verbose "Transitive group memberships complete: $($stats.GroupMembershipsTransitive)"
     #endregion
 
     #region Phase 2: Directory Role Members
@@ -529,7 +675,7 @@ try {
     [System.GC]::Collect()
     [System.GC]::WaitForPendingFinalizers()
 
-    $totalRelationships = $stats.GroupMemberships + $stats.DirectoryRoles + $stats.PimEligible + $stats.PimActive + $stats.PimGroupEligible + $stats.PimGroupActive + $stats.AzureRbac
+    $totalRelationships = $stats.GroupMembershipsDirect + $stats.GroupMembershipsTransitive + $stats.DirectoryRoles + $stats.PimEligible + $stats.PimActive + $stats.PimGroupEligible + $stats.PimGroupActive + $stats.AzureRbac
 
     Write-Verbose "Combined relationships collection complete: $totalRelationships total"
 
@@ -542,7 +688,8 @@ try {
         Summary = @{
             timestamp = $timestampFormatted
             totalRelationships = $totalRelationships
-            groupMemberships = $stats.GroupMemberships
+            groupMembershipsDirect = $stats.GroupMembershipsDirect
+            groupMembershipsTransitive = $stats.GroupMembershipsTransitive
             directoryRoles = $stats.DirectoryRoles
             pimEligible = $stats.PimEligible
             pimActive = $stats.PimActive

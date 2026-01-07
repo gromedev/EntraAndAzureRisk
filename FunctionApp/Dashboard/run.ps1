@@ -45,6 +45,8 @@ function Get-DynamicProperties {
             'objectId', 'displayName', 'description', 'securityEnabled', 'mailEnabled', 'mail',
             'groupTypes', 'membershipRule', 'isAssignableToRole', 'visibility', 'classification',
             'createdDateTime', 'deletedDateTime', 'onPremisesSyncEnabled', 'onPremisesSecurityIdentifier',
+            # Member statistics
+            'memberCountDirect', 'userMemberCount', 'groupMemberCount', 'servicePrincipalMemberCount', 'deviceMemberCount',
             'principalType', 'collectionTimestamp', 'deleted'
         )
         "servicePrincipal" = @(
@@ -69,11 +71,11 @@ function Get-DynamicProperties {
     # Priority ordering for each type
     $priority = switch ($dataType) {
         "user" { @('objectId', 'displayName', 'userPrincipalName', 'accountEnabled', 'userType') }
-        "group" { @('objectId', 'displayName', 'securityEnabled', 'mailEnabled', 'groupTypes') }
+        "group" { @('objectId', 'displayName', 'securityEnabled', 'memberCountDirect', 'userMemberCount', 'groupMemberCount', 'groupTypes') }
         "servicePrincipal" { @('objectId', 'displayName', 'appId', 'servicePrincipalType', 'accountEnabled') }
         "device" { @('objectId', 'displayName', 'deviceId', 'isCompliant', 'isManaged', 'operatingSystem') }
         "application" { @('objectId', 'displayName', 'appId', 'signInAudience', 'secretCount', 'certificateCount') }
-        "relationship" { @('id', 'sourceDisplayName', 'relationType', 'targetDisplayName', 'status') }
+        "relationship" { @('id', 'sourceDisplayName', 'relationType', 'targetDisplayName', 'membershipType', 'inheritanceDepth', 'status') }
         "policy" { @('objectId', 'displayName', 'policyType', 'state') }
         "signIn" { @('id', 'userPrincipalName', 'errorCode', 'riskLevelAggregated', 'createdDateTime') }
         "audit" { @('id', 'activityDisplayName', 'category', 'result', 'activityDateTime') }

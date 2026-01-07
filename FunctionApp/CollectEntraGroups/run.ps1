@@ -3,6 +3,7 @@
     Collects group data from Microsoft Entra ID and streams to Blob Storage
 .DESCRIPTION
     - Queries Graph API (beta endpoint for reliable isAssignableToRole)
+    - Collects member counts per group (total, users, groups, SPs, devices)
     - Streams JSONL output to Blob Storage (memory-efficient)
     - Returns summary statistics for orchestrator
     - Token caching (eliminates redundant IMDS calls)
@@ -96,6 +97,7 @@ try {
     $roleAssignableCount = 0
     $cloudOnlyCount = 0
     $syncedCount = 0
+    $groupsWithNestedGroupsCount = 0
 
     # Initialize append blob
     $groupsBlobName = "$timestamp/$timestamp-groups.jsonl"
@@ -117,11 +119,52 @@ try {
         }
     }
 
+    # Helper function to get member counts for a group
+    function Get-GroupMemberCounts {
+        param(
+            [string]$GroupId,
+            [string]$AccessToken
+        )
+
+        $counts = @{
+            memberCountDirect = 0
+            userMemberCount = 0
+            groupMemberCount = 0
+            servicePrincipalMemberCount = 0
+            deviceMemberCount = 0
+        }
+
+        try {
+            # Get members with minimal fields (just need @odata.type for counting)
+            $membersUri = "https://graph.microsoft.com/v1.0/groups/$GroupId/members?`$select=id&`$top=999"
+
+            while ($membersUri) {
+                $response = Invoke-GraphWithRetry -Uri $membersUri -AccessToken $AccessToken
+                foreach ($member in $response.value) {
+                    $counts.memberCountDirect++
+                    $odataType = $member.'@odata.type'
+                    switch ($odataType) {
+                        '#microsoft.graph.user' { $counts.userMemberCount++ }
+                        '#microsoft.graph.group' { $counts.groupMemberCount++ }
+                        '#microsoft.graph.servicePrincipal' { $counts.servicePrincipalMemberCount++ }
+                        '#microsoft.graph.device' { $counts.deviceMemberCount++ }
+                    }
+                }
+                $membersUri = $response.'@odata.nextLink'
+            }
+        }
+        catch {
+            Write-Warning "Failed to get member counts for group $GroupId`: $_"
+        }
+
+        return $counts
+    }
+
     # Query groups with field selection (beta endpoint for isAssignableToRole)
     $selectFields = "displayName,id,classification,deletedDateTime,description,groupTypes,mailEnabled,membershipRule,securityEnabled,isAssignableToRole,createdDateTime,visibility,onPremisesSyncEnabled,onPremisesSecurityIdentifier,mail"
     $nextLink = "https://graph.microsoft.com/beta/groups?`$select=$selectFields&`$top=$batchSize"
 
-    Write-Verbose "Starting batch processing with streaming writes"
+    Write-Verbose "Starting batch processing with streaming writes (including member counts)"
 
     # Process batches
     while ($nextLink) {
@@ -144,6 +187,9 @@ try {
 
         # Sequential process batch
         foreach ($group in $groupBatch) {
+            # Get member counts for this group
+            $memberCounts = Get-GroupMemberCounts -GroupId $group.id -AccessToken $graphToken
+
             # Transform to consistent camelCase structure with objectId
             $groupObj = @{
                 # Core identifiers
@@ -174,6 +220,13 @@ try {
                 # Communication
                 mail = $group.mail ?? $null
 
+                # Member statistics
+                memberCountDirect = $memberCounts.memberCountDirect
+                userMemberCount = $memberCounts.userMemberCount
+                groupMemberCount = $memberCounts.groupMemberCount
+                servicePrincipalMemberCount = $memberCounts.servicePrincipalMemberCount
+                deviceMemberCount = $memberCounts.deviceMemberCount
+
                 # Locally-generated property (collection metadata)
                 collectionTimestamp = $timestampFormatted
             }
@@ -187,6 +240,7 @@ try {
             if ($groupObj.groupTypes -contains "Unified") { $m365GroupCount++ }
             if ($groupObj.isAssignableToRole -eq $true) { $roleAssignableCount++ }
             if ($groupObj.onPremisesSyncEnabled -eq $true) { $syncedCount++ } else { $cloudOnlyCount++ }
+            if ($groupObj.groupMemberCount -gt 0) { $groupsWithNestedGroupsCount++ }
         }
 
         # Periodic flush to blob (every ~5000 groups)
@@ -248,6 +302,7 @@ try {
         roleAssignableCount = $roleAssignableCount
         cloudOnlyCount = $cloudOnlyCount
         syncedCount = $syncedCount
+        groupsWithNestedGroupsCount = $groupsWithNestedGroupsCount
         blobPath = $groupsBlobName
     }
 

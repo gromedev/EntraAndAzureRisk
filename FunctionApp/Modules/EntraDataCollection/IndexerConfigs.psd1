@@ -71,6 +71,12 @@
             'onPremisesSyncEnabled'
             'mail'
             'deleted'
+            # Member statistics
+            'memberCountDirect'
+            'userMemberCount'
+            'groupMemberCount'
+            'servicePrincipalMemberCount'
+            'deviceMemberCount'
         )
         ArrayFields = @('groupTypes')
         DocumentFields = @{
@@ -88,6 +94,12 @@
             onPremisesSyncEnabled = 'onPremisesSyncEnabled'
             onPremisesSecurityIdentifier = 'onPremisesSecurityIdentifier'
             mail = 'mail'
+            # Member statistics
+            memberCountDirect = 'memberCountDirect'
+            userMemberCount = 'userMemberCount'
+            groupMemberCount = 'groupMemberCount'
+            servicePrincipalMemberCount = 'servicePrincipalMemberCount'
+            deviceMemberCount = 'deviceMemberCount'
             collectionTimestamp = 'collectionTimestamp'
         }
         WriteDeletes = $true
@@ -571,6 +583,12 @@
             'classification'
             'description'
             'deletedDateTime'
+            # Group member statistics (from CollectEntraGroups)
+            'memberCountDirect'
+            'userMemberCount'
+            'groupMemberCount'
+            'servicePrincipalMemberCount'
+            'deviceMemberCount'
 
             # ServicePrincipal-specific fields (from CollectEntraServicePrincipals)
             'appId'
@@ -649,6 +667,12 @@
             isAssignableToRole = 'isAssignableToRole'
             visibility = 'visibility'
             classification = 'classification'
+            # Group member statistics
+            memberCountDirect = 'memberCountDirect'
+            userMemberCount = 'userMemberCount'
+            groupMemberCount = 'groupMemberCount'
+            servicePrincipalMemberCount = 'servicePrincipalMemberCount'
+            deviceMemberCount = 'deviceMemberCount'
 
             # ServicePrincipal fields (from CollectEntraServicePrincipals)
             appId = 'appId'
@@ -735,6 +759,7 @@
             # Relationship-specific fields
             'membershipType'
             'inheritancePath'
+            'inheritanceDepth'
             'assignmentType'
             'memberType'
             'status'
@@ -792,6 +817,7 @@
             # Relationship-specific fields
             membershipType = 'membershipType'
             inheritancePath = 'inheritancePath'
+            inheritanceDepth = 'inheritanceDepth'
             assignmentType = 'assignmentType'
             memberType = 'memberType'
             status = 'status'
