@@ -148,6 +148,7 @@ try {
             $servicePrincipalObj = @{
                 # Core identifiers
                 objectId = $sp.id ?? ""
+                principalType = "servicePrincipal"
                 appId = $sp.appId ?? ""
                 displayName = $sp.displayName ?? ""
                 servicePrincipalType = $sp.servicePrincipalType ?? ""

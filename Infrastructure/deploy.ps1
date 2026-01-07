@@ -209,37 +209,74 @@ Write-Host "Assigning Microsoft Graph permissions to Managed Identity..." -Foreg
 try {
     # 1. Get the Function App name and Identity ID from Bicep outputs
     $functionAppName = $deployment.Outputs.functionAppName.Value
-    $permissionName = "User.Read.All" 
+
+    # All required Graph API permissions for V2 collectors
+    $requiredPermissions = @(
+        "User.Read.All",
+        "Group.Read.All",
+        "Application.Read.All",
+        "Directory.Read.All",
+        "Device.Read.All",
+        "AuditLog.Read.All",
+        "Policy.Read.All",
+        "RoleManagement.Read.All",
+        "IdentityRiskEvent.Read.All",
+        "PrivilegedAccess.Read.AzureAD",
+        "PrivilegedAccess.Read.AzureADGroup",
+        "PrivilegedAccess.Read.AzureResources",
+        "UserAuthenticationMethod.Read.All",
+        "IdentityRiskyUser.Read.All"
+    )
 
     # 2. Get the Service Principal of your Function App
     $managedIdentity = Get-AzADServicePrincipal -DisplayName $functionAppName -ErrorAction Stop
-    
+
     # 3. Get the Microsoft Graph Service Principal (Global AppId: 00000003-0000-0000-c000-000000000000)
     $graphServicePrincipal = Get-AzADServicePrincipal -Filter "AppId eq '00000003-0000-0000-c000-000000000000'" -ErrorAction Stop
 
-    # 4. Find the specific ID for the application permission
-    $appRole = $graphServicePrincipal.AppRole | Where-Object { 
-        $_.Value -eq $permissionName -and $_.AllowedMemberType -contains "Application" 
+    # 4. Get existing assignments to avoid duplicates
+    $existingAssignments = Get-AzADServicePrincipalAppRoleAssignment -ServicePrincipalId $managedIdentity.Id
+
+    # 5. Grant each permission
+    $assignedCount = 0
+    $skippedCount = 0
+
+    foreach ($permissionName in $requiredPermissions) {
+        # Find the specific ID for the application permission
+        $appRole = $graphServicePrincipal.AppRole | Where-Object {
+            $_.Value -eq $permissionName -and $_.AllowedMemberType -contains "Application"
+        }
+
+        if ($null -eq $appRole) {
+            Write-Warning "  Could not find Graph permission: $permissionName"
+            continue
+        }
+
+        # Check if assignment already exists
+        $existingAssignment = $existingAssignments |
+            Where-Object { $_.AppRoleId -eq $appRole.Id -and $_.ResourceId -eq $graphServicePrincipal.Id }
+
+        if ($null -eq $existingAssignment) {
+            try {
+                New-AzADServicePrincipalAppRoleAssignment `
+                    -ServicePrincipalId $managedIdentity.Id `
+                    -ResourceId $graphServicePrincipal.Id `
+                    -AppRoleId $appRole.Id | Out-Null
+                Write-Host "  + $permissionName" -ForegroundColor Green
+                $assignedCount++
+            }
+            catch {
+                Write-Warning "  Failed to assign $permissionName : $_"
+            }
+        }
+        else {
+            Write-Host "  = $permissionName (already assigned)" -ForegroundColor Gray
+            $skippedCount++
+        }
     }
 
-    if ($null -eq $appRole) {
-        throw "Could not find Graph permission: $permissionName"
-    }
-
-    # 5. Check if assignment already exists to avoid errors on re-run
-    $existingAssignment = Get-AzADServicePrincipalAppRoleAssignment -ServicePrincipalId $managedIdentity.Id | 
-        Where-Object { $_.AppRoleId -eq $appRole.Id -and $_.ResourceId -eq $graphServicePrincipal.Id }
-
-    if ($null -eq $existingAssignment) {
-        New-AzADServicePrincipalAppRoleAssignment `
-            -ServicePrincipalId $managedIdentity.Id `
-            -ResourceId $graphServicePrincipal.Id `
-            -AppRoleId $appRole.Id | Out-Null
-        Write-DeploymentSuccess "Successfully assigned $permissionName to $functionAppName"
-    }
-    else {
-        Write-Host "  Permission $permissionName already assigned." -ForegroundColor Gray
-    }
+    Write-Host ""
+    Write-DeploymentSuccess "Graph permissions: $assignedCount new, $skippedCount existing"
 }
 catch {
     Write-Warning "Failed to assign Graph permissions: $_"
@@ -294,7 +331,7 @@ Write-Host ""
 # Identity
 Write-Host "MANAGED IDENTITIES:" -ForegroundColor Yellow
 Write-DeploymentInfo "Function App" $deployment.Outputs.functionAppIdentityPrincipalId.Value
-Write-DeploymentInfo "Graph Permissions" "User.Read.All (Assigned)" # Add this line
+Write-DeploymentInfo "Graph Permissions" "14 permissions assigned (see deploy.ps1 for list)"
 Write-Host ""
 
 #region FunctionApp Code Deployment

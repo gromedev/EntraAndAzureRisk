@@ -148,6 +148,7 @@ try {
             $groupObj = @{
                 # Core identifiers
                 objectId = $group.id ?? ""
+                principalType = "group"
                 displayName = $group.displayName ?? ""
 
                 # Classification and governance

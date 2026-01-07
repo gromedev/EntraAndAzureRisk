@@ -1,0 +1,48 @@
+{
+  "bindings": [
+    {
+      "name": "ActivityInput",
+      "type": "activityTrigger",
+      "direction": "in"
+    },
+    {
+      "name": "relationshipsRawOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "relationships",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/sourceId"
+    },
+    {
+      "name": "relationshipChangesOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "changes",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/changeDate"
+    },
+    {
+      "name": "snapshotsOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "snapshots",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/id"
+    },
+    {
+      "name": "relationshipsRawIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "relationships",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT c.id, c.sourceId, c.relationType, c.sourceType, c.sourceDisplayName, c.targetId, c.targetType, c.targetDisplayName, c.deleted, c.sourceUserPrincipalName, c.sourceAccountEnabled, c.sourceUserType, c.sourceAppId, c.sourceServicePrincipalType, c.sourceSecurityEnabled, c.targetSecurityEnabled, c.targetMailEnabled, c.targetVisibility, c.targetIsAssignableToRole, c.targetRoleTemplateId, c.targetIsPrivileged, c.targetIsBuiltIn, c.targetRoleDefinitionId, c.targetRoleDefinitionName, c.scope, c.scopeType, c.scopeDisplayName, c.membershipType, c.inheritancePath, c.assignmentType, c.memberType, c.status, c.scheduleInfo, c.appRoleId, c.appRoleDisplayName, c.resourceId, c.resourceDisplayName, c.consentType, c.permissionScope, c.lastModified FROM c"
+    }
+  ]
+}

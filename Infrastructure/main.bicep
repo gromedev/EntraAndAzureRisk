@@ -24,8 +24,8 @@ param tags object = {
   Workload: workloadName
   ManagedBy: 'Bicep'
   CostCenter: 'IT-Security'
-  Project: 'EntraRiskAnalysis-Delta'
-  Version: '2.0-Delta'
+  Project: 'EntraRiskAnalysis-V2'
+  Version: '2.0-Unified'
 }
 
 // Generate unique suffix for globally unique names
@@ -40,7 +40,7 @@ var keyVaultName = take('keyvault${workloadName}${environment}${uniqueSuffix}', 
 var appInsightsName = 'appi-${workloadName}-${environment}-001'
 var logAnalyticsName = 'log-${workloadName}-${environment}-001'
 var aiFoundryHubName = 'hub-${workloadName}-${environment}-${uniqueSuffix}'
-var aiFoundryProjectName = 'proj-${workloadName}-${environment}-${uniqueSuffix}'
+var aiFoundryProjectName = take('proj-${workloadName}-${environment}', 32)
 
 // STORAGE ACCOUNT WITH LIFECYCLE MANAGEMENT
 
@@ -166,13 +166,15 @@ resource cosmosDatabase 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2023
   }
 }
 
-// Container 1: Current state of all users
-resource cosmosContainerUsersRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+// ===== V2 UNIFIED CONTAINERS (7 total) =====
+
+// Container 1: principals (unified - users, groups, SPs, devices, apps)
+resource cosmosContainerPrincipals 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
   parent: cosmosDatabase
-  name: 'users_raw'
+  name: 'principals'
   properties: {
     resource: {
-      id: 'users_raw'
+      id: 'principals'
       partitionKey: {
         paths: ['/objectId']
         kind: 'Hash'
@@ -182,22 +184,15 @@ resource cosmosContainerUsersRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatab
         indexingMode: 'consistent'
         includedPaths: [
           { path: '/objectId/?' }
-          { path: '/userPrincipalName/?' }
+          { path: '/principalType/?' }
+          { path: '/displayName/?' }
           { path: '/accountEnabled/?' }
-          { path: '/userType/?' }
-          { path: '/lastSignInDateTime/?' }
+          { path: '/userPrincipalName/?' }
+          { path: '/deleted/?' }
           { path: '/collectionTimestamp/?' }
-          { path: '/lastModified/?' }
         ]
         excludedPaths: [
           { path: '/*' }
-        ]
-      }
-      uniqueKeyPolicy: {
-        uniqueKeys: [
-          {
-            paths: ['/objectId']
-          }
         ]
       }
       defaultTtl: -1
@@ -205,15 +200,45 @@ resource cosmosContainerUsersRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatab
   }
 }
 
-// Container 2: Change log (audit trail)
-resource cosmosContainerUserChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+// Container 2: relationships (unified - memberships, roles, permissions)
+resource cosmosContainerRelationships 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
   parent: cosmosDatabase
-  name: 'user_changes'
+  name: 'relationships'
   properties: {
     resource: {
-      id: 'user_changes'
+      id: 'relationships'
       partitionKey: {
-        paths: ['/snapshotId']
+        paths: ['/sourceId']
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        automatic: true
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/sourceId/?' }
+          { path: '/targetId/?' }
+          { path: '/relationType/?' }
+          { path: '/deleted/?' }
+          { path: '/collectionTimestamp/?' }
+        ]
+        excludedPaths: [
+          { path: '/*' }
+        ]
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 3: policies (unified - CA, role management)
+resource cosmosContainerPolicies 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'policies'
+  properties: {
+    resource: {
+      id: 'policies'
+      partitionKey: {
+        paths: ['/policyType']
         kind: 'Hash'
       }
       indexingPolicy: {
@@ -221,9 +246,68 @@ resource cosmosContainerUserChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDa
         indexingMode: 'consistent'
         includedPaths: [
           { path: '/objectId/?' }
+          { path: '/policyType/?' }
+          { path: '/displayName/?' }
+          { path: '/state/?' }
+          { path: '/deleted/?' }
+        ]
+        excludedPaths: [
+          { path: '/*' }
+        ]
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 4: events (unified - sign-ins, audits, with TTL)
+resource cosmosContainerEvents 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'events'
+  properties: {
+    resource: {
+      id: 'events'
+      partitionKey: {
+        paths: ['/eventDate']
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        automatic: true
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/eventType/?' }
+          { path: '/eventDate/?' }
+          { path: '/userId/?' }
+          { path: '/createdDateTime/?' }
+        ]
+        excludedPaths: [
+          { path: '/*' }
+        ]
+      }
+      defaultTtl: 7776000  // 90 days TTL
+    }
+  }
+}
+
+// Container 5: changes (unified audit trail - NO TTL, permanent history)
+resource cosmosContainerChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'changes'
+  properties: {
+    resource: {
+      id: 'changes'
+      partitionKey: {
+        paths: ['/changeDate']
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        automatic: true
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/objectId/?' }
+          { path: '/changeDate/?' }
           { path: '/changeType/?' }
-          { path: '/changeTimestamp/?' }
-          { path: '/snapshotId/?' }
+          { path: '/entityType/?' }
         ]
         excludedPaths: [
           { path: '/*' }
@@ -234,7 +318,7 @@ resource cosmosContainerUserChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDa
   }
 }
 
-// Container 3: Collection metadata and summaries
+// Container 6: snapshots (collection run metadata)
 resource cosmosContainerSnapshots 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
   parent: cosmosDatabase
   name: 'snapshots'
@@ -242,7 +326,7 @@ resource cosmosContainerSnapshots 'Microsoft.DocumentDB/databaseAccounts/sqlData
     resource: {
       id: 'snapshots'
       partitionKey: {
-        paths: ['/id']
+        paths: ['/snapshotDate']
         kind: 'Hash'
       }
       indexingPolicy: {
@@ -254,601 +338,28 @@ resource cosmosContainerSnapshots 'Microsoft.DocumentDB/databaseAccounts/sqlData
   }
 }
 
-// Container 4: Groups raw data
-resource cosmosContainerGroupsRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+// Container 7: roles (reference data - directory roles, Azure roles, licenses)
+resource cosmosContainerRoles 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
   parent: cosmosDatabase
-  name: 'groups_raw'
+  name: 'roles'
   properties: {
     resource: {
-      id: 'groups_raw'
+      id: 'roles'
       partitionKey: {
-        paths: ['/objectId']
-        kind: 'Hash'
-      }
-      indexingPolicy: {
-        automatic: true
-        indexingMode: 'consistent'
-        includedPaths: [
-          { path: '/objectId/?' }
-          { path: '/displayName/?' }
-          { path: '/groupTypes/?' }
-          { path: '/securityEnabled/?' }
-          { path: '/mailEnabled/?' }
-        ]
-        excludedPaths: [
-          { path: '/*' }
-        ]
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 5: Groups change log
-resource cosmosContainerGroupChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'group_changes'
-  properties: {
-    resource: {
-      id: 'group_changes'
-      partitionKey: {
-        paths: ['/snapshotId']
-        kind: 'Hash'
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 6: Service Principals raw data
-resource cosmosContainerServicePrincipalsRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'service_principals_raw'
-  properties: {
-    resource: {
-      id: 'service_principals_raw'
-      partitionKey: {
-        paths: ['/objectId']
+        paths: ['/roleType']
         kind: 'Hash'
       }
       indexingPolicy: {
         automatic: true
         indexingMode: 'consistent'
         includedPaths: [
-          { path: '/objectId/?' }
-          { path: '/displayName/?' }
-          { path: '/appId/?' }
-          { path: '/servicePrincipalType/?' }
-        ]
-        excludedPaths: [
-          { path: '/*' }
-        ]
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 7: Service Principals change log
-resource cosmosContainerServicePrincipalChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'service_principal_changes'
-  properties: {
-    resource: {
-      id: 'service_principal_changes'
-      partitionKey: {
-        paths: ['/snapshotId']
-        kind: 'Hash'
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 8: Risky Users raw data
-resource cosmosContainerRiskyUsersRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'risky_users_raw'
-  properties: {
-    resource: {
-      id: 'risky_users_raw'
-      partitionKey: {
-        paths: ['/objectId']
-        kind: 'Hash'
-      }
-      indexingPolicy: {
-        automatic: true
-        indexingMode: 'consistent'
-        includedPaths: [
-          { path: '/objectId/?' }
-          { path: '/riskLevel/?' }
-          { path: '/riskState/?' }
-          { path: '/riskLastUpdatedDateTime/?' }
-        ]
-        excludedPaths: [
-          { path: '/*' }
-        ]
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 9: Risky Users change log
-resource cosmosContainerRiskyUserChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'risky_user_changes'
-  properties: {
-    resource: {
-      id: 'risky_user_changes'
-      partitionKey: {
-        paths: ['/snapshotId']
-        kind: 'Hash'
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 10: Devices raw data
-resource cosmosContainerDevicesRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'devices_raw'
-  properties: {
-    resource: {
-      id: 'devices_raw'
-      partitionKey: {
-        paths: ['/objectId']
-        kind: 'Hash'
-      }
-      indexingPolicy: {
-        automatic: true
-        indexingMode: 'consistent'
-        includedPaths: [
-          { path: '/objectId/?' }
-          { path: '/displayName/?' }
-          { path: '/isCompliant/?' }
-          { path: '/isManaged/?' }
-          { path: '/trustType/?' }
-        ]
-        excludedPaths: [
-          { path: '/*' }
-        ]
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 11: Devices change log
-resource cosmosContainerDeviceChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'device_changes'
-  properties: {
-    resource: {
-      id: 'device_changes'
-      partitionKey: {
-        paths: ['/snapshotId']
-        kind: 'Hash'
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 12: Conditional Access Policies raw data
-resource cosmosContainerCAPoliciesRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'ca_policies_raw'
-  properties: {
-    resource: {
-      id: 'ca_policies_raw'
-      partitionKey: {
-        paths: ['/objectId']
-        kind: 'Hash'
-      }
-      indexingPolicy: {
-        automatic: true
-        indexingMode: 'consistent'
-        includedPaths: [
-          { path: '/objectId/?' }
-          { path: '/displayName/?' }
-          { path: '/state/?' }
-        ]
-        excludedPaths: [
-          { path: '/*' }
-        ]
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 13: CA Policies change log
-resource cosmosContainerCAPolicyChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'ca_policy_changes'
-  properties: {
-    resource: {
-      id: 'ca_policy_changes'
-      partitionKey: {
-        paths: ['/snapshotId']
-        kind: 'Hash'
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 14: App Registrations raw data
-resource cosmosContainerAppRegistrationsRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'app_registrations_raw'
-  properties: {
-    resource: {
-      id: 'app_registrations_raw'
-      partitionKey: {
-        paths: ['/objectId']
-        kind: 'Hash'
-      }
-      indexingPolicy: {
-        automatic: true
-        indexingMode: 'consistent'
-        includedPaths: [
-          { path: '/objectId/?' }
-          { path: '/appId/?' }
-          { path: '/displayName/?' }
-          { path: '/secretCount/?' }
-          { path: '/certificateCount/?' }
-        ]
-        excludedPaths: [
-          { path: '/*' }
-        ]
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 15: App Registrations change log
-resource cosmosContainerAppRegistrationChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'app_registration_changes'
-  properties: {
-    resource: {
-      id: 'app_registration_changes'
-      partitionKey: {
-        paths: ['/snapshotId']
-        kind: 'Hash'
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 16: User Auth Methods raw data
-resource cosmosContainerUserAuthMethodsRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'user_auth_methods_raw'
-  properties: {
-    resource: {
-      id: 'user_auth_methods_raw'
-      partitionKey: {
-        paths: ['/objectId']
-        kind: 'Hash'
-      }
-      indexingPolicy: {
-        automatic: true
-        indexingMode: 'consistent'
-        includedPaths: [
-          { path: '/objectId/?' }
-          { path: '/perUserMfaState/?' }
-          { path: '/hasAuthenticator/?' }
-          { path: '/hasFido2/?' }
-        ]
-        excludedPaths: [
-          { path: '/*' }
-        ]
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 17: User Auth Methods change log
-resource cosmosContainerUserAuthMethodChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'user_auth_method_changes'
-  properties: {
-    resource: {
-      id: 'user_auth_method_changes'
-      partitionKey: {
-        paths: ['/snapshotId']
-        kind: 'Hash'
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 18: Directory Roles raw data
-resource cosmosContainerDirectoryRolesRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'directory_roles_raw'
-  properties: {
-    resource: {
-      id: 'directory_roles_raw'
-      partitionKey: {
-        paths: ['/objectId']
-        kind: 'Hash'
-      }
-      indexingPolicy: {
-        automatic: true
-        indexingMode: 'consistent'
-        includedPaths: [
-          { path: '/objectId/?' }
+          { path: '/roleType/?' }
           { path: '/displayName/?' }
           { path: '/roleTemplateId/?' }
-          { path: '/isPrivileged/?' }
         ]
         excludedPaths: [
           { path: '/*' }
         ]
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 19: Directory Roles change log
-resource cosmosContainerDirectoryRoleChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'directory_role_changes'
-  properties: {
-    resource: {
-      id: 'directory_role_changes'
-      partitionKey: {
-        paths: ['/snapshotId']
-        kind: 'Hash'
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 20: Sign-In Logs (Event-based, TTL enabled)
-resource cosmosContainerSignInLogs 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'signin_logs'
-  properties: {
-    resource: {
-      id: 'signin_logs'
-      partitionKey: {
-        paths: ['/id']
-        kind: 'Hash'
-      }
-      indexingPolicy: {
-        automatic: true
-        indexingMode: 'consistent'
-        includedPaths: [
-          { path: '/createdDateTime/?' }
-          { path: '/userId/?' }
-          { path: '/errorCode/?' }
-          { path: '/riskLevelAggregated/?' }
-        ]
-        excludedPaths: [
-          { path: '/*' }
-        ]
-      }
-      defaultTtl: 7776000  // 90 days TTL
-    }
-  }
-}
-
-// Container 21: Directory Audits (Event-based, TTL enabled)
-resource cosmosContainerDirectoryAudits 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'directory_audits'
-  properties: {
-    resource: {
-      id: 'directory_audits'
-      partitionKey: {
-        paths: ['/id']
-        kind: 'Hash'
-      }
-      indexingPolicy: {
-        automatic: true
-        indexingMode: 'consistent'
-        includedPaths: [
-          { path: '/activityDateTime/?' }
-          { path: '/category/?' }
-          { path: '/operationType/?' }
-        ]
-        excludedPaths: [
-          { path: '/*' }
-        ]
-      }
-      defaultTtl: 7776000  // 90 days TTL
-    }
-  }
-}
-
-// Container 22: Entra PIM Roles raw data
-resource cosmosContainerEntraPimRolesRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'entra_pim_roles_raw'
-  properties: {
-    resource: {
-      id: 'entra_pim_roles_raw'
-      partitionKey: {
-        paths: ['/objectId']
-        kind: 'Hash'
-      }
-      indexingPolicy: {
-        automatic: true
-        indexingMode: 'consistent'
-        includedPaths: [
-          { path: '/objectId/?' }
-          { path: '/principalId/?' }
-          { path: '/roleDefinitionId/?' }
-          { path: '/assignmentType/?' }
-          { path: '/status/?' }
-        ]
-        excludedPaths: [
-          { path: '/*' }
-        ]
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 23: Entra PIM Roles change log
-resource cosmosContainerEntraPimRoleChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'entra_pim_role_changes'
-  properties: {
-    resource: {
-      id: 'entra_pim_role_changes'
-      partitionKey: {
-        paths: ['/snapshotId']
-        kind: 'Hash'
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 24: PIM Group Memberships raw data
-resource cosmosContainerPimGroupMembershipsRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'pim_group_memberships_raw'
-  properties: {
-    resource: {
-      id: 'pim_group_memberships_raw'
-      partitionKey: {
-        paths: ['/objectId']
-        kind: 'Hash'
-      }
-      indexingPolicy: {
-        automatic: true
-        indexingMode: 'consistent'
-        includedPaths: [
-          { path: '/objectId/?' }
-          { path: '/principalId/?' }
-          { path: '/groupId/?' }
-          { path: '/assignmentType/?' }
-          { path: '/accessId/?' }
-        ]
-        excludedPaths: [
-          { path: '/*' }
-        ]
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 25: PIM Group Memberships change log
-resource cosmosContainerPimGroupMembershipChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'pim_group_membership_changes'
-  properties: {
-    resource: {
-      id: 'pim_group_membership_changes'
-      partitionKey: {
-        paths: ['/snapshotId']
-        kind: 'Hash'
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 26: Azure RBAC Assignments raw data
-resource cosmosContainerAzureRbacAssignmentsRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'azure_rbac_assignments_raw'
-  properties: {
-    resource: {
-      id: 'azure_rbac_assignments_raw'
-      partitionKey: {
-        paths: ['/objectId']
-        kind: 'Hash'
-      }
-      indexingPolicy: {
-        automatic: true
-        indexingMode: 'consistent'
-        includedPaths: [
-          { path: '/objectId/?' }
-          { path: '/principalId/?' }
-          { path: '/roleDefinitionId/?' }
-          { path: '/scope/?' }
-          { path: '/scopeType/?' }
-        ]
-        excludedPaths: [
-          { path: '/*' }
-        ]
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 27: Azure RBAC Assignments change log
-resource cosmosContainerAzureRbacAssignmentChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'azure_rbac_assignment_changes'
-  properties: {
-    resource: {
-      id: 'azure_rbac_assignment_changes'
-      partitionKey: {
-        paths: ['/snapshotId']
-        kind: 'Hash'
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 28: Role Policies raw data
-resource cosmosContainerRolePoliciesRaw 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'role_policies_raw'
-  properties: {
-    resource: {
-      id: 'role_policies_raw'
-      partitionKey: {
-        paths: ['/objectId']
-        kind: 'Hash'
-      }
-      indexingPolicy: {
-        automatic: true
-        indexingMode: 'consistent'
-        includedPaths: [
-          { path: '/objectId/?' }
-          { path: '/displayName/?' }
-          { path: '/isOrganizationDefault/?' }
-        ]
-        excludedPaths: [
-          { path: '/*' }
-        ]
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 29: Role Policies change log
-resource cosmosContainerRolePolicyChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'role_policy_changes'
-  properties: {
-    resource: {
-      id: 'role_policy_changes'
-      partitionKey: {
-        paths: ['/snapshotId']
-        kind: 'Hash'
       }
       defaultTtl: -1
     }
@@ -1039,17 +550,34 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
           name: 'COSMOS_DB_DATABASE'
           value: cosmosDatabase.name
         }
+        // V2 Unified Cosmos Container Names
         {
-          name: 'COSMOS_CONTAINER_USERS_RAW'
-          value: cosmosContainerUsersRaw.name
+          name: 'COSMOS_CONTAINER_PRINCIPALS'
+          value: cosmosContainerPrincipals.name
         }
         {
-          name: 'COSMOS_CONTAINER_USER_CHANGES'
-          value: cosmosContainerUserChanges.name
+          name: 'COSMOS_CONTAINER_RELATIONSHIPS'
+          value: cosmosContainerRelationships.name
+        }
+        {
+          name: 'COSMOS_CONTAINER_POLICIES'
+          value: cosmosContainerPolicies.name
+        }
+        {
+          name: 'COSMOS_CONTAINER_EVENTS'
+          value: cosmosContainerEvents.name
+        }
+        {
+          name: 'COSMOS_CONTAINER_CHANGES'
+          value: cosmosContainerChanges.name
         }
         {
           name: 'COSMOS_CONTAINER_SNAPSHOTS'
           value: cosmosContainerSnapshots.name
+        }
+        {
+          name: 'COSMOS_CONTAINER_ROLES'
+          value: cosmosContainerRoles.name
         }
         {
           name: 'CosmosDbConnectionString'
@@ -1107,39 +635,6 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
           name: 'PIM_PARALLEL_THROTTLE'
           value: '10'
         }
-        // PIM Cosmos DB Containers
-        {
-          name: 'COSMOS_CONTAINER_ENTRA_PIM_ROLES_RAW'
-          value: cosmosContainerEntraPimRolesRaw.name
-        }
-        {
-          name: 'COSMOS_CONTAINER_ENTRA_PIM_ROLE_CHANGES'
-          value: cosmosContainerEntraPimRoleChanges.name
-        }
-        {
-          name: 'COSMOS_CONTAINER_PIM_GROUP_MEMBERSHIPS_RAW'
-          value: cosmosContainerPimGroupMembershipsRaw.name
-        }
-        {
-          name: 'COSMOS_CONTAINER_PIM_GROUP_MEMBERSHIP_CHANGES'
-          value: cosmosContainerPimGroupMembershipChanges.name
-        }
-        {
-          name: 'COSMOS_CONTAINER_AZURE_RBAC_ASSIGNMENTS_RAW'
-          value: cosmosContainerAzureRbacAssignmentsRaw.name
-        }
-        {
-          name: 'COSMOS_CONTAINER_AZURE_RBAC_ASSIGNMENT_CHANGES'
-          value: cosmosContainerAzureRbacAssignmentChanges.name
-        }
-        {
-          name: 'COSMOS_CONTAINER_ROLE_POLICIES_RAW'
-          value: cosmosContainerRolePoliciesRaw.name
-        }
-        {
-          name: 'COSMOS_CONTAINER_ROLE_POLICY_CHANGES'
-          value: cosmosContainerRolePolicyChanges.name
-        }
       ]
     }
   }
@@ -1158,8 +653,8 @@ resource aiFoundryHub 'Microsoft.MachineLearningServices/workspaces@2024-04-01' 
   }
   kind: 'Hub'
   properties: {
-    friendlyName: 'Entra Risk Analysis AI Hub - Delta'
-    description: 'AI Foundry Hub with delta change detection'
+    friendlyName: 'Entra Risk Analysis AI Hub - V2 Unified'
+    description: 'AI Foundry Hub with unified container architecture'
     storageAccount: storageAccount.id
     keyVault: keyVault.id
     applicationInsights: appInsights.id
@@ -1179,8 +674,8 @@ resource aiFoundryProject 'Microsoft.MachineLearningServices/workspaces@2024-04-
   }
   kind: 'Project'
   properties: {
-    friendlyName: 'Entra Risk Analysis Project - Delta'
-    description: 'AI project with change tracking'
+    friendlyName: 'Entra Risk Analysis Project - V2 Unified'
+    description: 'AI project with unified container architecture'
     hubResourceId: aiFoundryHub.id
   }
 }
@@ -1247,9 +742,14 @@ output functionAppName string = functionApp.name
 output cosmosDbAccountName string = cosmosDbAccount.name
 output cosmosDbEndpoint string = cosmosDbAccount.properties.documentEndpoint
 output cosmosDatabaseName string = cosmosDatabase.name
-output cosmosContainerUsersRaw string = cosmosContainerUsersRaw.name
-output cosmosContainerUserChanges string = cosmosContainerUserChanges.name
+// V2 Unified Container Outputs
+output cosmosContainerPrincipals string = cosmosContainerPrincipals.name
+output cosmosContainerRelationships string = cosmosContainerRelationships.name
+output cosmosContainerPolicies string = cosmosContainerPolicies.name
+output cosmosContainerEvents string = cosmosContainerEvents.name
+output cosmosContainerChanges string = cosmosContainerChanges.name
 output cosmosContainerSnapshots string = cosmosContainerSnapshots.name
+output cosmosContainerRoles string = cosmosContainerRoles.name
 output keyVaultName string = keyVault.name
 output appInsightsName string = appInsights.name
 output functionAppIdentityPrincipalId string = functionApp.identity.principalId

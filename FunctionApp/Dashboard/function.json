@@ -14,256 +14,94 @@
       "name": "Response"
     },
     {
-      "name": "usersRawIn",
+      "name": "usersIn",
       "type": "cosmosDB",
       "direction": "in",
       "databaseName": "EntraData",
-      "containerName": "users_raw",
+      "containerName": "principals",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT * FROM c WHERE c.principalType = 'user' AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+    },
+    {
+      "name": "groupsIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "principals",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT * FROM c WHERE c.principalType = 'group' AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+    },
+    {
+      "name": "servicePrincipalsIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "principals",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT * FROM c WHERE c.principalType = 'servicePrincipal' AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+    },
+    {
+      "name": "devicesIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "principals",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT * FROM c WHERE c.principalType = 'device' AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+    },
+    {
+      "name": "applicationsIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "principals",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT * FROM c WHERE c.principalType = 'application' AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+    },
+    {
+      "name": "relationshipsIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "relationships",
       "connection": "CosmosDbConnectionString",
       "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
     },
     {
-      "name": "userChangesIn",
+      "name": "policiesIn",
       "type": "cosmosDB",
       "direction": "in",
       "databaseName": "EntraData",
-      "containerName": "user_changes",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
-    },
-    {
-      "name": "groupsRawIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "groups_raw",
+      "containerName": "policies",
       "connection": "CosmosDbConnectionString",
       "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
     },
     {
-      "name": "groupChangesIn",
+      "name": "eventsIn",
       "type": "cosmosDB",
       "direction": "in",
       "databaseName": "EntraData",
-      "containerName": "group_changes",
+      "containerName": "events",
       "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
+      "sqlQuery": "SELECT TOP 500 * FROM c ORDER BY c.createdDateTime DESC"
     },
     {
-      "name": "servicePrincipalsRawIn",
+      "name": "changesIn",
       "type": "cosmosDB",
       "direction": "in",
       "databaseName": "EntraData",
-      "containerName": "service_principals_raw",
+      "containerName": "changes",
       "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+      "sqlQuery": "SELECT TOP 200 * FROM c ORDER BY c.changeDate DESC"
     },
     {
-      "name": "servicePrincipalChangesIn",
+      "name": "rolesIn",
       "type": "cosmosDB",
       "direction": "in",
       "databaseName": "EntraData",
-      "containerName": "service_principal_changes",
+      "containerName": "roles",
       "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
-    },
-    {
-      "name": "riskyUsersRawIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "risky_users_raw",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
-    },
-    {
-      "name": "riskyUserChangesIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "risky_user_changes",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
-    },
-    {
-      "name": "devicesRawIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "devices_raw",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
-    },
-    {
-      "name": "deviceChangesIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "device_changes",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
-    },
-    {
-      "name": "caPoliciesRawIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "ca_policies_raw",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
-    },
-    {
-      "name": "caPolicyChangesIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "ca_policy_changes",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
-    },
-    {
-      "name": "appRegsRawIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "app_registrations_raw",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
-    },
-    {
-      "name": "appRegChangesIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "app_registration_changes",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
-    },
-    {
-      "name": "authMethodsRawIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "user_auth_methods_raw",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
-    },
-    {
-      "name": "authMethodChangesIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "user_auth_method_changes",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
-    },
-    {
-      "name": "directoryRolesRawIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "directory_roles_raw",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
-    },
-    {
-      "name": "directoryRoleChangesIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "directory_role_changes",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
-    },
-    {
-      "name": "signInLogsIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "signin_logs",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT TOP 200 * FROM c ORDER BY c.createdDateTime DESC"
-    },
-    {
-      "name": "directoryAuditsIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "directory_audits",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT TOP 200 * FROM c ORDER BY c.activityDateTime DESC"
-    },
-    {
-      "name": "pimRolesRawIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "entra_pim_roles_raw",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
-    },
-    {
-      "name": "pimRoleChangesIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "entra_pim_role_changes",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
-    },
-    {
-      "name": "pimGroupsRawIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "pim_group_memberships_raw",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
-    },
-    {
-      "name": "pimGroupChangesIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "pim_group_membership_changes",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
-    },
-    {
-      "name": "rolePoliciesRawIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "role_policies_raw",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
-    },
-    {
-      "name": "rolePolicyChangesIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "role_policy_changes",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
-    },
-    {
-      "name": "azureRbacRawIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "azure_rbac_assignments_raw",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
-    },
-    {
-      "name": "azureRbacChangesIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "azure_rbac_assignment_changes",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
+      "sqlQuery": "SELECT * FROM c"
     }
   ]
 }

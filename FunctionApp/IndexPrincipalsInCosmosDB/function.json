@@ -1,0 +1,48 @@
+{
+  "bindings": [
+    {
+      "name": "ActivityInput",
+      "type": "activityTrigger",
+      "direction": "in"
+    },
+    {
+      "name": "principalsRawOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "principals",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/objectId"
+    },
+    {
+      "name": "principalChangesOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "changes",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/changeDate"
+    },
+    {
+      "name": "snapshotsOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "snapshots",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/id"
+    },
+    {
+      "name": "principalsRawIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "principals",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT c.objectId, c.principalType, c.displayName, c.accountEnabled, c.deleted, c.userPrincipalName, c.userType, c.mail, c.jobTitle, c.department, c.lastSignInDateTime, c.lastNonInteractiveSignInDateTime, c.passwordPolicies, c.usageLocation, c.externalUserState, c.onPremisesSyncEnabled, c.onPremisesSamAccountName, c.onPremisesSecurityIdentifier, c.managerId, c.risk, c.authMethods, c.securityEnabled, c.mailEnabled, c.groupTypes, c.membershipRule, c.membershipRuleProcessingState, c.isAssignableToRole, c.visibility, c.classification, c.memberCountDirect, c.memberCountTransitive, c.appId, c.appDisplayName, c.servicePrincipalType, c.appRoleAssignmentRequired, c.servicePrincipalNames, c.tags, c.spCredentials, c.signInAudience, c.publisherDomain, c.verifiedPublisher, c.credentials, c.deviceId, c.operatingSystem, c.operatingSystemVersion, c.isCompliant, c.isManaged, c.trustType, c.profileType, c.manufacturer, c.model, c.approximateLastSignInDateTime, c.registrationDateTime, c.lastModified FROM c"
+    }
+  ]
+}

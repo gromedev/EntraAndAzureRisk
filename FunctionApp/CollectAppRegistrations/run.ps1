@@ -217,6 +217,7 @@ try {
             # Transform to consistent structure with objectId
             $appObj = @{
                 objectId = $app.id ?? ""
+                principalType = "application"
                 appId = $app.appId ?? ""
                 displayName = $app.displayName ?? ""
                 createdDateTime = $app.createdDateTime ?? ""

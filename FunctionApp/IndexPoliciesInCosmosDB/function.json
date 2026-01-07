@@ -1,0 +1,48 @@
+{
+  "bindings": [
+    {
+      "name": "ActivityInput",
+      "type": "activityTrigger",
+      "direction": "in"
+    },
+    {
+      "name": "policiesRawOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "policies",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/policyType"
+    },
+    {
+      "name": "policyChangesOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "changes",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/changeDate"
+    },
+    {
+      "name": "snapshotsOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "snapshots",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/id"
+    },
+    {
+      "name": "policiesRawIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "policies",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT c.id, c.objectId, c.policyType, c.displayName, c.description, c.state, c.conditions, c.grantControls, c.sessionControls, c.scopeId, c.scopeType, c.rules, c.effectiveRules, c.deleted, c.lastModified FROM c"
+    }
+  ]
+}

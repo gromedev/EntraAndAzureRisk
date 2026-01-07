@@ -163,6 +163,7 @@ try {
             # Transform to consistent structure
             $userObj = @{
                 objectId                         = $user.id ?? ""
+                principalType                    = "user"
                 userPrincipalName                = $user.userPrincipalName ?? ""
                 accountEnabled                   = if ($null -ne $user.accountEnabled) { $user.accountEnabled } else { $null }
                 userType                         = $user.userType ?? ""

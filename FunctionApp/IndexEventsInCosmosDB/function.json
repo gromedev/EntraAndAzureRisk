@@ -1,0 +1,29 @@
+{
+  "bindings": [
+    {
+      "name": "ActivityInput",
+      "type": "activityTrigger",
+      "direction": "in"
+    },
+    {
+      "name": "eventsRawOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "events",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/eventDate"
+    },
+    {
+      "name": "snapshotsOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "snapshots",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/id"
+    }
+  ]
+}

@@ -1,12 +1,3 @@
-<html><body style='padding:50px; font-family:sans-serif;'><h1>Data Fetch Error</h1><p style='color:red;'>Storage API Error Details:
-- Status Code: 404 ()
-- URI: https://stentrariskdev36jut3xd6y.blob.core.windows.net/=container&comp=list
-- Storage Account: stentrariskdev36jut3xd6y
-- Container: raw-data
-- Token Present: True
-- Token Length: 1802
-- Exception: Response status code does not indicate success: 404 (The specified container does not exist.).</p></body></html>
-
 # Dashboard Function
 
 ## Overview
@@ -31,17 +22,6 @@ The Dashboard function provides a web-based, human-friendly interface for viewin
 This function uses **function-level authentication**. You must provide a valid function key to access the dashboard.
 
 ## Accessing the Dashboard
-
-### Local Testing (Requires Azure Credentials)
-
-**Note**: Local testing requires Managed Identity authentication, which only works in Azure. For true local testing, you would need to modify the authentication approach or use Azure CLI authentication.
-
-```bash
-cd /Users/thomas/git/GitHub/EntraAndAzureRisk/FunctionApp
-func start
-```
-
-Access at: `http://localhost:7071/api/dashboard?code=test`
 
 ### Azure Deployment
 

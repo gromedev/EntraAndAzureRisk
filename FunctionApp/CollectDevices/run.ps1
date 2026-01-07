@@ -146,6 +146,7 @@ try {
             # Transform to consistent structure with objectId
             $deviceObj = @{
                 objectId = $device.id ?? ""
+                principalType = "device"
                 displayName = $device.displayName ?? ""
                 deviceId = $device.deviceId ?? ""
                 accountEnabled = if ($null -ne $device.accountEnabled) { $device.accountEnabled } else { $null }
