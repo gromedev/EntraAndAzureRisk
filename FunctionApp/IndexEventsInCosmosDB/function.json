@@ -24,6 +24,15 @@
       "connection": "CosmosDbConnectionString",
       "createIfNotExists": false,
       "partitionKey": "/id"
+    },
+    {
+      "name": "eventsRawIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "events",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT * FROM c WHERE 1=0"
     }
   ]
 }
