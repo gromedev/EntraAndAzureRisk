@@ -26,25 +26,53 @@ Add-Type -AssemblyName System.Web
 $modulePath = Join-Path $PSScriptRoot "..\Modules\EntraDataCollection\EntraDataCollection.psm1"
 Import-Module $modulePath -Force
 
-# Helper: Get dynamic properties with smart ordering
+# Helper: Get dynamic properties with smart ordering and type-specific filtering
 function Get-DynamicProperties {
     param($dataArray, [string]$dataType = "")
 
     if ($null -eq $dataArray -or $dataArray.Count -eq 0) { return @() }
 
-    # Collect all unique property names (excluding Cosmos DB internals)
-    $allProps = $dataArray | ForEach-Object {
-        if ($_ -is [System.Collections.IDictionary]) { $_.Keys }
-        else { $_.PSObject.Properties.Name }
-    } | Where-Object { $_ -notmatch '^_' } | Select-Object -Unique | Sort-Object
+    # Define allowed columns per entity type (only show relevant fields)
+    $allowedColumns = @{
+        "user" = @(
+            'objectId', 'displayName', 'userPrincipalName', 'accountEnabled', 'userType',
+            'createdDateTime', 'lastSignInDateTime', 'passwordPolicies', 'usageLocation',
+            'externalUserState', 'externalUserStateChangeDateTime',
+            'onPremisesSyncEnabled', 'onPremisesSamAccountName', 'onPremisesUserPrincipalName',
+            'onPremisesSecurityIdentifier', 'principalType', 'collectionTimestamp', 'deleted'
+        )
+        "group" = @(
+            'objectId', 'displayName', 'description', 'securityEnabled', 'mailEnabled', 'mail',
+            'groupTypes', 'membershipRule', 'isAssignableToRole', 'visibility', 'classification',
+            'createdDateTime', 'deletedDateTime', 'onPremisesSyncEnabled', 'onPremisesSecurityIdentifier',
+            'principalType', 'collectionTimestamp', 'deleted'
+        )
+        "servicePrincipal" = @(
+            'objectId', 'displayName', 'appId', 'appDisplayName', 'servicePrincipalType',
+            'accountEnabled', 'appRoleAssignmentRequired', 'deletedDateTime', 'description', 'notes',
+            'servicePrincipalNames', 'tags', 'addIns', 'oauth2PermissionScopes',
+            'resourceSpecificApplicationPermissions', 'principalType', 'collectionTimestamp', 'deleted'
+        )
+        "device" = @(
+            'objectId', 'displayName', 'deviceId', 'accountEnabled', 'operatingSystem',
+            'operatingSystemVersion', 'isCompliant', 'isManaged', 'trustType', 'profileType',
+            'manufacturer', 'model', 'deviceVersion', 'approximateLastSignInDateTime',
+            'createdDateTime', 'registrationDateTime', 'principalType', 'collectionTimestamp', 'deleted'
+        )
+        "application" = @(
+            'objectId', 'displayName', 'appId', 'createdDateTime', 'signInAudience', 'publisherDomain',
+            'keyCredentials', 'passwordCredentials', 'secretCount', 'certificateCount',
+            'principalType', 'collectionTimestamp', 'deleted'
+        )
+    }
 
-    # Smart ordering based on data type
+    # Priority ordering for each type
     $priority = switch ($dataType) {
         "user" { @('objectId', 'displayName', 'userPrincipalName', 'accountEnabled', 'userType') }
         "group" { @('objectId', 'displayName', 'securityEnabled', 'mailEnabled', 'groupTypes') }
         "servicePrincipal" { @('objectId', 'displayName', 'appId', 'servicePrincipalType', 'accountEnabled') }
-        "device" { @('objectId', 'displayName', 'isCompliant', 'isManaged', 'trustType', 'operatingSystem') }
-        "application" { @('objectId', 'displayName', 'appId', 'signInAudience', 'credentials') }
+        "device" { @('objectId', 'displayName', 'deviceId', 'isCompliant', 'isManaged', 'operatingSystem') }
+        "application" { @('objectId', 'displayName', 'appId', 'signInAudience', 'secretCount', 'certificateCount') }
         "relationship" { @('id', 'sourceDisplayName', 'relationType', 'targetDisplayName', 'status') }
         "policy" { @('objectId', 'displayName', 'policyType', 'state') }
         "signIn" { @('id', 'userPrincipalName', 'errorCode', 'riskLevelAggregated', 'createdDateTime') }
@@ -52,6 +80,17 @@ function Get-DynamicProperties {
         "changes" { @('entityType', 'displayName', 'objectId', 'changeType', 'changeTimestamp') }
         "role" { @('objectId', 'displayName', 'roleType', 'isPrivileged', 'isBuiltIn') }
         default { @('objectId', 'displayName') }
+    }
+
+    # Collect all unique property names (excluding Cosmos DB internals)
+    $allProps = $dataArray | ForEach-Object {
+        if ($_ -is [System.Collections.IDictionary]) { $_.Keys }
+        else { $_.PSObject.Properties.Name }
+    } | Where-Object { $_ -notmatch '^_' } | Select-Object -Unique | Sort-Object
+
+    # Filter to only allowed columns if we have a whitelist for this type
+    if ($allowedColumns.ContainsKey($dataType)) {
+        $allProps = $allProps | Where-Object { $_ -in $allowedColumns[$dataType] }
     }
 
     return ($priority | Where-Object { $_ -in $allProps }) + ($allProps | Where-Object { $_ -notin $priority })

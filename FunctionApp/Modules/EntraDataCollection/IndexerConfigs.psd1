@@ -536,22 +536,21 @@
         EntityType = 'principals'
         EntityNameSingular = 'principal'
         EntityNamePlural = 'Principals'
+        # NOTE: Only include fields that are ACTUALLY COLLECTED by the collectors
+        # See: CollectUsersWithAuthMethods, CollectEntraGroups, CollectEntraServicePrincipals,
+        #      CollectDevices, CollectAppRegistrations
         CompareFields = @(
             # Common fields (all principal types)
             'principalType'
             'displayName'
             'accountEnabled'
             'deleted'
+            'createdDateTime'
 
-            # User-specific fields (null for non-users)
+            # User-specific fields (from CollectUsersWithAuthMethods)
             'userPrincipalName'
             'userType'
-            'mail'
-            'jobTitle'
-            'department'
-            'companyName'
             'lastSignInDateTime'
-            'lastNonInteractiveSignInDateTime'
             'passwordPolicies'
             'usageLocation'
             'externalUserState'
@@ -560,40 +559,40 @@
             'onPremisesSamAccountName'
             'onPremisesUserPrincipalName'
             'onPremisesSecurityIdentifier'
-            'managerId'
-            'managerDisplayName'
-            'risk'
-            'authMethods'
 
-            # Group-specific fields (null for non-groups)
+            # Group-specific fields (from CollectEntraGroups)
             'securityEnabled'
             'mailEnabled'
+            'mail'
             'groupTypes'
             'membershipRule'
-            'membershipRuleProcessingState'
             'isAssignableToRole'
             'visibility'
             'classification'
-            'memberCountDirect'
-            'memberCountTransitive'
+            'description'
+            'deletedDateTime'
 
-            # ServicePrincipal-specific fields (null for non-SPs)
+            # ServicePrincipal-specific fields (from CollectEntraServicePrincipals)
             'appId'
             'appDisplayName'
             'servicePrincipalType'
             'appRoleAssignmentRequired'
-            'appOwnerOrganizationId'
             'servicePrincipalNames'
             'tags'
-            'spCredentials'
+            'notes'
+            'addIns'
+            'oauth2PermissionScopes'
+            'resourceSpecificApplicationPermissions'
 
-            # Application-specific fields (null for non-apps)
+            # Application-specific fields (from CollectAppRegistrations)
             'signInAudience'
             'publisherDomain'
-            'verifiedPublisher'
-            'credentials'
+            'keyCredentials'
+            'passwordCredentials'
+            'secretCount'
+            'certificateCount'
 
-            # Device-specific fields (null for non-devices)
+            # Device-specific fields (from CollectDevices)
             'deviceId'
             'operatingSystem'
             'operatingSystemVersion'
@@ -603,6 +602,7 @@
             'profileType'
             'manufacturer'
             'model'
+            'deviceVersion'
             'approximateLastSignInDateTime'
             'registrationDateTime'
         )
@@ -610,14 +610,13 @@
             'groupTypes'
             'servicePrincipalNames'
             'tags'
+            'addIns'
+            'oauth2PermissionScopes'
+            'resourceSpecificApplicationPermissions'
+            'keyCredentials'
+            'passwordCredentials'
         )
-        EmbeddedObjectFields = @(
-            'risk'
-            'authMethods'
-            'spCredentials'
-            'credentials'
-            'verifiedPublisher'
-        )
+        EmbeddedObjectFields = @()
         DocumentFields = @{
             # Common fields
             principalType = 'principalType'
@@ -627,87 +626,61 @@
             deletedDateTime = 'deletedDateTime'
             collectionTimestamp = 'collectionTimestamp'
 
-            # User fields
+            # User fields (from CollectUsersWithAuthMethods)
             userPrincipalName = 'userPrincipalName'
             userType = 'userType'
-            mail = 'mail'
-            mailNickname = 'mailNickname'
-            givenName = 'givenName'
-            surname = 'surname'
-            jobTitle = 'jobTitle'
-            department = 'department'
-            companyName = 'companyName'
-            officeLocation = 'officeLocation'
-            city = 'city'
-            state = 'state'
-            country = 'country'
-            usageLocation = 'usageLocation'
-            preferredLanguage = 'preferredLanguage'
             lastSignInDateTime = 'lastSignInDateTime'
-            lastNonInteractiveSignInDateTime = 'lastNonInteractiveSignInDateTime'
             passwordPolicies = 'passwordPolicies'
+            usageLocation = 'usageLocation'
             externalUserState = 'externalUserState'
             externalUserStateChangeDateTime = 'externalUserStateChangeDateTime'
             onPremisesSyncEnabled = 'onPremisesSyncEnabled'
             onPremisesSamAccountName = 'onPremisesSamAccountName'
             onPremisesUserPrincipalName = 'onPremisesUserPrincipalName'
             onPremisesSecurityIdentifier = 'onPremisesSecurityIdentifier'
-            onPremisesLastSyncDateTime = 'onPremisesLastSyncDateTime'
-            managerId = 'managerId'
-            managerDisplayName = 'managerDisplayName'
-            managerUserPrincipalName = 'managerUserPrincipalName'
-            risk = 'risk'
-            authMethods = 'authMethods'
 
-            # Group fields
+            # Group fields (from CollectEntraGroups)
             description = 'description'
             securityEnabled = 'securityEnabled'
             mailEnabled = 'mailEnabled'
+            mail = 'mail'
             groupTypes = 'groupTypes'
             membershipRule = 'membershipRule'
-            membershipRuleProcessingState = 'membershipRuleProcessingState'
             isAssignableToRole = 'isAssignableToRole'
             visibility = 'visibility'
             classification = 'classification'
-            resourceProvisioningOptions = 'resourceProvisioningOptions'
-            memberCountDirect = 'memberCountDirect'
-            memberCountTransitive = 'memberCountTransitive'
 
-            # ServicePrincipal fields
+            # ServicePrincipal fields (from CollectEntraServicePrincipals)
             appId = 'appId'
             appDisplayName = 'appDisplayName'
             servicePrincipalType = 'servicePrincipalType'
             appRoleAssignmentRequired = 'appRoleAssignmentRequired'
-            appOwnerOrganizationId = 'appOwnerOrganizationId'
-            homepage = 'homepage'
-            loginUrl = 'loginUrl'
-            logoutUrl = 'logoutUrl'
-            replyUrls = 'replyUrls'
             servicePrincipalNames = 'servicePrincipalNames'
             tags = 'tags'
-            notificationEmailAddresses = 'notificationEmailAddresses'
+            notes = 'notes'
+            addIns = 'addIns'
             oauth2PermissionScopes = 'oauth2PermissionScopes'
-            appRoles = 'appRoles'
-            spCredentials = 'spCredentials'
+            resourceSpecificApplicationPermissions = 'resourceSpecificApplicationPermissions'
 
-            # Application fields
+            # Application fields (from CollectAppRegistrations)
             signInAudience = 'signInAudience'
             publisherDomain = 'publisherDomain'
-            verifiedPublisher = 'verifiedPublisher'
-            credentials = 'credentials'
+            keyCredentials = 'keyCredentials'
+            passwordCredentials = 'passwordCredentials'
+            secretCount = 'secretCount'
+            certificateCount = 'certificateCount'
 
-            # Device fields
+            # Device fields (from CollectDevices)
             deviceId = 'deviceId'
             operatingSystem = 'operatingSystem'
             operatingSystemVersion = 'operatingSystemVersion'
             isCompliant = 'isCompliant'
             isManaged = 'isManaged'
-            isRooted = 'isRooted'
-            managementType = 'managementType'
             trustType = 'trustType'
             profileType = 'profileType'
             manufacturer = 'manufacturer'
             model = 'model'
+            deviceVersion = 'deviceVersion'
             approximateLastSignInDateTime = 'approximateLastSignInDateTime'
             registrationDateTime = 'registrationDateTime'
         }
