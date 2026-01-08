@@ -1563,3 +1563,29 @@ AzureHound derives ~20+ abuse edges that we don't have:
 ---
 
 **End of Roadmap**
+
+
+# Virtual Edge
+
+Future Virtual Edge Candidates
+Here are the "gate" patterns that could become virtual edges in future versions:
+
+IN ADDITIONAL TO CONDITIONAL ACCESS
+
+Current Solution: Other Virtual Edge Candidates
+Besides CA, there are a few things already collected that could become virtual edges:
+Candidate	Currently Collected?	Virtual Edge Potential
+Named Locations	Yes (in policies.jsonl)	caPolicyUsesLocation - links CA → named location
+Role Management Policies	Yes (in policies.jsonl)	roleRequiresApproval, roleRequiresMfaOnActivation
+Sign-in Events	Yes (in events.jsonl)	userAuthenticatedTo - derived from actual sign-ins
+
+
+
+Virtual Edge	Gate Type	Use Case
+deviceCompliancePassed	Device → Resource	"This device meets compliance policy for this app"
+appProtectionPolicyApplies	User → App	Intune MAM policies gating mobile app access
+authStrengthRequired	User → Resource	Custom auth strength (phishing-resistant, passwordless)
+riskGated	User → Resource	Identity Protection risk-based blocking
+sessionControlled	User → App	Sign-in frequency, persistent browser restrictions
+namedLocationAllowed	User → App	"User can access from this location"
+termsOfUseAccepted	User → App	Terms of Use acceptance gates

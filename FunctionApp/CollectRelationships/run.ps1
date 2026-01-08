@@ -109,6 +109,7 @@ try {
         AppRoleAssignments = 0
         GroupOwners = 0
         DeviceOwners = 0
+        CaPolicyEdges = 0
     }
 
     # Track direct memberships for transitive comparison
@@ -375,49 +376,49 @@ try {
         'fe930be7-5e62-47db-91af-98c3a49a38b1'   # User Administrator
     )
 
-    try {
-        $rolesResponse = Invoke-GraphWithRetry -Uri "https://graph.microsoft.com/v1.0/directoryRoles" -AccessToken $graphToken
-        $roles = $rolesResponse.value
+    # V3: Use unified roleManagement API instead of legacy directoryRoles
+    # This includes both built-in and custom roles, and supports scoped assignments
+    # Note: Graph API only allows expanding one property at a time for roleAssignments
+    $selectFields = "id,principalId,roleDefinitionId,directoryScopeId"
+    $nextLink = "https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments?`$select=$selectFields&`$expand=roleDefinition&`$top=$batchSize"
 
-        foreach ($role in $roles) {
-            $isPrivileged = $privilegedRoleTemplates -contains $role.roleTemplateId
-            $membersUri = "https://graph.microsoft.com/v1.0/directoryRoles/$($role.id)/members"
-            $nextMembersLink = $membersUri
+    while ($nextLink) {
+        try {
+            $response = Invoke-GraphWithRetry -Uri $nextLink -AccessToken $graphToken
+            $nextLink = $response.'@odata.nextLink'
 
-            while ($nextMembersLink) {
-                try {
-                    $membersResponse = Invoke-GraphWithRetry -Uri $nextMembersLink -AccessToken $graphToken
-                    $nextMembersLink = $membersResponse.'@odata.nextLink'
+            foreach ($assignment in $response.value) {
+                $principalId = $assignment.principalId ?? ""
+                $roleDefId = $assignment.roleDefinitionId ?? ""
+                $roleTemplateId = $assignment.roleDefinition.templateId ?? ""
+                $isBuiltIn = $assignment.roleDefinition.isBuiltIn ?? $true
+                $isPrivileged = $privilegedRoleTemplates -contains $roleTemplateId
+                $directoryScopeId = $assignment.directoryScopeId ?? "/"
 
-                    foreach ($member in $membersResponse.value) {
-                        $memberType = ($member.'@odata.type' -replace '#microsoft.graph.', '')
-
-                        $relationship = @{
-                            id = "$($member.id)_$($role.id)_directoryRole"
-                            objectId = "$($member.id)_$($role.id)_directoryRole"
-                            edgeType = "directoryRole"
-                            sourceId = $member.id
-                            sourceType = $memberType
-                            sourceDisplayName = $member.displayName ?? ""
-                            targetId = $role.id
-                            targetType = "directoryRole"
-                            targetDisplayName = $role.displayName ?? ""
-                            targetRoleTemplateId = $role.roleTemplateId ?? ""
-                            targetIsPrivileged = $isPrivileged
-                            targetIsBuiltIn = $true
-                            sourceUserPrincipalName = if ($memberType -eq 'user') { $member.userPrincipalName ?? $null } else { $null }
-                            collectionTimestamp = $timestampFormatted
-                        }
-
-                        [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress))
-                        $stats.DirectoryRoles++
-                    }
+                $relationship = @{
+                    id = "${principalId}_${roleDefId}_directoryRole"
+                    objectId = "${principalId}_${roleDefId}_directoryRole"
+                    edgeType = "directoryRole"
+                    sourceId = $principalId
+                    sourceType = ""  # Enriched from principals container during analysis
+                    sourceDisplayName = ""  # Enriched from principals container during analysis
+                    targetId = $roleDefId
+                    targetType = "directoryRole"
+                    targetDisplayName = $assignment.roleDefinition.displayName ?? ""
+                    targetRoleTemplateId = $roleTemplateId
+                    targetIsPrivileged = $isPrivileged
+                    targetIsBuiltIn = $isBuiltIn
+                    directoryScopeId = $directoryScopeId
+                    isScopedAssignment = ($directoryScopeId -ne "/")
+                    collectionTimestamp = $timestampFormatted
                 }
-                catch { Write-Warning "Failed to get members for role $($role.displayName): $_"; break }
+
+                [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress))
+                $stats.DirectoryRoles++
             }
         }
+        catch { Write-Warning "Failed to retrieve role assignments batch: $_"; break }
     }
-    catch { Write-Warning "Failed to retrieve directory roles: $_" }
 
     Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
     Write-Verbose "Directory roles complete: $($stats.DirectoryRoles)"
@@ -427,8 +428,9 @@ try {
     Write-Verbose "=== Phase 3: PIM Role Assignments ==="
 
     # Eligible roles
+    # Note: Graph API only allows expanding one property at a time for roleEligibilitySchedules
     $selectFields = "id,principalId,roleDefinitionId,memberType,status,scheduleInfo,createdDateTime,modifiedDateTime"
-    $nextLink = "https://graph.microsoft.com/v1.0/roleManagement/directory/roleEligibilitySchedules?`$select=$selectFields&`$expand=roleDefinition,principal&`$top=$batchSize"
+    $nextLink = "https://graph.microsoft.com/v1.0/roleManagement/directory/roleEligibilitySchedules?`$select=$selectFields&`$expand=roleDefinition&`$top=$batchSize"
 
     while ($nextLink) {
         try {
@@ -443,8 +445,8 @@ try {
                     edgeType = "pimEligible"
                     assignmentType = "eligible"
                     sourceId = $principalId
-                    sourceType = ($assignment.principal.'@odata.type' -replace '#microsoft\.graph\.', '' ?? "")
-                    sourceDisplayName = $assignment.principal.displayName ?? ""
+                    sourceType = ""  # Enriched from principals container during analysis
+                    sourceDisplayName = ""  # Enriched from principals container during analysis
                     targetId = $roleDefId
                     targetType = "directoryRole"
                     targetDisplayName = $assignment.roleDefinition.displayName ?? ""
@@ -465,7 +467,8 @@ try {
     }
 
     # Active roles
-    $nextLink = "https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignmentSchedules?`$select=$selectFields&`$expand=roleDefinition,principal&`$top=$batchSize"
+    # Note: Graph API only allows expanding one property at a time for roleAssignmentSchedules
+    $nextLink = "https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignmentSchedules?`$select=$selectFields&`$expand=roleDefinition&`$top=$batchSize"
 
     while ($nextLink) {
         try {
@@ -480,8 +483,8 @@ try {
                     edgeType = "pimActive"
                     assignmentType = "active"
                     sourceId = $principalId
-                    sourceType = ($assignment.principal.'@odata.type' -replace '#microsoft\.graph\.', '' ?? "")
-                    sourceDisplayName = $assignment.principal.displayName ?? ""
+                    sourceType = ""  # Enriched from principals container during analysis
+                    sourceDisplayName = ""  # Enriched from principals container during analysis
                     targetId = $roleDefId
                     targetType = "directoryRole"
                     targetDisplayName = $assignment.roleDefinition.displayName ?? ""

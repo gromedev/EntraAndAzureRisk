@@ -345,7 +345,10 @@ try {
     }
 
     # Final flush
+    Write-Information "[DEBUG] AppCount=$appCount, BufferLength=$($appsJsonL.Length), BlobName=$resourcesBlobName" -InformationAction Continue
+
     if ($appsJsonL.Length -gt 0) {
+        Write-Information "[DEBUG] Starting final flush of $($appsJsonL.Length) characters to $resourcesBlobName" -InformationAction Continue
         try {
             Add-BlobContent -StorageAccountName $storageAccountName `
                             -ContainerName $containerName `
@@ -354,14 +357,18 @@ try {
                             -AccessToken $storageToken `
                             -MaxRetries 3 `
                             -BaseRetryDelaySeconds 2
+            Write-Information "[DEBUG] Final flush completed successfully" -InformationAction Continue
             Write-Verbose "Final flush: $($appsJsonL.Length) characters written"
         }
         catch {
             Write-Error "CRITICAL: Final flush failed: $_"
             throw "Cannot complete collection"
         }
+    } else {
+        Write-Information "[DEBUG] Buffer is empty, skipping final flush" -InformationAction Continue
     }
 
+    Write-Information "[DEBUG] App Registration collection complete: $appCount apps to $resourcesBlobName" -InformationAction Continue
     Write-Verbose "App Registration collection complete: $appCount apps written to $resourcesBlobName"
 
     # Cleanup

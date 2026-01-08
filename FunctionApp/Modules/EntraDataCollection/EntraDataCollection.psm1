@@ -452,17 +452,23 @@ function Initialize-AppendBlob {
         'x-ms-blob-type' = 'AppendBlob'
         'x-ms-version' = '2021-08-06'
         'Content-Length' = '0'
+        'If-None-Match' = '*'  # CRITICAL: Prevents overwriting existing blob - returns 409 if blob exists
     }
-    
+
     try {
+        Write-Information "[DEBUG-INIT] Creating append blob: $BlobName" -InformationAction Continue
         Write-Verbose "Initializing append blob: $BlobName"
         Invoke-RestMethod -Uri $uri -Method Put -Headers $headers | Out-Null
+        Write-Information "[DEBUG-INIT] CREATED (201) append blob: $BlobName" -InformationAction Continue
         Write-Verbose "Successfully initialized append blob: $BlobName"
     }
     catch {
         $statusCode = $_.Exception.Response.StatusCode.value__
-        if ($statusCode -eq 409) {
-            # Blob already exists - this is fine
+        Write-Information "[DEBUG-INIT] HTTP $statusCode for blob: $BlobName" -InformationAction Continue
+        if ($statusCode -eq 409 -or $statusCode -eq 412) {
+            # 409: Blob already exists (legacy)
+            # 412: Precondition failed (If-None-Match) - blob already exists
+            Write-Information "[DEBUG-INIT] Blob exists ($statusCode), continuing: $BlobName" -InformationAction Continue
             Write-Verbose "Append blob already exists: $BlobName"
         }
         else {
@@ -544,8 +550,10 @@ function Add-BlobContent {
     $attempt = 0
     while ($attempt -lt $MaxRetries) {
         try {
+            Write-Information "[DEBUG-BLOB] Appending $($contentBytes.Length) bytes to $BlobName (attempt $($attempt + 1))" -InformationAction Continue
             Write-Verbose "Appending $($contentBytes.Length) bytes to blob: $BlobName (attempt $($attempt + 1))"
             Invoke-RestMethod -Uri $uri -Method Put -Headers $headers -Body $contentBytes | Out-Null
+            Write-Information "[DEBUG-BLOB] SUCCESS: Appended to $BlobName" -InformationAction Continue
             Write-Verbose "Successfully appended content to blob: $BlobName"
             return
         }

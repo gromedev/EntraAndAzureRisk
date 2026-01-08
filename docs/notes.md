@@ -8,6 +8,12 @@
     -Location "swedencentral"
 
 
+--name "func-entrariskv3-data-dev-76q5bvq4grjmw"
+--ids
+-- cosmos "cosno-entrariskv3
+-- storage "stentrariskv3dev76q5bvq4"
+
+
 =====================
 
 https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/api/dashboard
@@ -17,11 +23,13 @@ https://func-entrarisk-data-dev-36jut3xd6y2so.azurewebsites.net/.auth/login/aad/
 
 
 =====================
+
 VERSION 2:
 
 https://func-entrariskv2-data-dev-cotbit5z3mgv4.azurewebsites.net/api/dashboard?code=SxvoPxm3wp0d4it2NacAZ2Sf4f5Q1TFYnxKwwY50c_X1AzFuDd91yQ==
 
 =====================
+
 VERSION 3:
 
 https://func-entrariskv3-data-dev-76q5bvq4grjmw.azurewebsites.net/api/dashboard?code=IBxROQTO4gim5_HX09V0YbEdABNNDyMb3Q_Enl10Edj9AzFu4zRr8A==
@@ -31,9 +39,7 @@ https://func-entrariskv3-data-dev-76q5bvq4grjmw.azurewebsites.net/api/dashboard?
 az functionapp deploy
 
 
---name "func-entrariskv2
---ids
--- cosmos "cosno-entrariskv3
+
 
 
 

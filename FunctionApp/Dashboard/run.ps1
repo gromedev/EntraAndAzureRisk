@@ -24,7 +24,7 @@ Add-Type -AssemblyName System.Web
 function Format-Value {
     param($value)
     if ($null -eq $value) { return '<span style="color:#999">null</span>' }
-    if ($value -is [bool]) { return if ($value) { '<span style="color:#107c10">true</span>' } else { '<span style="color:#d13438">false</span>' } }
+    if ($value -is [bool]) { if ($value) { return '<span style="color:#107c10">true</span>' } else { return '<span style="color:#d13438">false</span>' } }
     if ($value -is [array]) {
         if ($value.Count -eq 0) { return '[]' }
         if ($value.Count -le 3) { return "[" + ($value -join ", ") + "]" }
@@ -123,14 +123,20 @@ try {
         h1 { color: #0078d4; margin: 0 0 15px 0; }
         .summary { background: #e3f2fd; padding: 12px 15px; border-radius: 6px; margin-bottom: 20px; border-left: 4px solid #0078d4; font-size: 0.9em; }
         .container { background: white; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        .container-header { background: #0078d4; color: white; padding: 12px 20px; border-radius: 8px 8px 0 0; font-weight: bold; display: flex; align-items: center; gap: 10px; }
+        .container-header { background: #0078d4; color: white; padding: 12px 20px; border-radius: 8px 8px 0 0; font-weight: bold; display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+        .container-header:hover { background: #106ebe; }
+        .container-header .chevron { transition: transform 0.2s; margin-right: 5px; }
+        .container.collapsed .chevron { transform: rotate(-90deg); }
+        .container.collapsed .container-header { border-radius: 8px; }
         .container-header .count { background: rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 10px; font-size: 0.85em; }
-        .container-header .desc { font-weight: normal; opacity: 0.85; font-size: 0.9em; }
+        .container-header .desc { font-weight: normal; opacity: 0.85; font-size: 0.9em; margin-left: auto; }
+        .container-body { overflow: hidden; transition: max-height 0.3s ease-out; }
+        .container.collapsed .container-body { max-height: 0 !important; }
         .tabs { display: flex; flex-wrap: wrap; gap: 3px; padding: 10px 15px; background: #f8f9fa; border-bottom: 1px solid #e9ecef; }
         .tab { padding: 6px 12px; border: none; background: #e9ecef; cursor: pointer; border-radius: 4px; font-size: 0.85em; }
         .tab:hover { background: #dee2e6; }
         .tab.active { background: #0078d4; color: white; }
-        .tab-content { display: none; padding: 0; }
+        .tab-content { display: none; padding: 0; overflow-x: auto; }
         .tab-content.active { display: block; }
         table { width: 100%; border-collapse: collapse; font-size: 0.8em; }
         th { background: #f8f9fa; padding: 10px 8px; text-align: left; border-bottom: 2px solid #dee2e6; cursor: pointer; white-space: nowrap; font-weight: 600; }
@@ -139,6 +145,10 @@ try {
         tr:hover { background: #f8f9fa; }
     </style>
     <script>
+        function toggleContainer(containerId) {
+            var container = document.getElementById(containerId);
+            container.classList.toggle('collapsed');
+        }
         function showTab(container, tabId, btn) {
             document.querySelectorAll('#' + container + ' .tab-content').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('#' + container + ' .tab').forEach(b => b.classList.remove('active'));
@@ -176,122 +186,140 @@ try {
 
     <!-- CONTAINER 1: PRINCIPALS -->
     <div class="container" id="principals-section">
-        <div class="container-header">
+        <div class="container-header" onclick="toggleContainer('principals-section')">
+            <span class="chevron">&#9660;</span>
             PRINCIPALS <span class="count">$($allPrincipals.Count)</span>
             <span class="desc">users, groups, service principals, devices</span>
         </div>
-        <div class="tabs">
-            <button class="tab active" onclick="showTab('principals-section', 'users-tab', this)">Users ($($users.Count))</button>
-            <button class="tab" onclick="showTab('principals-section', 'groups-tab', this)">Groups ($($groups.Count))</button>
-            <button class="tab" onclick="showTab('principals-section', 'sps-tab', this)">Service Principals ($($sps.Count))</button>
-            <button class="tab" onclick="showTab('principals-section', 'devices-tab', this)">Devices ($($devices.Count))</button>
+        <div class="container-body">
+            <div class="tabs">
+                <button class="tab active" onclick="event.stopPropagation(); showTab('principals-section', 'users-tab', this)">Users ($($users.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('principals-section', 'groups-tab', this)">Groups ($($groups.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('principals-section', 'sps-tab', this)">Service Principals ($($sps.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('principals-section', 'devices-tab', this)">Devices ($($devices.Count))</button>
+            </div>
+            <div id="users-tab" class="tab-content active">$(Build-Table $users 'users-tbl' $userCols)</div>
+            <div id="groups-tab" class="tab-content">$(Build-Table $groups 'groups-tbl' $groupCols)</div>
+            <div id="sps-tab" class="tab-content">$(Build-Table $sps 'sps-tbl' $spCols)</div>
+            <div id="devices-tab" class="tab-content">$(Build-Table $devices 'devices-tbl' $deviceCols)</div>
         </div>
-        <div id="users-tab" class="tab-content active">$(Build-Table $users 'users-tbl' $userCols)</div>
-        <div id="groups-tab" class="tab-content">$(Build-Table $groups 'groups-tbl' $groupCols)</div>
-        <div id="sps-tab" class="tab-content">$(Build-Table $sps 'sps-tbl' $spCols)</div>
-        <div id="devices-tab" class="tab-content">$(Build-Table $devices 'devices-tbl' $deviceCols)</div>
     </div>
 
     <!-- CONTAINER 2: RESOURCES -->
     <div class="container" id="resources-section">
-        <div class="container-header">
+        <div class="container-header" onclick="toggleContainer('resources-section')">
+            <span class="chevron">&#9660;</span>
             RESOURCES <span class="count">$($allResources.Count)</span>
             <span class="desc">applications + Azure resources</span>
         </div>
-        <div class="tabs">
-            <button class="tab active" onclick="showTab('resources-section', 'apps-tab', this)">Applications ($($apps.Count))</button>
-            <button class="tab" onclick="showTab('resources-section', 'tenants-tab', this)">Tenants ($($tenants.Count))</button>
-            <button class="tab" onclick="showTab('resources-section', 'subs-tab', this)">Subscriptions ($($subscriptions.Count))</button>
-            <button class="tab" onclick="showTab('resources-section', 'rgs-tab', this)">Resource Groups ($($resourceGroups.Count))</button>
-            <button class="tab" onclick="showTab('resources-section', 'kvs-tab', this)">Key Vaults ($($keyVaults.Count))</button>
-            <button class="tab" onclick="showTab('resources-section', 'vms-tab', this)">VMs ($($vms.Count))</button>
-            <button class="tab" onclick="showTab('resources-section', 'funcs-tab', this)">Functions ($($functionApps.Count))</button>
-            <button class="tab" onclick="showTab('resources-section', 'logic-tab', this)">Logic Apps ($($logicApps.Count))</button>
-            <button class="tab" onclick="showTab('resources-section', 'web-tab', this)">Web Apps ($($webApps.Count))</button>
-            <button class="tab" onclick="showTab('resources-section', 'auto-tab', this)">Automation ($($automationAccounts.Count))</button>
+        <div class="container-body">
+            <div class="tabs">
+                <button class="tab active" onclick="event.stopPropagation(); showTab('resources-section', 'apps-tab', this)">Applications ($($apps.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'tenants-tab', this)">Tenants ($($tenants.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'subs-tab', this)">Subscriptions ($($subscriptions.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'rgs-tab', this)">Resource Groups ($($resourceGroups.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'kvs-tab', this)">Key Vaults ($($keyVaults.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'vms-tab', this)">VMs ($($vms.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'funcs-tab', this)">Functions ($($functionApps.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'logic-tab', this)">Logic Apps ($($logicApps.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'web-tab', this)">Web Apps ($($webApps.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'auto-tab', this)">Automation ($($automationAccounts.Count))</button>
+            </div>
+            <div id="apps-tab" class="tab-content active">$(Build-Table $apps 'apps-tbl' $appCols)</div>
+            <div id="tenants-tab" class="tab-content">$(Build-Table $tenants 'tenants-tbl' $azureResCols)</div>
+            <div id="subs-tab" class="tab-content">$(Build-Table $subscriptions 'subs-tbl' $azureResCols)</div>
+            <div id="rgs-tab" class="tab-content">$(Build-Table $resourceGroups 'rgs-tbl' $azureResCols)</div>
+            <div id="kvs-tab" class="tab-content">$(Build-Table $keyVaults 'kvs-tbl' $azureResCols)</div>
+            <div id="vms-tab" class="tab-content">$(Build-Table $vms 'vms-tbl' $azureResCols)</div>
+            <div id="funcs-tab" class="tab-content">$(Build-Table $functionApps 'funcs-tbl' $azureResCols)</div>
+            <div id="logic-tab" class="tab-content">$(Build-Table $logicApps 'logic-tbl' $azureResCols)</div>
+            <div id="web-tab" class="tab-content">$(Build-Table $webApps 'web-tbl' $azureResCols)</div>
+            <div id="auto-tab" class="tab-content">$(Build-Table $automationAccounts 'auto-tbl' $azureResCols)</div>
         </div>
-        <div id="apps-tab" class="tab-content active">$(Build-Table $apps 'apps-tbl' $appCols)</div>
-        <div id="tenants-tab" class="tab-content">$(Build-Table $tenants 'tenants-tbl' $azureResCols)</div>
-        <div id="subs-tab" class="tab-content">$(Build-Table $subscriptions 'subs-tbl' $azureResCols)</div>
-        <div id="rgs-tab" class="tab-content">$(Build-Table $resourceGroups 'rgs-tbl' $azureResCols)</div>
-        <div id="kvs-tab" class="tab-content">$(Build-Table $keyVaults 'kvs-tbl' $azureResCols)</div>
-        <div id="vms-tab" class="tab-content">$(Build-Table $vms 'vms-tbl' $azureResCols)</div>
-        <div id="funcs-tab" class="tab-content">$(Build-Table $functionApps 'funcs-tbl' $azureResCols)</div>
-        <div id="logic-tab" class="tab-content">$(Build-Table $logicApps 'logic-tbl' $azureResCols)</div>
-        <div id="web-tab" class="tab-content">$(Build-Table $webApps 'web-tbl' $azureResCols)</div>
-        <div id="auto-tab" class="tab-content">$(Build-Table $automationAccounts 'auto-tbl' $azureResCols)</div>
     </div>
 
     <!-- CONTAINER 3: EDGES -->
     <div class="container" id="edges-section">
-        <div class="container-header">
+        <div class="container-header" onclick="toggleContainer('edges-section')">
+            <span class="chevron">&#9660;</span>
             EDGES <span class="count">$($allEdges.Count)</span>
             <span class="desc">all relationships unified</span>
         </div>
-        <div class="tabs">
-            <button class="tab active" onclick="showTab('edges-section', 'gm-tab', this)">Group Members ($($groupMembers.Count))</button>
-            <button class="tab" onclick="showTab('edges-section', 'dr-tab', this)">Directory Roles ($($directoryRoles.Count))</button>
-            <button class="tab" onclick="showTab('edges-section', 'pimr-tab', this)">PIM Roles ($($pimRoles.Count))</button>
-            <button class="tab" onclick="showTab('edges-section', 'pimg-tab', this)">PIM Groups ($($pimGroups.Count))</button>
-            <button class="tab" onclick="showTab('edges-section', 'rbac-tab', this)">Azure RBAC ($($azureRbac.Count))</button>
-            <button class="tab" onclick="showTab('edges-section', 'ar-tab', this)">App Roles ($($appRoles.Count))</button>
-            <button class="tab" onclick="showTab('edges-section', 'own-tab', this)">Owners ($($owners.Count))</button>
-            <button class="tab" onclick="showTab('edges-section', 'lic-tab', this)">Licenses ($($licenses.Count))</button>
-            <button class="tab" onclick="showTab('edges-section', 'cnt-tab', this)">Contains ($($contains.Count))</button>
-            <button class="tab" onclick="showTab('edges-section', 'kva-tab', this)">KV Access ($($kvAccess.Count))</button>
-            <button class="tab" onclick="showTab('edges-section', 'mi-tab', this)">Managed Identity ($($managedIdentities.Count))</button>
+        <div class="container-body">
+            <div class="tabs">
+                <button class="tab active" onclick="event.stopPropagation(); showTab('edges-section', 'gm-tab', this)">Group Members ($($groupMembers.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'dr-tab', this)">Directory Roles ($($directoryRoles.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'pimr-tab', this)">PIM Roles ($($pimRoles.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'pimg-tab', this)">PIM Groups ($($pimGroups.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'rbac-tab', this)">Azure RBAC ($($azureRbac.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'ar-tab', this)">App Roles ($($appRoles.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'own-tab', this)">Owners ($($owners.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'lic-tab', this)">Licenses ($($licenses.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'cnt-tab', this)">Contains ($($contains.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'kva-tab', this)">KV Access ($($kvAccess.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'mi-tab', this)">Managed Identity ($($managedIdentities.Count))</button>
+            </div>
+            <div id="gm-tab" class="tab-content active">$(Build-Table $groupMembers 'gm-tbl' $edgeCols)</div>
+            <div id="dr-tab" class="tab-content">$(Build-Table $directoryRoles 'dr-tbl' $edgeCols)</div>
+            <div id="pimr-tab" class="tab-content">$(Build-Table $pimRoles 'pimr-tbl' $edgeCols)</div>
+            <div id="pimg-tab" class="tab-content">$(Build-Table $pimGroups 'pimg-tbl' $edgeCols)</div>
+            <div id="rbac-tab" class="tab-content">$(Build-Table $azureRbac 'rbac-tbl' $edgeCols)</div>
+            <div id="ar-tab" class="tab-content">$(Build-Table $appRoles 'ar-tbl' $edgeCols)</div>
+            <div id="own-tab" class="tab-content">$(Build-Table $owners 'own-tbl' $edgeCols)</div>
+            <div id="lic-tab" class="tab-content">$(Build-Table $licenses 'lic-tbl' $edgeCols)</div>
+            <div id="cnt-tab" class="tab-content">$(Build-Table $contains 'cnt-tbl' $edgeCols)</div>
+            <div id="kva-tab" class="tab-content">$(Build-Table $kvAccess 'kva-tbl' $edgeCols)</div>
+            <div id="mi-tab" class="tab-content">$(Build-Table $managedIdentities 'mi-tbl' $edgeCols)</div>
         </div>
-        <div id="gm-tab" class="tab-content active">$(Build-Table $groupMembers 'gm-tbl' $edgeCols)</div>
-        <div id="dr-tab" class="tab-content">$(Build-Table $directoryRoles 'dr-tbl' $edgeCols)</div>
-        <div id="pimr-tab" class="tab-content">$(Build-Table $pimRoles 'pimr-tbl' $edgeCols)</div>
-        <div id="pimg-tab" class="tab-content">$(Build-Table $pimGroups 'pimg-tbl' $edgeCols)</div>
-        <div id="rbac-tab" class="tab-content">$(Build-Table $azureRbac 'rbac-tbl' $edgeCols)</div>
-        <div id="ar-tab" class="tab-content">$(Build-Table $appRoles 'ar-tbl' $edgeCols)</div>
-        <div id="own-tab" class="tab-content">$(Build-Table $owners 'own-tbl' $edgeCols)</div>
-        <div id="lic-tab" class="tab-content">$(Build-Table $licenses 'lic-tbl' $edgeCols)</div>
-        <div id="cnt-tab" class="tab-content">$(Build-Table $contains 'cnt-tbl' $edgeCols)</div>
-        <div id="kva-tab" class="tab-content">$(Build-Table $kvAccess 'kva-tbl' $edgeCols)</div>
-        <div id="mi-tab" class="tab-content">$(Build-Table $managedIdentities 'mi-tbl' $edgeCols)</div>
     </div>
 
     <!-- CONTAINER 4: POLICIES -->
     <div class="container" id="policies-section">
-        <div class="container-header">
+        <div class="container-header" onclick="toggleContainer('policies-section')">
+            <span class="chevron">&#9660;</span>
             POLICIES <span class="count">$($allPolicies.Count)</span>
             <span class="desc">conditional access, role management</span>
         </div>
-        <div class="tabs">
-            <button class="tab active" onclick="showTab('policies-section', 'ca-tab', this)">Conditional Access ($($caPolicies.Count))</button>
-            <button class="tab" onclick="showTab('policies-section', 'rp-tab', this)">Role Policies ($($rolePolicies.Count))</button>
+        <div class="container-body">
+            <div class="tabs">
+                <button class="tab active" onclick="event.stopPropagation(); showTab('policies-section', 'ca-tab', this)">Conditional Access ($($caPolicies.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('policies-section', 'rp-tab', this)">Role Policies ($($rolePolicies.Count))</button>
+            </div>
+            <div id="ca-tab" class="tab-content active">$(Build-Table $caPolicies 'ca-tbl' $policyCols)</div>
+            <div id="rp-tab" class="tab-content">$(Build-Table $rolePolicies 'rp-tbl' $policyCols)</div>
         </div>
-        <div id="ca-tab" class="tab-content active">$(Build-Table $caPolicies 'ca-tbl' $policyCols)</div>
-        <div id="rp-tab" class="tab-content">$(Build-Table $rolePolicies 'rp-tbl' $policyCols)</div>
     </div>
 
     <!-- CONTAINER 5: EVENTS -->
     <div class="container" id="events-section">
-        <div class="container-header">
+        <div class="container-header" onclick="toggleContainer('events-section')">
+            <span class="chevron">&#9660;</span>
             EVENTS <span class="count">$($allEvents.Count)</span>
             <span class="desc">sign-ins, audit logs (90 day TTL)</span>
         </div>
-        <div class="tabs">
-            <button class="tab active" onclick="showTab('events-section', 'si-tab', this)">Sign-Ins ($($signIns.Count))</button>
-            <button class="tab" onclick="showTab('events-section', 'ae-tab', this)">Audit Events ($($auditEvents.Count))</button>
+        <div class="container-body">
+            <div class="tabs">
+                <button class="tab active" onclick="event.stopPropagation(); showTab('events-section', 'si-tab', this)">Sign-Ins ($($signIns.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('events-section', 'ae-tab', this)">Audit Events ($($auditEvents.Count))</button>
+            </div>
+            <div id="si-tab" class="tab-content active">$(Build-Table $signIns 'si-tbl' $eventCols)</div>
+            <div id="ae-tab" class="tab-content">$(Build-Table $auditEvents 'ae-tbl' $eventCols)</div>
         </div>
-        <div id="si-tab" class="tab-content active">$(Build-Table $signIns 'si-tbl' $eventCols)</div>
-        <div id="ae-tab" class="tab-content">$(Build-Table $auditEvents 'ae-tbl' $eventCols)</div>
     </div>
 
     <!-- CONTAINER 6: AUDIT -->
     <div class="container" id="audit-section">
-        <div class="container-header">
+        <div class="container-header" onclick="toggleContainer('audit-section')">
+            <span class="chevron">&#9660;</span>
             AUDIT <span class="count">$($changes.Count)</span>
             <span class="desc">change tracking (permanent)</span>
         </div>
-        <div class="tabs">
-            <button class="tab active" onclick="showTab('audit-section', 'changes-tab', this)">Changes ($($changes.Count))</button>
+        <div class="container-body">
+            <div class="tabs">
+                <button class="tab active" onclick="event.stopPropagation(); showTab('audit-section', 'changes-tab', this)">Changes ($($changes.Count))</button>
+            </div>
+            <div id="changes-tab" class="tab-content active">$(Build-Table $changes 'changes-tbl' $auditCols)</div>
         </div>
-        <div id="changes-tab" class="tab-content active">$(Build-Table $changes 'changes-tbl' $auditCols)</div>
     </div>
 
 </body>
