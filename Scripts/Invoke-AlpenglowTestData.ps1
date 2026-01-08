@@ -1,3 +1,11 @@
+<#
+TO ADD
+    - Management groups
+    - automation account
+#>
+
+
+
 #Requires -Version 7.0
 <#
 .SYNOPSIS
