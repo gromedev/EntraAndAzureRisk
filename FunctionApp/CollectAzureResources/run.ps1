@@ -159,6 +159,28 @@ try {
                 $resourceResponse = Invoke-RestMethod -Uri $resourceUri -Method GET -Headers $headers -ErrorAction Stop
 
                 foreach ($resource in $resourceResponse.value) {
+                    # POST-FETCH FILTER: ARM API $filter on kind doesn't work reliably for Microsoft.Web/sites
+                    # We must filter in code to avoid collecting the same resource twice
+                    if ($filter -and $filter -match "kind eq '([^']+)'") {
+                        $expectedKind = $Matches[1]
+                        $actualKind = $resource.kind ?? ""
+
+                        # For functionApp: match 'functionapp', 'functionapp,linux', etc.
+                        # For webApp: match 'app', 'app,linux', etc. but NOT 'functionapp'
+                        if ($expectedKind -eq 'functionapp') {
+                            if (-not $actualKind.StartsWith('functionapp', [StringComparison]::OrdinalIgnoreCase)) {
+                                continue  # Skip - not a function app
+                            }
+                        } elseif ($expectedKind -eq 'app') {
+                            if ($actualKind.StartsWith('functionapp', [StringComparison]::OrdinalIgnoreCase)) {
+                                continue  # Skip - this is a function app, not a web app
+                            }
+                            if (-not $actualKind.StartsWith('app', [StringComparison]::OrdinalIgnoreCase)) {
+                                continue  # Skip - not matching 'app' kind
+                            }
+                        }
+                    }
+
                     $resourceId = $resource.id ?? ""
                     $resourceName = $resource.name ?? ""
                     $props = $resource.properties

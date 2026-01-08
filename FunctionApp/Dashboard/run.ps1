@@ -37,6 +37,42 @@ function Format-Value {
     return [System.Web.HttpUtility]::HtmlEncode($value)
 }
 
+# Dynamically discover all columns from data, with priority columns first
+# Only includes columns that have at least one non-null value in the dataset
+function Get-AllColumns {
+    param($data, $priorityColumns = @())
+    if ($null -eq $data -or $data.Count -eq 0) { return @() }
+
+    # Collect property names that have at least one non-null value
+    $propsWithValues = @{}
+    foreach ($item in $data) {
+        if ($item -is [System.Collections.IDictionary]) {
+            foreach ($key in $item.Keys) {
+                if ($null -ne $item[$key]) { $propsWithValues[$key] = $true }
+            }
+        } else {
+            foreach ($prop in $item.PSObject.Properties) {
+                if ($null -ne $prop.Value) { $propsWithValues[$prop.Name] = $true }
+            }
+        }
+    }
+
+    # Build column list: priority columns first (if they have data), then the rest alphabetically
+    $result = @()
+    foreach ($col in $priorityColumns) {
+        if ($propsWithValues.ContainsKey($col)) {
+            $result += $col
+            $propsWithValues.Remove($col)
+        }
+    }
+    # Add remaining columns alphabetically, excluding internal Cosmos fields and common noise
+    $excludeFields = @('_rid', '_self', '_etag', '_attachments', '_ts', 'id', 'principalType', 'resourceType', 'edgeType', 'policyType', 'eventType')
+    $remaining = $propsWithValues.Keys | Where-Object { $_ -notin $excludeFields } | Sort-Object
+    $result += $remaining
+
+    return $result
+}
+
 function Build-Table {
     param($data, $tableId, $columns)
     if ($null -eq $data -or $data.Count -eq 0) { return '<p style="color:#666;padding:20px;">No data</p>' }
@@ -122,22 +158,38 @@ try {
     # ========== CONTAINER 6: AUDIT ==========
     $changes = @($auditIn | Where-Object { $_ })
 
-    # Column definitions
-    # V3.5: Users now include risk data columns
-    $userCols = @('objectId', 'displayName', 'userPrincipalName', 'accountEnabled', 'userType', 'perUserMfaState', 'authMethodCount', 'riskLevel', 'riskState', 'isAtRisk')
-    $groupCols = @('objectId', 'displayName', 'securityEnabled', 'groupTypes', 'memberCountDirect', 'isAssignableToRole')
-    $spCols = @('objectId', 'displayName', 'appId', 'servicePrincipalType', 'accountEnabled', 'secretCount', 'certificateCount')
-    $deviceCols = @('objectId', 'displayName', 'deviceId', 'operatingSystem', 'isCompliant', 'isManaged')
-    $appCols = @('objectId', 'displayName', 'appId', 'signInAudience', 'secretCount', 'certificateCount')
-    $azureResCols = @('objectId', 'displayName', 'resourceType', 'location', 'subscriptionId')
-    $roleDefCols = @('objectId', 'displayName', 'resourceType', 'isBuiltIn', 'isPrivileged')
-    $edgeCols = @('id', 'sourceDisplayName', 'edgeType', 'targetDisplayName', 'effectiveFrom')
-    $derivedEdgeCols = @('id', 'sourceDisplayName', 'edgeType', 'targetDisplayName', 'derivedFrom', 'severity')
-    $policyCols = @('objectId', 'displayName', 'policyType', 'state')
-    $intunePolicyCols = @('objectId', 'displayName', 'policyType', 'platform')
-    $namedLocCols = @('objectId', 'displayName', 'policyType', 'locationType', 'isTrusted')
-    $eventCols = @('id', 'eventType', 'createdDateTime', 'userPrincipalName')
-    $auditCols = @('objectId', 'entityType', 'changeType', 'displayName', 'changeTimestamp')
+    # Column definitions - priority columns shown first, then ALL other columns discovered dynamically
+    # V3.5: Dynamic column discovery ensures all collected properties are visible
+    $userPriority = @('objectId', 'displayName', 'userPrincipalName', 'accountEnabled', 'userType', 'perUserMfaState', 'authMethodCount', 'riskLevel', 'riskState', 'isAtRisk', 'mail', 'jobTitle', 'department', 'createdDateTime', 'lastPasswordChangeDateTime', 'onPremisesSyncEnabled')
+    $groupPriority = @('objectId', 'displayName', 'securityEnabled', 'groupTypes', 'memberCountDirect', 'isAssignableToRole', 'mail', 'visibility', 'createdDateTime', 'onPremisesSyncEnabled')
+    $spPriority = @('objectId', 'displayName', 'appId', 'servicePrincipalType', 'accountEnabled', 'secretCount', 'certificateCount', 'createdDateTime', 'appOwnerOrganizationId')
+    $devicePriority = @('objectId', 'displayName', 'deviceId', 'operatingSystem', 'operatingSystemVersion', 'isCompliant', 'isManaged', 'trustType', 'registrationDateTime', 'approximateLastSignInDateTime')
+    $appPriority = @('objectId', 'displayName', 'appId', 'signInAudience', 'secretCount', 'certificateCount', 'createdDateTime', 'publisherDomain')
+    $azureResPriority = @('objectId', 'displayName', 'resourceType', 'location', 'subscriptionId', 'resourceGroup', 'kind', 'sku')
+    $roleDefPriority = @('objectId', 'displayName', 'resourceType', 'isBuiltIn', 'isPrivileged', 'description')
+    $edgePriority = @('id', 'sourceId', 'sourceDisplayName', 'edgeType', 'targetId', 'targetDisplayName', 'effectiveFrom', 'effectiveTo')
+    $derivedEdgePriority = @('id', 'sourceId', 'sourceDisplayName', 'edgeType', 'targetId', 'targetDisplayName', 'derivedFrom', 'severity', 'capability')
+    $policyPriority = @('objectId', 'displayName', 'policyType', 'state', 'createdDateTime', 'modifiedDateTime')
+    $intunePolicyPriority = @('objectId', 'displayName', 'policyType', 'platform', 'createdDateTime', 'lastModifiedDateTime')
+    $namedLocPriority = @('objectId', 'displayName', 'policyType', 'locationType', 'isTrusted', 'createdDateTime')
+    $eventPriority = @('id', 'eventType', 'createdDateTime', 'userPrincipalName', 'appDisplayName', 'ipAddress', 'status')
+    $auditPriority = @('objectId', 'entityType', 'changeType', 'displayName', 'changeTimestamp', 'changedFields')
+
+    # Dynamically get ALL columns from data, with priority columns first
+    $userCols = Get-AllColumns $users $userPriority
+    $groupCols = Get-AllColumns $groups $groupPriority
+    $spCols = Get-AllColumns $sps $spPriority
+    $deviceCols = Get-AllColumns $devices $devicePriority
+    $appCols = Get-AllColumns $apps $appPriority
+    $azureResCols = Get-AllColumns (@($tenants + $mgmtGroups + $subscriptions + $resourceGroups + $keyVaults + $vms + $storageAccounts + $aksClusters + $containerRegistries + $vmScaleSets + $functionApps + $logicApps + $webApps + $automationAccounts + $dataFactories) | Where-Object { $_ }) $azureResPriority
+    $roleDefCols = Get-AllColumns (@($directoryRoleDefs + $azureRoleDefs) | Where-Object { $_ }) $roleDefPriority
+    $edgeCols = Get-AllColumns $allEdges $edgePriority
+    $derivedEdgeCols = Get-AllColumns $derivedEdges $derivedEdgePriority
+    $policyCols = Get-AllColumns $caPolicies $policyPriority
+    $intunePolicyCols = Get-AllColumns (@($compliancePolicies + $appProtectionPolicies) | Where-Object { $_ }) $intunePolicyPriority
+    $namedLocCols = Get-AllColumns $namedLocations $namedLocPriority
+    $eventCols = Get-AllColumns $allEvents $eventPriority
+    $auditCols = Get-AllColumns $changes $auditPriority
 
     $html = @"
 <!DOCTYPE html>
@@ -165,12 +217,12 @@ try {
         .tab.active { background: #0078d4; color: white; }
         .tab.derived { background: #ff8c00; color: white; }
         .tab.derived:hover { background: #e67e00; }
-        .tab-content { display: none; padding: 0; overflow-x: auto; }
+        .tab-content { display: none; padding: 0; overflow-x: auto; max-height: 600px; overflow-y: auto; }
         .tab-content.active { display: block; }
-        table { width: 100%; border-collapse: collapse; font-size: 0.8em; }
-        th { background: #f8f9fa; padding: 10px 8px; text-align: left; border-bottom: 2px solid #dee2e6; cursor: pointer; white-space: nowrap; font-weight: 600; }
+        table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 0.8em; }
+        th { background: #f8f9fa; padding: 10px 8px; text-align: left; border-bottom: 2px solid #dee2e6; cursor: pointer; white-space: nowrap; font-weight: 600; position: sticky; top: 0; z-index: 1; }
         th:hover { background: #e9ecef; }
-        td { padding: 8px; border-bottom: 1px solid #f0f0f0; }
+        td { padding: 8px; border-bottom: 1px solid #f0f0f0; white-space: nowrap; max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
         tr:hover { background: #f8f9fa; }
         .risk-high { color: #d13438; font-weight: bold; }
         .risk-medium { color: #ff8c00; font-weight: bold; }
