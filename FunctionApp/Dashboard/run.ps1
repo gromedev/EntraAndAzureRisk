@@ -1,10 +1,10 @@
 using namespace System.Net
 
-# V3 Dashboard - 6 Unified Containers
+# V3.5 Dashboard - 6 Unified Containers + Derived Edges
 # 1. principals (users, groups, SPs, devices)
-# 2. resources (applications + Azure resources)
-# 3. edges (all relationships)
-# 4. policies (CA, role management)
+# 2. resources (applications + Azure resources + role definitions)
+# 3. edges (all relationships + derived edges)
+# 4. policies (CA, Intune compliance, App Protection, Named Locations)
 # 5. events (sign-ins, audits)
 # 6. audit (change tracking)
 
@@ -62,7 +62,7 @@ try {
     $sps = @($allPrincipals | Where-Object { $_.principalType -eq 'servicePrincipal' })
     $devices = @($allPrincipals | Where-Object { $_.principalType -eq 'device' })
 
-    # ========== CONTAINER 2: RESOURCES (applications + Azure resources) ==========
+    # ========== CONTAINER 2: RESOURCES (applications + Azure resources + role definitions) ==========
     $allResources = @($resourcesIn | Where-Object { $_ })
     $apps = @($allResources | Where-Object { $_.resourceType -eq 'application' })
     $tenants = @($allResources | Where-Object { $_.resourceType -eq 'tenant' })
@@ -75,25 +75,44 @@ try {
     $functionApps = @($allResources | Where-Object { $_.resourceType -eq 'functionApp' })
     $logicApps = @($allResources | Where-Object { $_.resourceType -eq 'logicApp' })
     $webApps = @($allResources | Where-Object { $_.resourceType -eq 'webApp' })
+    # V3.5: Additional Azure resources
+    $storageAccounts = @($allResources | Where-Object { $_.resourceType -eq 'storageAccount' })
+    $aksClusters = @($allResources | Where-Object { $_.resourceType -eq 'aksCluster' })
+    $containerRegistries = @($allResources | Where-Object { $_.resourceType -eq 'containerRegistry' })
+    $vmScaleSets = @($allResources | Where-Object { $_.resourceType -eq 'vmScaleSet' })
+    $dataFactories = @($allResources | Where-Object { $_.resourceType -eq 'dataFactory' })
+    # V3.5: Role definitions (consolidated)
+    $directoryRoleDefs = @($allResources | Where-Object { $_.resourceType -eq 'directoryRoleDefinition' })
+    $azureRoleDefs = @($allResources | Where-Object { $_.resourceType -eq 'azureRoleDefinition' })
 
-    # ========== CONTAINER 3: EDGES (all relationships) ==========
+    # ========== CONTAINER 3: EDGES (all relationships + derived edges) ==========
     $allEdges = @($edgesIn | Where-Object { $_ })
     $groupMembers = @($allEdges | Where-Object { $_.edgeType -match '^groupMember' })
     $directoryRoles = @($allEdges | Where-Object { $_.edgeType -eq 'directoryRole' })
     $pimRoles = @($allEdges | Where-Object { $_.edgeType -match '^pim(Eligible|Active)$' })
     $pimGroups = @($allEdges | Where-Object { $_.edgeType -match '^pimGroup' })
-    $azureRbac = @($allEdges | Where-Object { $_.edgeType -eq 'azureRbac' })
+    $azureRbac = @($allEdges | Where-Object { $_.edgeType -eq 'azureRbac' -or $_.edgeType -eq 'azureRoleAssignment' })
     $appRoles = @($allEdges | Where-Object { $_.edgeType -eq 'appRoleAssignment' })
     $owners = @($allEdges | Where-Object { $_.edgeType -match 'Owner$' })
     $licenses = @($allEdges | Where-Object { $_.edgeType -eq 'license' })
     $contains = @($allEdges | Where-Object { $_.edgeType -eq 'contains' })
     $kvAccess = @($allEdges | Where-Object { $_.edgeType -eq 'keyVaultAccess' })
     $managedIdentities = @($allEdges | Where-Object { $_.edgeType -eq 'hasManagedIdentity' })
+    # V3.5: Derived edges (from DeriveEdges function)
+    $derivedEdges = @($allEdges | Where-Object { $_.edgeType -match '^can|^is|^azure' -and $_.derivedFrom })
+    # V3.5: CA policy edges
+    $caPolicyEdges = @($allEdges | Where-Object { $_.edgeType -match 'conditionalAccessPolicy' })
+    # V3.5: Virtual edges (Intune policy targeting)
+    $virtualEdges = @($allEdges | Where-Object { $_.edgeType -match 'PolicyTargets$' })
 
     # ========== CONTAINER 4: POLICIES ==========
     $allPolicies = @($policiesIn | Where-Object { $_ })
     $caPolicies = @($allPolicies | Where-Object { $_.policyType -eq 'conditionalAccess' })
     $rolePolicies = @($allPolicies | Where-Object { $_.policyType -match 'roleManagement' })
+    # V3.5: Intune policies
+    $compliancePolicies = @($allPolicies | Where-Object { $_.policyType -eq 'compliancePolicy' })
+    $appProtectionPolicies = @($allPolicies | Where-Object { $_.policyType -eq 'appProtectionPolicy' })
+    $namedLocations = @($allPolicies | Where-Object { $_.policyType -eq 'namedLocation' })
 
     # ========== CONTAINER 5: EVENTS ==========
     $allEvents = @($eventsIn | Where-Object { $_ })
@@ -104,14 +123,19 @@ try {
     $changes = @($auditIn | Where-Object { $_ })
 
     # Column definitions
-    $userCols = @('objectId', 'displayName', 'userPrincipalName', 'accountEnabled', 'userType', 'perUserMfaState', 'authMethodCount')
+    # V3.5: Users now include risk data columns
+    $userCols = @('objectId', 'displayName', 'userPrincipalName', 'accountEnabled', 'userType', 'perUserMfaState', 'authMethodCount', 'riskLevel', 'riskState', 'isAtRisk')
     $groupCols = @('objectId', 'displayName', 'securityEnabled', 'groupTypes', 'memberCountDirect', 'isAssignableToRole')
     $spCols = @('objectId', 'displayName', 'appId', 'servicePrincipalType', 'accountEnabled', 'secretCount', 'certificateCount')
     $deviceCols = @('objectId', 'displayName', 'deviceId', 'operatingSystem', 'isCompliant', 'isManaged')
     $appCols = @('objectId', 'displayName', 'appId', 'signInAudience', 'secretCount', 'certificateCount')
     $azureResCols = @('objectId', 'displayName', 'resourceType', 'location', 'subscriptionId')
+    $roleDefCols = @('objectId', 'displayName', 'resourceType', 'isBuiltIn', 'isPrivileged')
     $edgeCols = @('id', 'sourceDisplayName', 'edgeType', 'targetDisplayName', 'effectiveFrom')
+    $derivedEdgeCols = @('id', 'sourceDisplayName', 'edgeType', 'targetDisplayName', 'derivedFrom', 'severity')
     $policyCols = @('objectId', 'displayName', 'policyType', 'state')
+    $intunePolicyCols = @('objectId', 'displayName', 'policyType', 'platform')
+    $namedLocCols = @('objectId', 'displayName', 'policyType', 'locationType', 'isTrusted')
     $eventCols = @('id', 'eventType', 'createdDateTime', 'userPrincipalName')
     $auditCols = @('objectId', 'entityType', 'changeType', 'displayName', 'changeTimestamp')
 
@@ -119,7 +143,7 @@ try {
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Entra Risk Dashboard - V3</title>
+    <title>Entra Risk Dashboard - V3.5</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 20px; background: #f0f2f5; }
@@ -139,6 +163,8 @@ try {
         .tab { padding: 6px 12px; border: none; background: #e9ecef; cursor: pointer; border-radius: 4px; font-size: 0.85em; }
         .tab:hover { background: #dee2e6; }
         .tab.active { background: #0078d4; color: white; }
+        .tab.derived { background: #ff8c00; color: white; }
+        .tab.derived:hover { background: #e67e00; }
         .tab-content { display: none; padding: 0; overflow-x: auto; }
         .tab-content.active { display: block; }
         table { width: 100%; border-collapse: collapse; font-size: 0.8em; }
@@ -146,6 +172,9 @@ try {
         th:hover { background: #e9ecef; }
         td { padding: 8px; border-bottom: 1px solid #f0f0f0; }
         tr:hover { background: #f8f9fa; }
+        .risk-high { color: #d13438; font-weight: bold; }
+        .risk-medium { color: #ff8c00; font-weight: bold; }
+        .risk-low { color: #107c10; }
     </style>
     <script>
         function toggleContainer(containerId) {
@@ -175,12 +204,12 @@ try {
     </script>
 </head>
 <body>
-    <h1>Entra Risk Dashboard - V3</h1>
+    <h1>Entra Risk Dashboard - V3.5</h1>
     <div class="summary">
-        <b>V3 Unified Architecture</b> |
+        <b>V3.5 Consolidated Architecture</b> |
         Principals: <b>$($allPrincipals.Count)</b> |
         Resources: <b>$($allResources.Count)</b> |
-        Edges: <b>$($allEdges.Count)</b> |
+        Edges: <b>$($allEdges.Count)</b> (Derived: $($derivedEdges.Count)) |
         Policies: <b>$($allPolicies.Count)</b> |
         Events: <b>$($allEvents.Count)</b> |
         Audit: <b>$($changes.Count)</b> |
@@ -192,7 +221,7 @@ try {
         <div class="container-header" onclick="toggleContainer('principals-section')">
             <span class="chevron">&#9660;</span>
             PRINCIPALS <span class="count">$($allPrincipals.Count)</span>
-            <span class="desc">users, groups, service principals, devices</span>
+            <span class="desc">users (with risk), groups, service principals, devices</span>
         </div>
         <div class="container-body">
             <div class="tabs">
@@ -213,7 +242,7 @@ try {
         <div class="container-header" onclick="toggleContainer('resources-section')">
             <span class="chevron">&#9660;</span>
             RESOURCES <span class="count">$($allResources.Count)</span>
-            <span class="desc">applications + Azure resources</span>
+            <span class="desc">applications + Azure resources + role definitions</span>
         </div>
         <div class="container-body">
             <div class="tabs">
@@ -224,10 +253,17 @@ try {
                 <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'rgs-tab', this)">Resource Groups ($($resourceGroups.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'kvs-tab', this)">Key Vaults ($($keyVaults.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'vms-tab', this)">VMs ($($vms.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'storage-tab', this)">Storage ($($storageAccounts.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'aks-tab', this)">AKS ($($aksClusters.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'acr-tab', this)">ACR ($($containerRegistries.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'vmss-tab', this)">VMSS ($($vmScaleSets.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'funcs-tab', this)">Functions ($($functionApps.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'logic-tab', this)">Logic Apps ($($logicApps.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'web-tab', this)">Web Apps ($($webApps.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'auto-tab', this)">Automation ($($automationAccounts.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'adf-tab', this)">Data Factory ($($dataFactories.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'dirroles-tab', this)">Dir Roles ($($directoryRoleDefs.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'azroles-tab', this)">Azure Roles ($($azureRoleDefs.Count))</button>
             </div>
             <div id="apps-tab" class="tab-content active">$(Build-Table $apps 'apps-tbl' $appCols)</div>
             <div id="tenants-tab" class="tab-content">$(Build-Table $tenants 'tenants-tbl' $azureResCols)</div>
@@ -236,10 +272,17 @@ try {
             <div id="rgs-tab" class="tab-content">$(Build-Table $resourceGroups 'rgs-tbl' $azureResCols)</div>
             <div id="kvs-tab" class="tab-content">$(Build-Table $keyVaults 'kvs-tbl' $azureResCols)</div>
             <div id="vms-tab" class="tab-content">$(Build-Table $vms 'vms-tbl' $azureResCols)</div>
+            <div id="storage-tab" class="tab-content">$(Build-Table $storageAccounts 'storage-tbl' $azureResCols)</div>
+            <div id="aks-tab" class="tab-content">$(Build-Table $aksClusters 'aks-tbl' $azureResCols)</div>
+            <div id="acr-tab" class="tab-content">$(Build-Table $containerRegistries 'acr-tbl' $azureResCols)</div>
+            <div id="vmss-tab" class="tab-content">$(Build-Table $vmScaleSets 'vmss-tbl' $azureResCols)</div>
             <div id="funcs-tab" class="tab-content">$(Build-Table $functionApps 'funcs-tbl' $azureResCols)</div>
             <div id="logic-tab" class="tab-content">$(Build-Table $logicApps 'logic-tbl' $azureResCols)</div>
             <div id="web-tab" class="tab-content">$(Build-Table $webApps 'web-tbl' $azureResCols)</div>
             <div id="auto-tab" class="tab-content">$(Build-Table $automationAccounts 'auto-tbl' $azureResCols)</div>
+            <div id="adf-tab" class="tab-content">$(Build-Table $dataFactories 'adf-tbl' $azureResCols)</div>
+            <div id="dirroles-tab" class="tab-content">$(Build-Table $directoryRoleDefs 'dirroles-tbl' $roleDefCols)</div>
+            <div id="azroles-tab" class="tab-content">$(Build-Table $azureRoleDefs 'azroles-tbl' $roleDefCols)</div>
         </div>
     </div>
 
@@ -248,7 +291,7 @@ try {
         <div class="container-header" onclick="toggleContainer('edges-section')">
             <span class="chevron">&#9660;</span>
             EDGES <span class="count">$($allEdges.Count)</span>
-            <span class="desc">all relationships unified</span>
+            <span class="desc">all relationships + derived attack paths</span>
         </div>
         <div class="container-body">
             <div class="tabs">
@@ -263,6 +306,9 @@ try {
                 <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'cnt-tab', this)">Contains ($($contains.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'kva-tab', this)">KV Access ($($kvAccess.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'mi-tab', this)">Managed Identity ($($managedIdentities.Count))</button>
+                <button class="tab derived" onclick="event.stopPropagation(); showTab('edges-section', 'derived-tab', this)">Derived ($($derivedEdges.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'ca-edge-tab', this)">CA Policy ($($caPolicyEdges.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'virtual-tab', this)">Intune Policy ($($virtualEdges.Count))</button>
             </div>
             <div id="gm-tab" class="tab-content active">$(Build-Table $groupMembers 'gm-tbl' $edgeCols)</div>
             <div id="dr-tab" class="tab-content">$(Build-Table $directoryRoles 'dr-tbl' $edgeCols)</div>
@@ -275,6 +321,9 @@ try {
             <div id="cnt-tab" class="tab-content">$(Build-Table $contains 'cnt-tbl' $edgeCols)</div>
             <div id="kva-tab" class="tab-content">$(Build-Table $kvAccess 'kva-tbl' $edgeCols)</div>
             <div id="mi-tab" class="tab-content">$(Build-Table $managedIdentities 'mi-tbl' $edgeCols)</div>
+            <div id="derived-tab" class="tab-content">$(Build-Table $derivedEdges 'derived-tbl' $derivedEdgeCols)</div>
+            <div id="ca-edge-tab" class="tab-content">$(Build-Table $caPolicyEdges 'ca-edge-tbl' $edgeCols)</div>
+            <div id="virtual-tab" class="tab-content">$(Build-Table $virtualEdges 'virtual-tbl' $edgeCols)</div>
         </div>
     </div>
 
@@ -283,15 +332,21 @@ try {
         <div class="container-header" onclick="toggleContainer('policies-section')">
             <span class="chevron">&#9660;</span>
             POLICIES <span class="count">$($allPolicies.Count)</span>
-            <span class="desc">conditional access, role management</span>
+            <span class="desc">CA, Intune compliance, app protection, named locations</span>
         </div>
         <div class="container-body">
             <div class="tabs">
                 <button class="tab active" onclick="event.stopPropagation(); showTab('policies-section', 'ca-tab', this)">Conditional Access ($($caPolicies.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('policies-section', 'rp-tab', this)">Role Policies ($($rolePolicies.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('policies-section', 'compliance-tab', this)">Compliance ($($compliancePolicies.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('policies-section', 'appprot-tab', this)">App Protection ($($appProtectionPolicies.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('policies-section', 'namedloc-tab', this)">Named Locations ($($namedLocations.Count))</button>
             </div>
             <div id="ca-tab" class="tab-content active">$(Build-Table $caPolicies 'ca-tbl' $policyCols)</div>
             <div id="rp-tab" class="tab-content">$(Build-Table $rolePolicies 'rp-tbl' $policyCols)</div>
+            <div id="compliance-tab" class="tab-content">$(Build-Table $compliancePolicies 'compliance-tbl' $intunePolicyCols)</div>
+            <div id="appprot-tab" class="tab-content">$(Build-Table $appProtectionPolicies 'appprot-tbl' $intunePolicyCols)</div>
+            <div id="namedloc-tab" class="tab-content">$(Build-Table $namedLocations 'namedloc-tbl' $namedLocCols)</div>
         </div>
     </div>
 

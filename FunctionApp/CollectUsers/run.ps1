@@ -105,6 +105,8 @@ try {
     Write-Verbose "Building risky users lookup from Identity Protection..."
     $riskyUsersLookup = @{}
     $riskyUsersCount = 0
+    $riskDataAvailable = $false
+    $riskDataError = $null
     try {
         $riskyUri = "https://graph.microsoft.com/v1.0/identityProtection/riskyUsers?`$select=id,riskLevel,riskState,riskDetail,riskLastUpdatedDateTime"
         while ($riskyUri) {
@@ -115,15 +117,22 @@ try {
             }
             $riskyUri = $riskyResponse.'@odata.nextLink'
         }
-        Write-Verbose "Loaded $riskyUsersCount risky users into lookup"
+        $riskDataAvailable = $true
+        Write-Verbose "Loaded $riskyUsersCount risky users into lookup (P2 license available)"
     }
     catch {
-        if ($_.Exception.Message -match '403|Forbidden|Premium|P2|license') {
-            Write-Warning "Risky Users API requires Azure AD Premium P2 license - risk data will not be embedded"
+        $errorMessage = $_.Exception.Message
+        if ($errorMessage -match '403|Forbidden|Authorization_RequestDenied') {
+            $riskDataError = "P2_LICENSE_REQUIRED"
+            Write-Warning "Identity Protection API returned 403 - Azure AD Premium P2 license is required for risk data. Users will be collected without risk fields (riskLevel, riskState, isAtRisk will default to none/null/false)."
+        } elseif ($errorMessage -match 'IdentityRiskyUser') {
+            $riskDataError = "PERMISSION_MISSING"
+            Write-Warning "IdentityRiskyUser.Read.All permission not granted to managed identity - risk data will not be embedded. Grant this permission and re-deploy to enable risk data."
         } else {
-            Write-Warning "Failed to retrieve risky users: $($_.Exception.Message) - risk data will not be embedded"
+            $riskDataError = "API_ERROR: $errorMessage"
+            Write-Warning "Failed to retrieve risky users: $errorMessage - risk data will not be embedded"
         }
-        # Continue without risk data - non-critical
+        # Continue without risk data - non-critical for user collection
     }
     #endregion
 
@@ -459,6 +468,8 @@ try {
         usersWithFido2Count         = $usersWithFido2Count
         usersWithWindowsHelloCount  = $usersWithWindowsHelloCount
         # Risk stats (embedded - requires P2)
+        riskDataAvailable           = $riskDataAvailable
+        riskDataError               = $riskDataError
         riskyUsersLoaded            = $riskyUsersCount
         usersAtRiskCount            = $usersAtRiskCount
         highRiskCount               = $highRiskCount
@@ -480,6 +491,8 @@ try {
         UserCount                 = $userCount
         AuthMethodsProcessedCount = $authMethodsProcessedCount
         AuthMethodsErrorCount     = $authMethodsErrorCount
+        RiskDataAvailable         = $riskDataAvailable
+        RiskDataError             = $riskDataError
         RiskyUsersLoaded          = $riskyUsersCount
         UsersAtRiskCount          = $usersAtRiskCount
         Data                      = @()

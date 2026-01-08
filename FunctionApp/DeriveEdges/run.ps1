@@ -10,7 +10,7 @@
     - appOwner/spOwner edges → canAddSecret (to specific app/SP)
     - groupOwner edges for role-assignable groups → canAssignRolesViaGroup
 
-    Output: Derived abuse edges written to edges container with edgeType prefix "abuse_"
+    Output: Derived edges written to edges container (edgeTypes: can*, is*, azure*)
 
     This is "the core BloodHound value" - converting raw permissions to attack paths.
 #>
@@ -432,7 +432,7 @@ try {
     }
 }
 catch {
-    $errorMsg = "DeriveAbuseEdges failed: $($_.Exception.Message)"
+    $errorMsg = "DeriveEdges failed: $($_.Exception.Message)"
     Write-Error $errorMsg
     Write-Error $_.ScriptStackTrace
     return @{

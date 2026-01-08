@@ -18,6 +18,9 @@ param tenantId string
 @description('Blob retention days (7 for pilot, 30 for production)')
 param blobRetentionDays int = 7
 
+@description('Deploy Gremlin graph database (deferred to V3.6)')
+param deployGremlin bool = false
+
 @description('Tags to apply to all resources')
 param tags object = {
   Environment: environment
@@ -25,7 +28,7 @@ param tags object = {
   ManagedBy: 'Bicep'
   CostCenter: 'IT-Security'
   Project: 'EntraRiskAnalysis-V3.1'
-  Version: '3.1-Gremlin'
+  Version: '3.5'
 }
 
 // Generate unique suffix for globally unique names
@@ -356,9 +359,10 @@ resource cosmosContainerAudit 'Microsoft.DocumentDB/databaseAccounts/sqlDatabase
   }
 }
 
-// ===== V3.1 GREMLIN DATABASE (Separate account for graph queries) =====
+// ===== V3.6 GREMLIN DATABASE (Separate account for graph queries) =====
+// Note: Gremlin deployment is deferred to V3.6. Set deployGremlin=true to enable.
 
-resource cosmosGremlinAccount 'Microsoft.DocumentDB/databaseAccounts@2023-04-15' = {
+resource cosmosGremlinAccount 'Microsoft.DocumentDB/databaseAccounts@2023-04-15' = if (deployGremlin) {
   name: cosmosGremlinAccountName
   location: location
   tags: tags
@@ -391,7 +395,7 @@ resource cosmosGremlinAccount 'Microsoft.DocumentDB/databaseAccounts@2023-04-15'
   }
 }
 
-resource cosmosGremlinDatabase 'Microsoft.DocumentDB/databaseAccounts/gremlinDatabases@2023-04-15' = {
+resource cosmosGremlinDatabase 'Microsoft.DocumentDB/databaseAccounts/gremlinDatabases@2023-04-15' = if (deployGremlin) {
   parent: cosmosGremlinAccount
   name: 'EntraGraph'
   properties: {
@@ -401,7 +405,7 @@ resource cosmosGremlinDatabase 'Microsoft.DocumentDB/databaseAccounts/gremlinDat
   }
 }
 
-resource cosmosGremlinGraph 'Microsoft.DocumentDB/databaseAccounts/gremlinDatabases/graphs@2023-04-15' = {
+resource cosmosGremlinGraph 'Microsoft.DocumentDB/databaseAccounts/gremlinDatabases/graphs@2023-04-15' = if (deployGremlin) {
   parent: cosmosGremlinDatabase
   name: 'graph'
   properties: {
@@ -426,7 +430,7 @@ resource cosmosGremlinGraph 'Microsoft.DocumentDB/databaseAccounts/gremlinDataba
 }
 
 // Gremlin RBAC: Grant Function App access to Gremlin account
-resource cosmosGremlinDataContributor 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2023-04-15' = {
+resource cosmosGremlinDataContributor 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2023-04-15' = if (deployGremlin) {
   parent: cosmosGremlinAccount
   name: guid(cosmosGremlinAccount.id, functionApp.id, 'gremlin-data-contributor')
   properties: {
@@ -690,23 +694,23 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
           name: 'PIM_PARALLEL_THROTTLE'
           value: '10'
         }
-        // V3.1 Gremlin Configuration
-        {
-          name: 'COSMOS_GREMLIN_ENDPOINT'
-          value: 'wss://${cosmosGremlinAccount.name}.gremlin.cosmos.azure.com:443/'
-        }
-        {
-          name: 'COSMOS_GREMLIN_DATABASE'
-          value: cosmosGremlinDatabase.name
-        }
-        {
-          name: 'COSMOS_GREMLIN_CONTAINER'
-          value: cosmosGremlinGraph.name
-        }
-        {
-          name: 'COSMOS_GREMLIN_KEY'
-          value: cosmosGremlinAccount.listKeys().primaryMasterKey
-        }
+        // V3.6 Gremlin Configuration - Add these when deployGremlin=true
+        // {
+        //   name: 'COSMOS_GREMLIN_ENDPOINT'
+        //   value: 'wss://${cosmosGremlinAccount.name}.gremlin.cosmos.azure.com:443/'
+        // }
+        // {
+        //   name: 'COSMOS_GREMLIN_DATABASE'
+        //   value: cosmosGremlinDatabase.name
+        // }
+        // {
+        //   name: 'COSMOS_GREMLIN_CONTAINER'
+        //   value: cosmosGremlinGraph.name
+        // }
+        // {
+        //   name: 'COSMOS_GREMLIN_KEY'
+        //   value: cosmosGremlinAccount.listKeys().primaryMasterKey
+        // }
       ]
     }
   }
@@ -759,8 +763,8 @@ output keyVaultName string = keyVault.name
 output appInsightsName string = appInsights.name
 output functionAppIdentityPrincipalId string = functionApp.identity.principalId
 output blobRetentionDays int = blobRetentionDays
-// V3.1 Gremlin Outputs
-output cosmosGremlinAccountName string = cosmosGremlinAccount.name
-output cosmosGremlinEndpoint string = 'wss://${cosmosGremlinAccount.name}.gremlin.cosmos.azure.com:443/'
-output cosmosGremlinDatabase string = cosmosGremlinDatabase.name
-output cosmosGremlinGraph string = cosmosGremlinGraph.name
+// V3.6 Gremlin Outputs (only when deployGremlin=true)
+output cosmosGremlinAccountName string = deployGremlin ? cosmosGremlinAccount.name : 'not-deployed'
+output cosmosGremlinEndpoint string = deployGremlin ? 'wss://${cosmosGremlinAccount.name}.gremlin.cosmos.azure.com:443/' : 'not-deployed'
+output cosmosGremlinDatabase string = deployGremlin ? cosmosGremlinDatabase.name : 'not-deployed'
+output cosmosGremlinGraph string = deployGremlin ? cosmosGremlinGraph.name : 'not-deployed'

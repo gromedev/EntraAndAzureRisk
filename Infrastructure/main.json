@@ -1,0 +1,1011 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.39.26.7824",
+      "templateHash": "3252119851166592119"
+    }
+  },
+  "parameters": {
+    "workloadName": {
+      "type": "string",
+      "defaultValue": "entrarisk",
+      "metadata": {
+        "description": "The workload name used for naming resources"
+      }
+    },
+    "environment": {
+      "type": "string",
+      "defaultValue": "dev",
+      "allowedValues": [
+        "dev",
+        "test",
+        "prod"
+      ],
+      "metadata": {
+        "description": "The environment name (dev, test, prod)"
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "The Azure region for resources"
+      }
+    },
+    "tenantId": {
+      "type": "string",
+      "metadata": {
+        "description": "Entra ID Tenant ID for authentication"
+      }
+    },
+    "blobRetentionDays": {
+      "type": "int",
+      "defaultValue": 7,
+      "metadata": {
+        "description": "Blob retention days (7 for pilot, 30 for production)"
+      }
+    },
+    "deployGremlin": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Deploy Gremlin graph database (deferred to V3.6)"
+      }
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {
+        "Environment": "[parameters('environment')]",
+        "Workload": "[parameters('workloadName')]",
+        "ManagedBy": "Bicep",
+        "CostCenter": "IT-Security",
+        "Project": "EntraRiskAnalysis-V3.1",
+        "Version": "3.5"
+      },
+      "metadata": {
+        "description": "Tags to apply to all resources"
+      }
+    }
+  },
+  "variables": {
+    "uniqueSuffix": "[uniqueString(resourceGroup().id)]",
+    "storageAccountName": "[take(format('st{0}{1}{2}', parameters('workloadName'), parameters('environment'), variables('uniqueSuffix')), 24)]",
+    "cosmosDbAccountName": "[format('cosno-{0}-{1}-{2}', parameters('workloadName'), parameters('environment'), variables('uniqueSuffix'))]",
+    "cosmosGremlinAccountName": "[format('cosgr-{0}-{1}-{2}', parameters('workloadName'), parameters('environment'), variables('uniqueSuffix'))]",
+    "functionAppName": "[format('func-{0}-data-{1}-{2}', parameters('workloadName'), parameters('environment'), variables('uniqueSuffix'))]",
+    "appServicePlanName": "[format('asp-{0}-{1}-001', parameters('workloadName'), parameters('environment'))]",
+    "keyVaultName": "[take(format('keyvault{0}{1}{2}', parameters('workloadName'), parameters('environment'), variables('uniqueSuffix')), 24)]",
+    "appInsightsName": "[format('appi-{0}-{1}-001', parameters('workloadName'), parameters('environment'))]",
+    "logAnalyticsName": "[format('log-{0}-{1}-001', parameters('workloadName'), parameters('environment'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-01-01",
+      "name": "[variables('storageAccountName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "accessTier": "Hot",
+        "supportsHttpsTrafficOnly": true,
+        "minimumTlsVersion": "TLS1_2",
+        "allowBlobPublicAccess": false,
+        "networkAcls": {
+          "defaultAction": "Allow",
+          "bypass": "AzureServices"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices",
+      "apiVersion": "2023-01-01",
+      "name": "[format('{0}/{1}', variables('storageAccountName'), 'default')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+      "apiVersion": "2023-01-01",
+      "name": "[format('{0}/{1}/{2}', variables('storageAccountName'), 'default', 'raw-data')]",
+      "properties": {
+        "publicAccess": "None",
+        "metadata": {
+          "purpose": "Landing zone for Graph API exports",
+          "retention": "[format('{0} days', parameters('blobRetentionDays'))]"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices', variables('storageAccountName'), 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+      "apiVersion": "2023-01-01",
+      "name": "[format('{0}/{1}/{2}', variables('storageAccountName'), 'default', 'analysis')]",
+      "properties": {
+        "publicAccess": "None"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices', variables('storageAccountName'), 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/managementPolicies",
+      "apiVersion": "2023-01-01",
+      "name": "[format('{0}/{1}', variables('storageAccountName'), 'default')]",
+      "properties": {
+        "policy": {
+          "rules": [
+            {
+              "name": "tier-and-delete-raw-data",
+              "enabled": true,
+              "type": "Lifecycle",
+              "definition": {
+                "filters": {
+                  "blobTypes": [
+                    "blockBlob"
+                  ],
+                  "prefixMatch": [
+                    "raw-data/"
+                  ]
+                },
+                "actions": {
+                  "baseBlob": {
+                    "tierToCool": {
+                      "daysAfterModificationGreaterThan": 7
+                    },
+                    "tierToArchive": {
+                      "daysAfterModificationGreaterThan": 30
+                    },
+                    "delete": {
+                      "daysAfterModificationGreaterThan": 90
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts",
+      "apiVersion": "2023-04-15",
+      "name": "[variables('cosmosDbAccountName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "kind": "GlobalDocumentDB",
+      "properties": {
+        "databaseAccountOfferType": "Standard",
+        "enableAutomaticFailover": false,
+        "consistencyPolicy": {
+          "defaultConsistencyLevel": "Session"
+        },
+        "locations": [
+          {
+            "locationName": "[parameters('location')]",
+            "failoverPriority": 0,
+            "isZoneRedundant": false
+          }
+        ],
+        "capabilities": [],
+        "enableFreeTier": false,
+        "backupPolicy": {
+          "type": "Continuous",
+          "continuousModeProperties": {
+            "tier": "Continuous7Days"
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases",
+      "apiVersion": "2023-04-15",
+      "name": "[format('{0}/{1}', variables('cosmosDbAccountName'), 'EntraData')]",
+      "properties": {
+        "resource": {
+          "id": "EntraData"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosDbAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+      "apiVersion": "2023-04-15",
+      "name": "[format('{0}/{1}/{2}', variables('cosmosDbAccountName'), 'EntraData', 'principals')]",
+      "properties": {
+        "resource": {
+          "id": "principals",
+          "partitionKey": {
+            "paths": [
+              "/objectId"
+            ],
+            "kind": "Hash"
+          },
+          "indexingPolicy": {
+            "automatic": true,
+            "indexingMode": "consistent",
+            "includedPaths": [
+              {
+                "path": "/objectId/?"
+              },
+              {
+                "path": "/principalType/?"
+              },
+              {
+                "path": "/displayName/?"
+              },
+              {
+                "path": "/accountEnabled/?"
+              },
+              {
+                "path": "/userPrincipalName/?"
+              },
+              {
+                "path": "/deleted/?"
+              },
+              {
+                "path": "/effectiveFrom/?"
+              },
+              {
+                "path": "/effectiveTo/?"
+              },
+              {
+                "path": "/collectionTimestamp/?"
+              }
+            ],
+            "excludedPaths": [
+              {
+                "path": "/*"
+              }
+            ]
+          },
+          "defaultTtl": -1
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', variables('cosmosDbAccountName'), 'EntraData')]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+      "apiVersion": "2023-04-15",
+      "name": "[format('{0}/{1}/{2}', variables('cosmosDbAccountName'), 'EntraData', 'resources')]",
+      "properties": {
+        "resource": {
+          "id": "resources",
+          "partitionKey": {
+            "paths": [
+              "/resourceType"
+            ],
+            "kind": "Hash"
+          },
+          "indexingPolicy": {
+            "automatic": true,
+            "indexingMode": "consistent",
+            "includedPaths": [
+              {
+                "path": "/objectId/?"
+              },
+              {
+                "path": "/resourceType/?"
+              },
+              {
+                "path": "/displayName/?"
+              },
+              {
+                "path": "/subscriptionId/?"
+              },
+              {
+                "path": "/deleted/?"
+              },
+              {
+                "path": "/effectiveFrom/?"
+              },
+              {
+                "path": "/effectiveTo/?"
+              },
+              {
+                "path": "/collectionTimestamp/?"
+              }
+            ],
+            "excludedPaths": [
+              {
+                "path": "/*"
+              }
+            ]
+          },
+          "defaultTtl": -1
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', variables('cosmosDbAccountName'), 'EntraData')]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+      "apiVersion": "2023-04-15",
+      "name": "[format('{0}/{1}/{2}', variables('cosmosDbAccountName'), 'EntraData', 'edges')]",
+      "properties": {
+        "resource": {
+          "id": "edges",
+          "partitionKey": {
+            "paths": [
+              "/edgeType"
+            ],
+            "kind": "Hash"
+          },
+          "indexingPolicy": {
+            "automatic": true,
+            "indexingMode": "consistent",
+            "includedPaths": [
+              {
+                "path": "/sourceId/?"
+              },
+              {
+                "path": "/targetId/?"
+              },
+              {
+                "path": "/edgeType/?"
+              },
+              {
+                "path": "/deleted/?"
+              },
+              {
+                "path": "/effectiveFrom/?"
+              },
+              {
+                "path": "/effectiveTo/?"
+              },
+              {
+                "path": "/collectionTimestamp/?"
+              }
+            ],
+            "excludedPaths": [
+              {
+                "path": "/*"
+              }
+            ]
+          },
+          "defaultTtl": -1
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', variables('cosmosDbAccountName'), 'EntraData')]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+      "apiVersion": "2023-04-15",
+      "name": "[format('{0}/{1}/{2}', variables('cosmosDbAccountName'), 'EntraData', 'policies')]",
+      "properties": {
+        "resource": {
+          "id": "policies",
+          "partitionKey": {
+            "paths": [
+              "/policyType"
+            ],
+            "kind": "Hash"
+          },
+          "indexingPolicy": {
+            "automatic": true,
+            "indexingMode": "consistent",
+            "includedPaths": [
+              {
+                "path": "/objectId/?"
+              },
+              {
+                "path": "/policyType/?"
+              },
+              {
+                "path": "/displayName/?"
+              },
+              {
+                "path": "/state/?"
+              },
+              {
+                "path": "/deleted/?"
+              },
+              {
+                "path": "/effectiveFrom/?"
+              },
+              {
+                "path": "/effectiveTo/?"
+              }
+            ],
+            "excludedPaths": [
+              {
+                "path": "/*"
+              }
+            ]
+          },
+          "defaultTtl": -1
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', variables('cosmosDbAccountName'), 'EntraData')]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+      "apiVersion": "2023-04-15",
+      "name": "[format('{0}/{1}/{2}', variables('cosmosDbAccountName'), 'EntraData', 'events')]",
+      "properties": {
+        "resource": {
+          "id": "events",
+          "partitionKey": {
+            "paths": [
+              "/eventDate"
+            ],
+            "kind": "Hash"
+          },
+          "indexingPolicy": {
+            "automatic": true,
+            "indexingMode": "consistent",
+            "includedPaths": [
+              {
+                "path": "/eventType/?"
+              },
+              {
+                "path": "/eventDate/?"
+              },
+              {
+                "path": "/userId/?"
+              },
+              {
+                "path": "/createdDateTime/?"
+              }
+            ],
+            "excludedPaths": [
+              {
+                "path": "/*"
+              }
+            ]
+          },
+          "defaultTtl": 7776000
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', variables('cosmosDbAccountName'), 'EntraData')]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+      "apiVersion": "2023-04-15",
+      "name": "[format('{0}/{1}/{2}', variables('cosmosDbAccountName'), 'EntraData', 'audit')]",
+      "properties": {
+        "resource": {
+          "id": "audit",
+          "partitionKey": {
+            "paths": [
+              "/auditDate"
+            ],
+            "kind": "Hash"
+          },
+          "indexingPolicy": {
+            "automatic": true,
+            "indexingMode": "consistent",
+            "includedPaths": [
+              {
+                "path": "/objectId/?"
+              },
+              {
+                "path": "/auditDate/?"
+              },
+              {
+                "path": "/changeType/?"
+              },
+              {
+                "path": "/entityType/?"
+              }
+            ],
+            "excludedPaths": [
+              {
+                "path": "/*"
+              }
+            ]
+          },
+          "defaultTtl": -1
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', variables('cosmosDbAccountName'), 'EntraData')]"
+      ]
+    },
+    {
+      "condition": "[parameters('deployGremlin')]",
+      "type": "Microsoft.DocumentDB/databaseAccounts",
+      "apiVersion": "2023-04-15",
+      "name": "[variables('cosmosGremlinAccountName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "kind": "GlobalDocumentDB",
+      "properties": {
+        "databaseAccountOfferType": "Standard",
+        "enableAutomaticFailover": false,
+        "consistencyPolicy": {
+          "defaultConsistencyLevel": "Session"
+        },
+        "locations": [
+          {
+            "locationName": "[parameters('location')]",
+            "failoverPriority": 0,
+            "isZoneRedundant": false
+          }
+        ],
+        "capabilities": [
+          {
+            "name": "EnableGremlin"
+          }
+        ],
+        "enableFreeTier": false,
+        "backupPolicy": {
+          "type": "Continuous",
+          "continuousModeProperties": {
+            "tier": "Continuous7Days"
+          }
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployGremlin')]",
+      "type": "Microsoft.DocumentDB/databaseAccounts/gremlinDatabases",
+      "apiVersion": "2023-04-15",
+      "name": "[format('{0}/{1}', variables('cosmosGremlinAccountName'), 'EntraGraph')]",
+      "properties": {
+        "resource": {
+          "id": "EntraGraph"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosGremlinAccountName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('deployGremlin')]",
+      "type": "Microsoft.DocumentDB/databaseAccounts/gremlinDatabases/graphs",
+      "apiVersion": "2023-04-15",
+      "name": "[format('{0}/{1}/{2}', variables('cosmosGremlinAccountName'), 'EntraGraph', 'graph')]",
+      "properties": {
+        "resource": {
+          "id": "graph",
+          "partitionKey": {
+            "paths": [
+              "/pk"
+            ],
+            "kind": "Hash"
+          },
+          "indexingPolicy": {
+            "automatic": true,
+            "indexingMode": "consistent",
+            "includedPaths": [
+              {
+                "path": "/*"
+              }
+            ],
+            "excludedPaths": [
+              {
+                "path": "/\"_etag\"/?"
+              }
+            ]
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/gremlinDatabases', variables('cosmosGremlinAccountName'), 'EntraGraph')]"
+      ]
+    },
+    {
+      "condition": "[parameters('deployGremlin')]",
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments",
+      "apiVersion": "2023-04-15",
+      "name": "[format('{0}/{1}', variables('cosmosGremlinAccountName'), guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosGremlinAccountName')), resourceId('Microsoft.Web/sites', variables('functionAppName')), 'gremlin-data-contributor'))]",
+      "properties": {
+        "roleDefinitionId": "[format('{0}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002', resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosGremlinAccountName')))]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), '2022-09-01', 'full').identity.principalId]",
+        "scope": "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosGremlinAccountName'))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosGremlinAccountName'))]",
+        "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Insights/diagnosticSettings",
+      "apiVersion": "2021-05-01-preview",
+      "scope": "[format('Microsoft.DocumentDB/databaseAccounts/{0}', variables('cosmosDbAccountName'))]",
+      "name": "cosmos-audit-logs",
+      "properties": {
+        "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName'))]",
+        "logs": [
+          {
+            "category": "DataPlaneRequests",
+            "enabled": true
+          },
+          {
+            "category": "QueryRuntimeStatistics",
+            "enabled": true
+          },
+          {
+            "category": "PartitionKeyStatistics",
+            "enabled": true
+          },
+          {
+            "category": "ControlPlaneRequests",
+            "enabled": true
+          }
+        ],
+        "metrics": [
+          {
+            "category": "Requests",
+            "enabled": true
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosDbAccountName'))]",
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleDefinitions",
+      "apiVersion": "2023-04-15",
+      "name": "[format('{0}/{1}', variables('cosmosDbAccountName'), guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosDbAccountName')), 'audit-writer-role'))]",
+      "properties": {
+        "roleName": "Audit Trail Writer (No Delete)",
+        "type": "CustomRole",
+        "assignableScopes": [
+          "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosDbAccountName'))]"
+        ],
+        "permissions": [
+          {
+            "dataActions": [
+              "Microsoft.DocumentDB/databaseAccounts/readMetadata",
+              "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers/items/read",
+              "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers/executeQuery",
+              "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers/items/create",
+              "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers/items/upsert",
+              "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers/items/replace"
+            ]
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosDbAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments",
+      "apiVersion": "2023-04-15",
+      "name": "[format('{0}/{1}', variables('cosmosDbAccountName'), guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosDbAccountName')), resourceId('Microsoft.Web/sites', variables('functionAppName')), 'audit-writer-assignment'))]",
+      "properties": {
+        "roleDefinitionId": "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleDefinitions', variables('cosmosDbAccountName'), guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosDbAccountName')), 'audit-writer-role'))]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), '2022-09-01', 'full').identity.principalId]",
+        "scope": "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosDbAccountName'))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlRoleDefinitions', variables('cosmosDbAccountName'), guid(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosDbAccountName')), 'audit-writer-role'))]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosDbAccountName'))]",
+        "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults",
+      "apiVersion": "2023-02-01",
+      "name": "[variables('keyVaultName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "sku": {
+          "family": "A",
+          "name": "standard"
+        },
+        "tenantId": "[parameters('tenantId')]",
+        "enableSoftDelete": true,
+        "softDeleteRetentionInDays": 7,
+        "enableRbacAuthorization": true,
+        "enabledForDeployment": false,
+        "enabledForTemplateDeployment": true
+      }
+    },
+    {
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "apiVersion": "2022-10-01",
+      "name": "[variables('logAnalyticsName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "sku": {
+          "name": "PerGB2018"
+        },
+        "retentionInDays": 30
+      }
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2020-02-02",
+      "name": "[variables('appInsightsName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "kind": "web",
+      "properties": {
+        "Application_Type": "web",
+        "WorkspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName'))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2022-09-01",
+      "name": "[variables('appServicePlanName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "sku": {
+        "name": "Y1",
+        "tier": "Dynamic"
+      },
+      "properties": {}
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2022-09-01",
+      "name": "[variables('functionAppName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "kind": "functionapp",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]",
+        "httpsOnly": true,
+        "siteConfig": {
+          "powerShellVersion": "7.4",
+          "appSettings": [
+            {
+              "name": "AzureWebJobsStorage",
+              "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix={2}', variables('storageAccountName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-01-01').keys[0].value, environment().suffixes.storage)]"
+            },
+            {
+              "name": "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING",
+              "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix={2}', variables('storageAccountName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-01-01').keys[0].value, environment().suffixes.storage)]"
+            },
+            {
+              "name": "WEBSITE_CONTENTSHARE",
+              "value": "[toLower(variables('functionAppName'))]"
+            },
+            {
+              "name": "FUNCTIONS_EXTENSION_VERSION",
+              "value": "~4"
+            },
+            {
+              "name": "FUNCTIONS_WORKER_RUNTIME",
+              "value": "powershell"
+            },
+            {
+              "name": "APPINSIGHTS_INSTRUMENTATIONKEY",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').InstrumentationKey]"
+            },
+            {
+              "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').ConnectionString]"
+            },
+            {
+              "name": "STORAGE_ACCOUNT_NAME",
+              "value": "[variables('storageAccountName')]"
+            },
+            {
+              "name": "COSMOS_DB_ENDPOINT",
+              "value": "[reference(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosDbAccountName')), '2023-04-15').documentEndpoint]"
+            },
+            {
+              "name": "COSMOS_DB_DATABASE",
+              "value": "EntraData"
+            },
+            {
+              "name": "COSMOS_CONTAINER_PRINCIPALS",
+              "value": "principals"
+            },
+            {
+              "name": "COSMOS_CONTAINER_RESOURCES",
+              "value": "resources"
+            },
+            {
+              "name": "COSMOS_CONTAINER_EDGES",
+              "value": "edges"
+            },
+            {
+              "name": "COSMOS_CONTAINER_POLICIES",
+              "value": "policies"
+            },
+            {
+              "name": "COSMOS_CONTAINER_EVENTS",
+              "value": "events"
+            },
+            {
+              "name": "COSMOS_CONTAINER_AUDIT",
+              "value": "audit"
+            },
+            {
+              "name": "CosmosDbConnectionString",
+              "value": "[listConnectionStrings(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosDbAccountName')), '2023-04-15').connectionStrings[0].connectionString]"
+            },
+            {
+              "name": "KEY_VAULT_URI",
+              "value": "[reference(resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName')), '2023-02-01').vaultUri]"
+            },
+            {
+              "name": "TENANT_ID",
+              "value": "[parameters('tenantId')]"
+            },
+            {
+              "name": "BATCH_SIZE",
+              "value": "999"
+            },
+            {
+              "name": "PARALLEL_THROTTLE",
+              "value": "10"
+            },
+            {
+              "name": "COSMOS_BATCH_SIZE",
+              "value": "100"
+            },
+            {
+              "name": "ENABLE_DELTA_DETECTION",
+              "value": "true"
+            },
+            {
+              "name": "BLOB_RETENTION_DAYS",
+              "value": "[string(parameters('blobRetentionDays'))]"
+            },
+            {
+              "name": "ROLE_CACHE_DURATION_MINUTES",
+              "value": "5"
+            },
+            {
+              "name": "PIM_PARALLEL_THROTTLE",
+              "value": "10"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Insights/components', variables('appInsightsName'))]",
+        "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers', variables('cosmosDbAccountName'), 'EntraData', 'audit')]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers', variables('cosmosDbAccountName'), 'EntraData', 'edges')]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers', variables('cosmosDbAccountName'), 'EntraData', 'events')]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers', variables('cosmosDbAccountName'), 'EntraData', 'policies')]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers', variables('cosmosDbAccountName'), 'EntraData', 'principals')]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers', variables('cosmosDbAccountName'), 'EntraData', 'resources')]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', variables('cosmosDbAccountName'), 'EntraData')]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosDbAccountName'))]",
+        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[format('Microsoft.Storage/storageAccounts/{0}', variables('storageAccountName'))]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), resourceId('Microsoft.Web/sites', variables('functionAppName')), 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), '2022-09-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[format('Microsoft.KeyVault/vaults/{0}', variables('keyVaultName'))]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName')), resourceId('Microsoft.Web/sites', variables('functionAppName')), '4633458b-17de-408a-b874-0445c86b69e6')]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), '2022-09-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]",
+        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "storageAccountName": {
+      "type": "string",
+      "value": "[variables('storageAccountName')]"
+    },
+    "functionAppName": {
+      "type": "string",
+      "value": "[variables('functionAppName')]"
+    },
+    "cosmosDbAccountName": {
+      "type": "string",
+      "value": "[variables('cosmosDbAccountName')]"
+    },
+    "cosmosDbEndpoint": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosDbAccountName')), '2023-04-15').documentEndpoint]"
+    },
+    "cosmosDatabaseName": {
+      "type": "string",
+      "value": "EntraData"
+    },
+    "cosmosContainerPrincipals": {
+      "type": "string",
+      "value": "principals"
+    },
+    "cosmosContainerResources": {
+      "type": "string",
+      "value": "resources"
+    },
+    "cosmosContainerEdges": {
+      "type": "string",
+      "value": "edges"
+    },
+    "cosmosContainerPolicies": {
+      "type": "string",
+      "value": "policies"
+    },
+    "cosmosContainerEvents": {
+      "type": "string",
+      "value": "events"
+    },
+    "cosmosContainerAudit": {
+      "type": "string",
+      "value": "audit"
+    },
+    "keyVaultName": {
+      "type": "string",
+      "value": "[variables('keyVaultName')]"
+    },
+    "appInsightsName": {
+      "type": "string",
+      "value": "[variables('appInsightsName')]"
+    },
+    "functionAppIdentityPrincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), '2022-09-01', 'full').identity.principalId]"
+    },
+    "blobRetentionDays": {
+      "type": "int",
+      "value": "[parameters('blobRetentionDays')]"
+    },
+    "cosmosGremlinAccountName": {
+      "type": "string",
+      "value": "[if(parameters('deployGremlin'), variables('cosmosGremlinAccountName'), 'not-deployed')]"
+    },
+    "cosmosGremlinEndpoint": {
+      "type": "string",
+      "value": "[if(parameters('deployGremlin'), format('wss://{0}.gremlin.cosmos.azure.com:443/', variables('cosmosGremlinAccountName')), 'not-deployed')]"
+    },
+    "cosmosGremlinDatabase": {
+      "type": "string",
+      "value": "[if(parameters('deployGremlin'), 'EntraGraph', 'not-deployed')]"
+    },
+    "cosmosGremlinGraph": {
+      "type": "string",
+      "value": "[if(parameters('deployGremlin'), 'graph', 'not-deployed')]"
+    }
+  }
+}

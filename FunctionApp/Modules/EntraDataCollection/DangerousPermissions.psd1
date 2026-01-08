@@ -1,6 +1,6 @@
 # Dangerous Permissions Reference
 # Maps Microsoft Graph permissions, Directory Roles, and Ownership patterns to abuse capabilities
-# Used by DeriveAbuseEdges function to create derived attack edges
+# Used by DeriveEdges function to create derived attack edges
 
 @{
     # ============================================

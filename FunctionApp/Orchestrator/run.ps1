@@ -43,7 +43,7 @@
       - IndexEventsInCosmosDB -> events container
 
     Phase 4: Derive Edges (2 derivation functions)
-      - DeriveAbuseEdges -> edges container (attack path capabilities)
+      - DeriveEdges -> edges container (attack path capabilities)
       - DeriveVirtualEdges -> edges container (policy gate edges)
 
     V3.5 Benefits:
@@ -479,24 +479,24 @@ try {
     #region Phase 4: Derive Edges (2 derivation functions)
     Write-Verbose "Phase 4: Deriving abuse and virtual edges..."
 
-    # Derive Abuse Edges (attack path capabilities from permissions/roles)
-    $abuseEdgesResult = @{ Success = $false; DerivedEdgeCount = 0; Statistics = @{} }
+    # Derive Edges (attack path capabilities from permissions/roles)
+    $derivedEdgesResult = @{ Success = $false; DerivedEdgeCount = 0; Statistics = @{} }
     try {
-        $abuseEdgesInput = @{ Timestamp = $timestamp }
-        $abuseEdgesResult = Invoke-DurableActivity -FunctionName 'DeriveAbuseEdges' -Input $abuseEdgesInput
-        if ($abuseEdgesResult.Success) {
-            Write-Verbose "Abuse edge derivation complete: $($abuseEdgesResult.DerivedEdgeCount) edges derived"
-            Write-Verbose "  Graph Permission Abuse: $($abuseEdgesResult.Statistics.GraphPermissionAbuse ?? 0)"
-            Write-Verbose "  Directory Role Abuse: $($abuseEdgesResult.Statistics.DirectoryRoleAbuse ?? 0)"
-            Write-Verbose "  Ownership Abuse: $($abuseEdgesResult.Statistics.OwnershipAbuse ?? 0)"
-            Write-Verbose "  Azure RBAC Abuse: $($abuseEdgesResult.Statistics.AzureRbacAbuse ?? 0)"
+        $derivedEdgesInput = @{ Timestamp = $timestamp }
+        $derivedEdgesResult = Invoke-DurableActivity -FunctionName 'DeriveEdges' -Input $derivedEdgesInput
+        if ($derivedEdgesResult.Success) {
+            Write-Verbose "Edge derivation complete: $($derivedEdgesResult.DerivedEdgeCount) edges derived"
+            Write-Verbose "  Graph Permission: $($derivedEdgesResult.Statistics.GraphPermissionAbuse ?? 0)"
+            Write-Verbose "  Directory Role: $($derivedEdgesResult.Statistics.DirectoryRoleAbuse ?? 0)"
+            Write-Verbose "  Ownership: $($derivedEdgesResult.Statistics.OwnershipAbuse ?? 0)"
+            Write-Verbose "  Azure RBAC: $($derivedEdgesResult.Statistics.AzureRbacAbuse ?? 0)"
         } else {
-            Write-Warning "Abuse edge derivation failed: $($abuseEdgesResult.Error)"
+            Write-Warning "Edge derivation failed: $($derivedEdgesResult.Error)"
         }
     }
     catch {
-        Write-Warning "Abuse edge derivation threw exception: $_"
-        $abuseEdgesResult = @{ Success = $false; DerivedEdgeCount = 0; Error = $_.Exception.Message }
+        Write-Warning "Edge derivation threw exception: $_"
+        $derivedEdgesResult = @{ Success = $false; DerivedEdgeCount = 0; Error = $_.Exception.Message }
     }
 
     # V3.5: Derive Virtual Edges (policy gate edges from Intune policies)

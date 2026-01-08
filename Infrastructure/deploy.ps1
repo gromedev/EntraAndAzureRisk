@@ -1,10 +1,10 @@
-#region V3 Deployment Script - Unified Architecture
+#region V3.5 Deployment Script - Unified Architecture
 <#
 .SYNOPSIS
-    Deploys Entra Risk Analysis V3 infrastructure
+    Deploys Entra Risk Analysis V3.5 infrastructure
 
 .DESCRIPTION
-    V3 Architecture uses 6 unified Cosmos DB containers:
+    V3.5 Architecture uses 6 unified Cosmos DB containers:
     - principals: users, groups, SPs, devices
     - resources: applications, Azure resources
     - edges: all relationships (with edgeType discriminator)
@@ -17,7 +17,7 @@
 .PARAMETER TenantId
     Entra ID tenant ID
 .PARAMETER ResourceGroupName
-    Resource group name (default: rg-entrarisk-v3-001)
+    Resource group name (default: rg-entrarisk-v35-001)
 .PARAMETER Location
     Azure region (default: swedencentral)
 .PARAMETER Environment
@@ -25,7 +25,10 @@
 .PARAMETER BlobRetentionDays
     Blob retention in days (default: 7)
 .PARAMETER WorkloadName
-    Workload name for resources (default: entrariskv3)
+    Workload name for resources (default: entrariskv35)
+
+.PARAMETER DeployGremlin
+    Deploy Gremlin graph database (default: false, deferred to V3.6)
 
 .EXAMPLE
     .\deploy.ps1 -SubscriptionId "xxx" -TenantId "yyy"
@@ -46,7 +49,7 @@ param(
     [string]$TenantId,
     
     [Parameter(Mandatory=$false)]
-    [string]$ResourceGroupName = "rg-entrarisk-v3-001",
+    [string]$ResourceGroupName = "rg-entrarisk-v35-001",
     
     [Parameter(Mandatory=$false)]
     [string]$Location = "swedencentral",
@@ -60,7 +63,10 @@ param(
     [int]$BlobRetentionDays = 7,
     
     [Parameter(Mandatory=$false)]
-    [string]$WorkloadName = "entrariskv3"
+    [string]$WorkloadName = "entrariskv35",
+
+    [Parameter(Mandatory=$false)]
+    [bool]$DeployGremlin = $false
 )
 
 #region Helper Functions
@@ -93,6 +99,7 @@ Write-DeploymentInfo "Resource Group" $ResourceGroupName
 Write-DeploymentInfo "Location" $Location
 Write-DeploymentInfo "Environment" $Environment
 Write-DeploymentInfo "Blob Retention" "$BlobRetentionDays days"
+Write-DeploymentInfo "Deploy Gremlin" $(if ($DeployGremlin) { "Yes" } else { "No (deferred to V3.6)" })
 Write-Host ""
 
 #region Azure Connection
@@ -130,10 +137,10 @@ try {
         $rg = New-AzResourceGroup -Name $ResourceGroupName -Location $Location -Tag @{
             Environment = $Environment
             Workload = $WorkloadName
-            Project = 'EntraRiskAnalysis-V3'
+            Project = 'EntraRiskAnalysis-V3.5'
             DeployedBy = $env:USERNAME
             DeployedDate = (Get-Date -Format 'yyyy-MM-dd')
-            Architecture = 'V3-Unified'
+            Architecture = 'V3.5-Unified'
         } -ErrorAction Stop
         
         Write-DeploymentSuccess "Resource group created"
@@ -179,6 +186,7 @@ try {
         -location $Location `
         -tenantId $TenantId `
         -blobRetentionDays $BlobRetentionDays `
+        -deployGremlin $DeployGremlin `
         -Verbose `
         -ErrorAction Stop
     
@@ -219,7 +227,7 @@ try {
     # 1. Get the Function App name and Identity ID from Bicep outputs
     $functionAppName = $deployment.Outputs.functionAppName.Value
 
-    # All required Graph API permissions for V2 collectors
+    # All required Graph API permissions for V3.5 collectors
     $requiredPermissions = @(
         "User.Read.All",
         "Group.Read.All",
@@ -234,7 +242,8 @@ try {
         "PrivilegedAccess.Read.AzureADGroup",
         "PrivilegedAccess.Read.AzureResources",
         "UserAuthenticationMethod.Read.All",
-        "IdentityRiskyUser.Read.All"
+        "IdentityRiskyUser.Read.All",
+        "DeviceManagementConfiguration.Read.All"  # V3.5: Intune policies
     )
 
     # 2. Get the Service Principal of your Function App
@@ -312,7 +321,7 @@ Write-DeploymentInfo "Account" $deployment.Outputs.cosmosDbAccountName.Value
 Write-DeploymentInfo "Endpoint" $deployment.Outputs.cosmosDbEndpoint.Value
 Write-DeploymentInfo "Database" $deployment.Outputs.cosmosDatabaseName.Value
 Write-Host ""
-Write-Host "  V3 Containers:" -ForegroundColor Gray
+Write-Host "  V3.5 Containers:" -ForegroundColor Gray
 Write-Host "    1. $($deployment.Outputs.cosmosContainerPrincipals.Value) - Users, groups, SPs, devices"
 Write-Host "    2. $($deployment.Outputs.cosmosContainerResources.Value) - Applications, Azure resources"
 Write-Host "    3. $($deployment.Outputs.cosmosContainerEdges.Value) - All relationships"
@@ -342,7 +351,7 @@ Write-Host ""
 # Identity
 Write-Host "MANAGED IDENTITIES:" -ForegroundColor Yellow
 Write-DeploymentInfo "Function App" $deployment.Outputs.functionAppIdentityPrincipalId.Value
-Write-DeploymentInfo "Graph Permissions" "14 permissions assigned (see deploy.ps1 for list)"
+Write-DeploymentInfo "Graph Permissions" "15 permissions assigned (see deploy.ps1 for list)"
 Write-Host ""
 
 #region FunctionApp Code Deployment
@@ -433,7 +442,7 @@ $deploymentInfo = @{
     Location = $Location
     Environment = $Environment
     BlobRetentionDays = $BlobRetentionDays
-    Architecture = 'V3-Unified'
+    Architecture = 'V3.5-Unified'
 
     Resources = @{
         StorageAccount = $deployment.Outputs.storageAccountName.Value
@@ -463,7 +472,7 @@ $deploymentInfo = @{
     }
 }
 
-$infoPath = Join-Path $PSScriptRoot "deployment-info-v3-$(Get-Date -Format 'yyyyMMdd-HHmmss').json"
+$infoPath = Join-Path $PSScriptRoot "deployment-info-v35-$(Get-Date -Format 'yyyyMMdd-HHmmss').json"
 $deploymentInfo | ConvertTo-Json -Depth 10 | Set-Content -Path $infoPath
 
 Write-Host ""

@@ -13,7 +13,7 @@ A data collection and analysis platform that:
 - Collects Entra ID and Azure security data via Microsoft Graph API and Azure Resource Manager API
 - Stores data in Cosmos DB with intelligent delta detection (~99% write reduction)
 - Enables historical trend analysis, audit correlation, and attack path discovery
-- Projects data to Gremlin graph database for attack path traversal
+- Projects data to Gremlin graph database for attack path traversal *(V3.6)*
 - Generates pre-rendered attack path snapshots (DOT/SVG)
 - Powers dashboards and Power BI reporting
 
@@ -26,7 +26,7 @@ flowchart TB
         Azure["Azure Resource Manager"]
     end
 
-    subgraph FunctionApp["Azure Function App (12 Collectors + 2 Derivation + 5 Indexers + 2 Graph Functions)"]
+    subgraph FunctionApp["Azure Function App (12 Collectors + 2 Derivation + 5 Indexers)"]
         Orch["Orchestrator"]
         subgraph PrincipalCollectors["Principal Collectors (4)"]
             UC["Users + Auth + Risk"]
@@ -49,7 +49,7 @@ flowchart TB
             EC["Events"]
         end
         subgraph DerivationFunctions["Derivation Functions (2)"]
-            DAE["Derive Abuse Edges"]
+            DAE["Derive Edges"]
             DVE["Derive Virtual Edges"]
         end
         subgraph Indexers["Indexers (5)"]
@@ -116,10 +116,10 @@ flowchart TB
 | **CollectRoleDefinitions** | Unified Directory + Azure role definitions in one collector |
 | **CollectIntunePolicies** | Combined Compliance + App Protection (MAM) policy collection |
 | **Embedded Risk Data** | User risk level/state from Identity Protection embedded in user documents |
-| **DeriveAbuseEdges** | Attack path capability edges derived from dangerous permissions |
+| **DeriveEdges** | Attack path capability edges derived from dangerous permissions |
 | **DeriveVirtualEdges** | Intune policy targeting edges (compliance + app protection) |
-| **Attack Path Snapshots** | Pre-rendered Gremlin query results for common attack patterns (DOT format) |
-| **Gremlin Graph Projection** | Timer-triggered sync from audit container to Gremlin graph database |
+| **Attack Path Snapshots** | Pre-rendered query results for common attack patterns (DOT format) - *Gremlin deferred to V3.6* |
+| **Gremlin Graph Projection** | Timer-triggered sync from audit container to Gremlin graph database - *Deferred to V3.6* |
 | **30+ Edge Types** | Original 24 + abuse edges (6) + Intune policy edges (2) |
 | **Synthetic Vertices** | Role definitions as queryable vertices with `isPrivileged` flags |
 | **CA Policy Analysis** | Edges show which principals are targeted/excluded from CA policies |
@@ -245,14 +245,16 @@ sequenceDiagram
 | **Phase 1** | CollectEvents | events.jsonl | 1 |
 | **Phase 2** | CollectRelationships (24+ edge types incl. CA policy edges) | edges.jsonl | 1 |
 | **Phase 3** | All 5 indexers | → Cosmos DB | Sequential per type |
-| **Phase 4** | DeriveAbuseEdges, DeriveVirtualEdges | → edges container | 2 parallel |
+| **Phase 4** | DeriveEdges, DeriveVirtualEdges | → edges container | 2 parallel |
 
-### Graph Functions (Timer-Triggered)
+### Graph Functions (Timer-Triggered) - *Deferred to V3.6*
 
-| Function | Schedule | Purpose |
-|----------|----------|---------|
-| `ProjectGraphToGremlin` | Every 15 min | Sync audit changes to Gremlin graph |
-| `GenerateGraphSnapshots` | Hourly | Generate attack path snapshots (DOT/JSON) |
+> **Note:** Gremlin graph projection and snapshot generation are planned for V3.6.
+
+| Function | Schedule | Purpose | Status |
+|----------|----------|---------|--------|
+| `ProjectGraphToGremlin` | Every 15 min | Sync audit changes to Gremlin graph | *V3.6* |
+| `GenerateGraphSnapshots` | Hourly | Generate attack path snapshots (DOT/JSON) | *V3.6* |
 
 ### Key Patterns
 - **Streaming to blob** - Memory efficient, handles any data volume
@@ -261,14 +263,14 @@ sequenceDiagram
 - **Retry with backoff** - Handles Graph API throttling
 - **Parallel collection** - Multiple collectors run concurrently
 - **Temporal tracking** - `effectiveFrom`/`effectiveTo` for point-in-time queries
-- **Watermark-based sync** - Gremlin projector tracks last sync timestamp
-- **Fold/coalesce upserts** - Idempotent Gremlin vertex/edge operations
+- **Watermark-based sync** - Gremlin projector tracks last sync timestamp *(V3.6)*
+- **Fold/coalesce upserts** - Idempotent Gremlin vertex/edge operations *(V3.6)*
 
 ---
 
 ## Storage Structure
 
-### Cosmos DB Containers (6 SQL + 1 Gremlin)
+### Cosmos DB Containers (6 SQL)
 
 ```mermaid
 flowchart LR
@@ -413,7 +415,7 @@ Collects 11 Azure resource types via `AzureResourceTypes.psd1`:
 
 | Function | Output | Description |
 |----------|--------|-------------|
-| `DeriveAbuseEdges` | → edges container | Attack path capabilities from dangerous permissions (Graph API, Directory Roles, Ownership) |
+| `DeriveEdges` | → edges container | Attack path capabilities from dangerous permissions (Graph API, Directory Roles, Ownership) |
 | `DeriveVirtualEdges` | → edges container | Intune policy targeting edges (compliance + app protection policy → group) |
 
 ---
@@ -466,7 +468,7 @@ Collects 11 Azure resource types via `AzureResourceTypes.psd1`:
 
 ### Abuse Edges (6 types) - NEW in V3.5
 
-Derived by `DeriveAbuseEdges` from dangerous permissions defined in `DangerousPermissions.psd1`:
+Derived by `DeriveEdges` from dangerous permissions defined in `DangerousPermissions.psd1`:
 
 | edgeType | Source | Target | Capability |
 |----------|--------|--------|------------|
@@ -859,11 +861,11 @@ g.E().hasLabel('rolePolicyAssignment')
 | Aspect | Value |
 |--------|-------|
 | Collectors | 12 (4 Principal + 4 Resource + 2 Policy + 2 Other) |
-| Derivation Functions | 2 (DeriveAbuseEdges + DeriveVirtualEdges) |
+| Derivation Functions | 2 (DeriveEdges + DeriveVirtualEdges) |
 | Indexers | 5 |
-| Graph Functions | 2 (ProjectGraphToGremlin + GenerateGraphSnapshots) |
+| Graph Functions | 2 (ProjectGraphToGremlin + GenerateGraphSnapshots) - *V3.6* |
 | Cosmos SQL containers | 6 |
-| Cosmos Gremlin container | 1 |
+| Cosmos Gremlin container | 0 *(V3.6: 1)* |
 | Edge types | 32+ (15 Entra + 3 Azure + 5 CA Policy + 1 Role Policy + 6 Abuse + 2 Virtual) |
 | Resource types | 17 (application, 2 role defs, tenant, MG, sub, RG, + 11 Azure resources) |
 | Principal types | 4 (user, group, servicePrincipal, device) |
@@ -874,7 +876,7 @@ g.E().hasLabel('rolePolicyAssignment')
 | Delta detection | ~99% write reduction |
 | Historical tracking | Permanent (no TTL on audit container) |
 | Temporal fields | effectiveFrom/effectiveTo on all entities |
-| Gremlin sync | Every 15 minutes from audit container |
+| Gremlin sync | Every 15 minutes from audit container *(V3.6)* |
 | Snapshot generation | Hourly |
 
 ### Key Architectural Decisions (V3.5)
@@ -885,8 +887,8 @@ g.E().hasLabel('rolePolicyAssignment')
 4. **Temporal fields** - Enable point-in-time queries
 5. **Append blob with If-None-Match** - Race-safe parallel writes to same file
 6. **roleManagement API** - Consistent, includes custom roles
-7. **Gremlin projection from audit** - Changes sync to graph via audit container
-8. **Separate Gremlin Cosmos account** - SQL and Gremlin APIs require separate accounts
+7. **Gremlin projection from audit** - Changes sync to graph via audit container *(V3.6)*
+8. **Separate Gremlin Cosmos account** - SQL and Gremlin APIs require separate accounts *(V3.6)*
 9. **CA/PIM policy edges** - Security policy coverage as graph relationships
 10. **Role definitions as vertices** - Enables path traversal through roles
 11. **Attack path snapshots** - Pre-computed common attack patterns
