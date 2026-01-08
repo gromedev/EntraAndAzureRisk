@@ -128,10 +128,17 @@ No displayName, no timestamps, no metadata bloat. Those are resolved from SQL wh
    - [Function App Integration](#38-function-app-integration)
 4. [Part 4: Attack Path Queries](#part-4-attack-path-queries)
    - [Gremlin Query Examples](#41-gremlin-query-examples)
-   - [Power BI SQL Query Patterns](#42-power-bi-sql-query-patterns)
-5. [Implementation Tasks](#implementation-tasks)
-6. [Validation Checklist](#validation-checklist)
-7. [References](#references)
+   - [Gremlin Query Templates](#42-gremlin-query-templates)
+   - [Power BI SQL Query Patterns](#43-power-bi-sql-query-patterns)
+5. [Part 5: Static Snapshots](#part-5-static-snapshots)
+   - [Snapshot Architecture](#51-snapshot-architecture)
+   - [Pre-Rendered Attack Paths](#52-pre-rendered-attack-paths)
+   - [Snapshot Generator Function](#53-snapshot-generator-function)
+6. [Part 6: Infrastructure (Bicep)](#part-6-infrastructure-bicep)
+   - [Gremlin Database Deployment](#61-gremlin-database-deployment)
+7. [Implementation Tasks](#implementation-tasks)
+8. [Validation Checklist](#validation-checklist)
+9. [References](#references)
 
 ---
 
@@ -1544,7 +1551,91 @@ g.E().hasLabel('caPolicyExcludesPrincipal')
 
 ---
 
-## 4.2 Power BI SQL Query Patterns
+## 4.2 Gremlin Query Templates
+
+Pre-baked queries for common security analysis patterns. Users can inject these from a UI "Query Library."
+
+### Template: Path to High Value Target
+
+```gremlin
+// Template: pathToHVT
+// Parameters: $TARGET_ROLE_ID (e.g., Global Admin = 62e90394-69f5-4237-9190-012177145e10)
+g.V().hasLabel('directoryRole').has('roleTemplateId', '$TARGET_ROLE_ID')
+  .repeat(__.in().simplePath())
+  .emit()
+  .limit(100)
+  .path()
+  .by(valueMap('displayName', 'principalType'))
+```
+
+### Template: Blast Radius from Compromised Principal
+
+```gremlin
+// Template: blastRadius
+// Parameters: $PRINCIPAL_ID
+g.V('$PRINCIPAL_ID')
+  .repeat(out().simplePath())
+  .emit()
+  .hasLabel('directoryRole', 'keyVault', 'subscription')
+  .limit(50)
+  .path()
+  .by(valueMap('displayName'))
+```
+
+### Template: Cross-Tenant Attack Path (via B2B)
+
+```gremlin
+// Template: crossTenantPath
+// Find external users with paths to privileged roles
+g.V().has('userType', 'Guest')
+  .repeat(out().simplePath())
+  .until(hasLabel('directoryRole').has('isPrivileged', true))
+  .limit(50)
+  .path()
+```
+
+### Template: Service Principal to Key Vault
+
+```gremlin
+// Template: spToKeyVault
+// Find SPs that can access Key Vaults
+g.V().hasLabel('servicePrincipal')
+  .repeat(out().simplePath())
+  .until(hasLabel('keyVault'))
+  .limit(100)
+  .path()
+  .by(valueMap('displayName'))
+```
+
+### Template: MFA Bypass via Group Exclusion
+
+```gremlin
+// Template: mfaBypassGroups
+// Find groups excluded from MFA policies
+g.V().hasLabel('group')
+  .inE('caPolicyExcludesPrincipal').has('requiresMfa', true)
+  .outV()
+  .as('policy')
+  .select('policy')
+  .by(valueMap('displayName', 'policyState'))
+```
+
+### Template: PIM Eligible Without MFA Activation
+
+```gremlin
+// Template: pimNoMfa
+// Find PIM-eligible paths to roles that don't require MFA on activation
+g.V().hasLabel('directoryRole')
+  .inE('rolePolicyAssignment').has('requiresMfaOnActivation', false)
+  .outV()
+  .as('policy')
+  .select('policy')
+  .by(valueMap('displayName'))
+```
+
+---
+
+## 4.3 Power BI SQL Query Patterns
 
 ### Users NOT Protected by MFA for a Specific App
 
@@ -1598,6 +1689,395 @@ ORDER BY r.isPrivileged DESC, MemberCount DESC
 
 ---
 
+# Part 5: Static Snapshots
+
+## 5.1 Snapshot Architecture
+
+Static snapshots pre-render common attack paths as SVGs/PNGs, eliminating the need for dashboard polling against Gremlin.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     Snapshot Generation Flow                         │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│   Orchestrator completes → GenerateGraphSnapshots triggers           │
+│                                    ↓                                 │
+│                           Gremlin queries execute                    │
+│                                    ↓                                 │
+│                           Graphviz renders SVG                       │
+│                                    ↓                                 │
+│                           Upload to blob storage                     │
+│                                    ↓                                 │
+│                           Dashboard displays static images           │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Benefits
+
+| Benefit | Impact |
+|---------|--------|
+| No Gremlin polling | Dashboard loads are instant |
+| Pre-computed paths | Complex queries run once per collection cycle |
+| Cached visualizations | SVGs served from blob storage (~$0) |
+| On-demand fallback | "Launch live analysis" for real-time queries |
+
+### Blob Storage Structure
+
+```
+raw-data/
+  2026-01-08T12-00-00Z/
+    principals.jsonl
+    edges.jsonl
+    snapshots/
+      paths-to-global-admin.svg
+      paths-to-global-admin.json       # Path data for tooltips
+      dangerous-service-principals.svg
+      external-user-exposure.svg
+      mfa-coverage-gaps.svg
+      pim-activation-risks.svg
+```
+
+---
+
+## 5.2 Pre-Rendered Attack Paths
+
+### Snapshot Catalog
+
+| Snapshot | Gremlin Query | Use Case |
+|----------|---------------|----------|
+| `paths-to-global-admin.svg` | Shortest paths to Global Admin | Executive dashboard |
+| `dangerous-service-principals.svg` | SPs with privileged access | App security review |
+| `external-user-exposure.svg` | Guest users with privileged paths | B2B risk assessment |
+| `mfa-coverage-gaps.svg` | Principals excluded from MFA | Compliance reporting |
+| `pim-activation-risks.svg` | Roles without MFA on activation | PIM security audit |
+| `azure-attack-paths.svg` | Paths from users to Azure resources | Cloud security review |
+
+### Dashboard Display Pattern
+
+```html
+<!-- Dashboard shows static snapshot with live query link -->
+<div class="attack-path-card">
+  <h3>Paths to Global Administrator</h3>
+  <img src="blob://snapshots/paths-to-global-admin.svg" alt="Attack paths">
+  <p class="timestamp">Snapshot from 2026-01-08 12:00 UTC</p>
+  <a href="/live-query?template=pathToHVT&target=62e90394-69f5-4237-9190-012177145e10">
+    Launch live analysis →
+  </a>
+</div>
+```
+
+---
+
+## 5.3 Snapshot Generator Function
+
+### GenerateGraphSnapshots/run.ps1
+
+```powershell
+param($Timer)
+
+$modulePath = Join-Path $PSScriptRoot "..\Modules\EntraDataCollection"
+Import-Module $modulePath -Force -ErrorAction Stop
+
+try {
+    Write-Information "Starting snapshot generation..."
+
+    $timestamp = (Get-Date).ToString("yyyy-MM-ddTHH-mm-ssZ")
+    $snapshotContainer = "raw-data/$timestamp/snapshots"
+
+    # Define snapshots to generate
+    $snapshots = @(
+        @{
+            Name = "paths-to-global-admin"
+            Query = @"
+g.V().hasLabel('directoryRole').has('roleTemplateId', '62e90394-69f5-4237-9190-012177145e10')
+  .repeat(__.in().simplePath())
+  .emit()
+  .limit(50)
+  .path()
+  .by(valueMap('displayName', 'principalType'))
+"@
+            Title = "Paths to Global Administrator"
+        },
+        @{
+            Name = "dangerous-service-principals"
+            Query = @"
+g.V().hasLabel('servicePrincipal')
+  .where(out().hasLabel('directoryRole').has('isPrivileged', true))
+  .limit(30)
+  .path()
+  .by(valueMap('displayName'))
+"@
+            Title = "Service Principals with Privileged Access"
+        },
+        @{
+            Name = "external-user-exposure"
+            Query = @"
+g.V().has('userType', 'Guest')
+  .repeat(out().simplePath())
+  .until(hasLabel('directoryRole').has('isPrivileged', true))
+  .limit(30)
+  .path()
+"@
+            Title = "External Users with Privileged Paths"
+        },
+        @{
+            Name = "mfa-coverage-gaps"
+            Query = @"
+g.V().hasLabel('user', 'group')
+  .where(inE('caPolicyExcludesPrincipal').has('requiresMfa', true))
+  .limit(50)
+  .valueMap('displayName', 'principalType')
+"@
+            Title = "MFA Exclusions"
+        }
+    )
+
+    $stats = @{
+        SnapshotsGenerated = 0
+        TotalRUs = 0
+    }
+
+    foreach ($snapshot in $snapshots) {
+        Write-Verbose "Generating snapshot: $($snapshot.Name)"
+
+        # Execute Gremlin query
+        $result = Submit-GremlinQuery -Query $snapshot.Query
+        $stats.TotalRUs += $result.RequestCharge
+
+        # Convert paths to DOT format for Graphviz
+        $dotContent = Convert-PathsToDot -Paths $result.Results -Title $snapshot.Title
+
+        # Render SVG using Graphviz (requires graphviz installed or use online API)
+        $svgContent = Invoke-GraphvizRender -DotContent $dotContent -Format "svg"
+
+        # Upload to blob storage
+        $svgBlobName = "$snapshotContainer/$($snapshot.Name).svg"
+        Upload-ToBlob -Content $svgContent -BlobName $svgBlobName -ContentType "image/svg+xml"
+
+        # Also save raw path data as JSON for tooltips/interactivity
+        $jsonBlobName = "$snapshotContainer/$($snapshot.Name).json"
+        $jsonContent = $result.Results | ConvertTo-Json -Depth 10
+        Upload-ToBlob -Content $jsonContent -BlobName $jsonBlobName -ContentType "application/json"
+
+        $stats.SnapshotsGenerated++
+    }
+
+    Write-Information "Snapshot generation complete: $($stats.SnapshotsGenerated) snapshots, $($stats.TotalRUs) RUs"
+
+    return @{
+        Success = $true
+        Stats = $stats
+    }
+}
+catch {
+    Write-Error "Snapshot generation failed: $_"
+    return @{
+        Success = $false
+        Error = $_.Exception.Message
+    }
+}
+```
+
+### Helper: Convert Paths to DOT Format
+
+```powershell
+function Convert-PathsToDot {
+    param (
+        [array]$Paths,
+        [string]$Title = "Attack Path"
+    )
+
+    $nodes = @{}
+    $edges = @()
+
+    foreach ($path in $Paths) {
+        for ($i = 0; $i -lt $path.objects.Count; $i++) {
+            $node = $path.objects[$i]
+            $nodeId = $node.id ?? $node
+
+            if (-not $nodes.ContainsKey($nodeId)) {
+                $label = $node.displayName?[0] ?? $nodeId
+                $shape = switch ($node.principalType?[0] ?? $node.label) {
+                    'user' { 'ellipse' }
+                    'group' { 'box' }
+                    'servicePrincipal' { 'diamond' }
+                    'directoryRole' { 'doubleoctagon' }
+                    default { 'ellipse' }
+                }
+                $nodes[$nodeId] = @{
+                    Label = $label
+                    Shape = $shape
+                }
+            }
+
+            if ($i -gt 0) {
+                $prevId = $path.objects[$i - 1].id ?? $path.objects[$i - 1]
+                $edges += "  `"$prevId`" -> `"$nodeId`""
+            }
+        }
+    }
+
+    $dot = @"
+digraph AttackPaths {
+  rankdir=LR;
+  label="$Title";
+  labelloc=t;
+  fontsize=16;
+  node [fontsize=10];
+
+$(foreach ($nodeId in $nodes.Keys) {
+    $n = $nodes[$nodeId]
+    "  `"$nodeId`" [label=`"$($n.Label)`" shape=$($n.Shape)];"
+})
+
+$($edges -join "`n")
+}
+"@
+
+    return $dot
+}
+```
+
+---
+
+# Part 6: Infrastructure (Bicep)
+
+## 6.1 Gremlin Database Deployment
+
+Add Gremlin API to the existing Cosmos DB deployment.
+
+### main.bicep (additions)
+
+```bicep
+// Existing Cosmos DB account parameters
+@description('Cosmos DB account name')
+param cosmosAccountName string
+
+@description('Enable Gremlin API')
+param enableGremlin bool = true
+
+@description('Gremlin database name')
+param gremlinDatabaseName string = 'EntraGraph'
+
+@description('Gremlin container name')
+param gremlinContainerName string = 'graph'
+
+@description('Gremlin throughput (RU/s) - use 400 for dev, 1000+ for prod')
+param gremlinThroughput int = 400
+
+// Reference existing Cosmos DB account
+resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' existing = {
+  name: cosmosAccountName
+}
+
+// Create Gremlin database
+resource gremlinDatabase 'Microsoft.DocumentDB/databaseAccounts/gremlinDatabases@2024-05-15' = if (enableGremlin) {
+  parent: cosmosAccount
+  name: gremlinDatabaseName
+  properties: {
+    resource: {
+      id: gremlinDatabaseName
+    }
+  }
+}
+
+// Create Gremlin graph container
+resource gremlinGraph 'Microsoft.DocumentDB/databaseAccounts/gremlinDatabases/graphs@2024-05-15' = if (enableGremlin) {
+  parent: gremlinDatabase
+  name: gremlinContainerName
+  properties: {
+    resource: {
+      id: gremlinContainerName
+      partitionKey: {
+        paths: ['/tenantId']
+        kind: 'Hash'
+        version: 2
+      }
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        automatic: true
+        includedPaths: [
+          {
+            path: '/*'
+          }
+        ]
+        excludedPaths: [
+          {
+            path: '/"_etag"/?'
+          }
+        ]
+      }
+      // Minimal TTL - graph is disposable
+      defaultTtl: -1
+    }
+    options: {
+      throughput: gremlinThroughput
+    }
+  }
+}
+
+// Output Gremlin endpoint
+output gremlinEndpoint string = 'wss://${cosmosAccountName}.gremlin.cosmos.azure.com:443/'
+output gremlinDatabase string = gremlinDatabaseName
+output gremlinContainer string = gremlinContainerName
+```
+
+### Serverless Option (lower cost)
+
+For dev/test, use serverless mode instead of provisioned throughput:
+
+```bicep
+resource gremlinGraphServerless 'Microsoft.DocumentDB/databaseAccounts/gremlinDatabases/graphs@2024-05-15' = if (enableGremlin) {
+  parent: gremlinDatabase
+  name: gremlinContainerName
+  properties: {
+    resource: {
+      id: gremlinContainerName
+      partitionKey: {
+        paths: ['/tenantId']
+        kind: 'Hash'
+        version: 2
+      }
+    }
+    // No throughput = serverless
+  }
+}
+```
+
+### Function App Settings
+
+Add these to Function App configuration:
+
+```bicep
+resource functionAppSettings 'Microsoft.Web/sites/config@2022-09-01' = {
+  parent: functionApp
+  name: 'appsettings'
+  properties: {
+    // Existing settings...
+    COSMOS_GREMLIN_ENDPOINT: 'wss://${cosmosAccountName}.gremlin.cosmos.azure.com:443/'
+    COSMOS_GREMLIN_DATABASE: gremlinDatabaseName
+    COSMOS_GREMLIN_CONTAINER: gremlinContainerName
+    COSMOS_GREMLIN_KEY: '@Microsoft.KeyVault(SecretUri=${keyVaultUri}/secrets/cosmos-gremlin-key/)'
+  }
+}
+```
+
+### Full Deployment Command
+
+```bash
+# Deploy with Gremlin enabled
+az deployment group create \
+  --resource-group rg-entrarisk-prod \
+  --template-file main.bicep \
+  --parameters \
+    cosmosAccountName=cosmos-entrarisk-prod \
+    enableGremlin=true \
+    gremlinThroughput=400
+```
+
+---
+
 # Implementation Tasks
 
 ## Task Order
@@ -1610,8 +2090,10 @@ ORDER BY r.isPrivileged DESC, MemberCount DESC
 | 4 | Create CollectAzureRoleDefinitions | High | New collector |
 | 5 | Update Orchestrator for new collectors | High | Orchestrator/run.ps1 |
 | 6 | Create ProjectGraphToGremlin function | Medium | New function |
-| 7 | Update Dashboard with new edges count | Low | Dashboard/run.ps1 |
-| 8 | Create CollectLicenseSkus (optional) | Low | New collector |
+| 7 | Create GenerateGraphSnapshots function | Medium | New function |
+| 8 | Add Gremlin database to Bicep templates | Medium | Infrastructure/main.bicep |
+| 9 | Update Dashboard with new edges count | Low | Dashboard/run.ps1 |
+| 10 | Create CollectLicenseSkus (optional) | Low | New collector |
 
 ---
 
@@ -1626,6 +2108,9 @@ ORDER BY r.isPrivileged DESC, MemberCount DESC
 | `FunctionApp/ProjectGraphToGremlin/run.ps1` | Cosmos SQL → Gremlin API projection |
 | `FunctionApp/ProjectGraphToGremlin/function.json` | Function config (timer trigger) |
 | `FunctionApp/ProjectGraphToGremlin/lib/Gremlin.Net.dll` | Gremlin.Net library |
+| `FunctionApp/GenerateGraphSnapshots/run.ps1` | Pre-render attack path SVGs |
+| `FunctionApp/GenerateGraphSnapshots/function.json` | Function config (timer trigger) |
+| `Infrastructure/gremlin.bicep` | Gremlin database/container deployment |
 
 ---
 
@@ -1688,6 +2173,22 @@ ORDER BY r.isPrivileged DESC, MemberCount DESC
 - [ ] Vertices projected before edges (dependency order)
 - [ ] Attack path queries return expected results
 - [ ] RU consumption within budget
+
+## Static Snapshots
+- [ ] GenerateGraphSnapshots function created
+- [ ] Graphviz rendering working (via wrapper or API)
+- [ ] SVG snapshots uploaded to blob storage
+- [ ] JSON path data uploaded alongside SVGs
+- [ ] Dashboard displays static snapshots
+- [ ] "Launch live analysis" links work
+- [ ] Snapshots generated after each collection cycle
+
+## Infrastructure (Bicep)
+- [ ] Gremlin database created in Cosmos DB
+- [ ] Gremlin container created with correct partition key
+- [ ] Function App settings include Gremlin connection strings
+- [ ] Key Vault contains Gremlin key (if using key auth)
+- [ ] Serverless vs provisioned throughput configured correctly
 
 ---
 
