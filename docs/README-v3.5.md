@@ -26,30 +26,31 @@ flowchart TB
         Azure["Azure Resource Manager"]
     end
 
-    subgraph FunctionApp["Azure Function App (17 Collectors + 5 Indexers + 2 Graph Functions)"]
+    subgraph FunctionApp["Azure Function App (12 Collectors + 2 Derivation + 5 Indexers + 2 Graph Functions)"]
         Orch["Orchestrator"]
         subgraph PrincipalCollectors["Principal Collectors (4)"]
-            UC["Users"]
+            UC["Users + Auth + Risk"]
             GC["Groups"]
             SPC["Service Principals"]
             DC["Devices"]
         end
-        subgraph ResourceCollectors["Resource Collectors (10)"]
+        subgraph ResourceCollectors["Resource Collectors (4)"]
             AC["App Registrations"]
             AHC["Azure Hierarchy"]
-            KVC["Key Vaults"]
-            VMC["Virtual Machines"]
-            AAC["Automation Accounts"]
-            FAC["Function Apps"]
-            LAC["Logic Apps"]
-            WAC["Web Apps"]
-            DRC["Directory Role Definitions"]
-            ARC["Azure Role Definitions"]
+            ARC["Azure Resources<br/>(11 types, config-driven)"]
+            RDC["Role Definitions<br/>(Directory + Azure)"]
         end
-        subgraph OtherCollectors["Other Collectors (3)"]
-            RC["Relationships"]
-            PC["Policies"]
+        subgraph PolicyCollectors["Policy Collectors (2)"]
+            PC["CA Policies"]
+            IPC["Intune Policies<br/>(Compliance + MAM)"]
+        end
+        subgraph OtherCollectors["Other Collectors (2)"]
+            RC["Relationships<br/>(24+ edge types)"]
             EC["Events"]
+        end
+        subgraph DerivationFunctions["Derivation Functions (2)"]
+            DAE["Derive Abuse Edges"]
+            DVE["Derive Virtual Edges"]
         end
         subgraph Indexers["Indexers (5)"]
             PI["Principals"]
@@ -78,14 +79,19 @@ flowchart TB
     end
 
     Graph --> PrincipalCollectors
+    Graph --> PolicyCollectors
     Graph --> OtherCollectors
     Azure --> ResourceCollectors
     Orch -->|"triggers"| PrincipalCollectors
     Orch -->|"triggers"| ResourceCollectors
+    Orch -->|"triggers"| PolicyCollectors
     Orch -->|"triggers"| OtherCollectors
     PrincipalCollectors -->|"stream"| Blob
     ResourceCollectors -->|"stream"| Blob
+    PolicyCollectors -->|"stream"| Blob
     OtherCollectors -->|"stream"| Blob
+    Orch -->|"triggers"| DerivationFunctions
+    DerivationFunctions -->|"direct write"| Cosmos
     Orch -->|"triggers"| Indexers
     Blob --> Indexers
     Indexers -->|"~99% reduction"| Cosmos
@@ -105,10 +111,16 @@ flowchart TB
 
 | Change | Description |
 |--------|-------------|
+| **Collector Consolidation** | Reduced from 17 to 12 collectors via configuration-driven collection |
+| **CollectAzureResources** | Single collector for 11 Azure resource types via `AzureResourceTypes.psd1` |
+| **CollectRoleDefinitions** | Unified Directory + Azure role definitions in one collector |
+| **CollectIntunePolicies** | Combined Compliance + App Protection (MAM) policy collection |
+| **Embedded Risk Data** | User risk level/state from Identity Protection embedded in user documents |
+| **DeriveAbuseEdges** | Attack path capability edges derived from dangerous permissions |
+| **DeriveVirtualEdges** | Intune policy targeting edges (compliance + app protection) |
 | **Attack Path Snapshots** | Pre-rendered Gremlin query results for common attack patterns (DOT format) |
 | **Gremlin Graph Projection** | Timer-triggered sync from audit container to Gremlin graph database |
-| **6 New Edge Types** | CA policy edges (5) + Role management policy edges (1) |
-| **2 New Collectors** | Directory Role Definitions + Azure Role Definitions (synthetic vertices) |
+| **30+ Edge Types** | Original 24 + abuse edges (6) + Intune policy edges (2) |
 | **Synthetic Vertices** | Role definitions as queryable vertices with `isPrivileged` flags |
 | **CA Policy Analysis** | Edges show which principals are targeted/excluded from CA policies |
 | **PIM Policy Analysis** | Edges show role activation requirements (MFA, approval, justification) |
@@ -153,8 +165,10 @@ sequenceDiagram
     participant Timer as Timer Trigger
     participant Orch as Orchestrator
     participant PrinColl as Principal Collectors (4)
-    participant ResColl as Resource Collectors (10)
+    participant ResColl as Resource Collectors (4)
+    participant PolColl as Policy Collectors (2)
     participant EdgeColl as Edge Collector
+    participant DeriveFn as Derivation Functions (2)
     participant Graph as Graph API
     participant ARM as ARM API
     participant Blob as Blob Storage
@@ -166,22 +180,26 @@ sequenceDiagram
 
     Timer->>Orch: Trigger (scheduled)
 
-    par Phase 1: Principal + Resource Collection
+    par Phase 1: Principal + Resource + Policy Collection
         Orch->>PrinColl: Start collection
-        PrinColl->>Graph: Request data (paginated)
+        PrinColl->>Graph: Request users (with auth methods + risk)
         Graph-->>PrinColl: Response (with retry/throttle)
         PrinColl->>Blob: Stream to principals.jsonl
     and
         Orch->>ResColl: Start collection
-        ResColl->>ARM: Request data (per subscription)
+        ResColl->>ARM: Request Azure resources (config-driven)
         ResColl->>Graph: Request role definitions
         ARM-->>ResColl: Response
         Graph-->>ResColl: Response
         ResColl->>Blob: Stream to resources.jsonl
+    and
+        Orch->>PolColl: Collect policies
+        PolColl->>Graph: Request CA + Intune policies
+        PolColl->>Blob: Stream to policies.jsonl
     end
 
     Orch->>EdgeColl: Phase 2: Collect relationships
-    EdgeColl->>Graph: Request relationships + CA policies
+    EdgeColl->>Graph: Request relationships + CA policy edges
     EdgeColl->>Blob: Stream to edges.jsonl
 
     Orch->>Idx: Phase 3: Trigger indexing
@@ -198,6 +216,10 @@ sequenceDiagram
             Note over Idx: Skip (~99% of records)
         end
     end
+
+    Orch->>DeriveFn: Phase 4: Derive edges
+    DeriveFn->>Cosmos: Read principals, resources, edges
+    DeriveFn->>Cosmos: Write abuse + virtual edges directly
 
     Note over GremProj: Timer: Every 15 minutes
     GremProj->>Cosmos: Query audit for changes
@@ -217,12 +239,13 @@ sequenceDiagram
 
 | Phase | Collectors | Output | Parallelism |
 |-------|------------|--------|-------------|
-| **Phase 1** | Users, Groups, SPs, Devices | principals.jsonl | 4 parallel |
-| **Phase 1** | Apps, Azure Hierarchy, Key Vaults, VMs, Automation, Functions, Logic Apps, Web Apps, Directory Role Defs, Azure Role Defs | resources.jsonl | 10 parallel |
-| **Phase 1** | Policies | policies.jsonl | 1 |
-| **Phase 1** | Events | events.jsonl | 1 |
-| **Phase 2** | Relationships (all edge types incl. CA policy edges) | edges.jsonl | 1 |
+| **Phase 1** | CollectUsers, CollectEntraGroups, CollectEntraServicePrincipals, CollectDevices | principals.jsonl | 4 parallel |
+| **Phase 1** | CollectAppRegistrations, CollectAzureHierarchy, CollectAzureResources, CollectRoleDefinitions | resources.jsonl | 4 parallel |
+| **Phase 1** | CollectPolicies (CA), CollectIntunePolicies (Compliance + MAM) | policies.jsonl | 2 parallel |
+| **Phase 1** | CollectEvents | events.jsonl | 1 |
+| **Phase 2** | CollectRelationships (24+ edge types incl. CA policy edges) | edges.jsonl | 1 |
 | **Phase 3** | All 5 indexers | → Cosmos DB | Sequential per type |
+| **Phase 4** | DeriveAbuseEdges, DeriveVirtualEdges | → edges container | 2 parallel |
 
 ### Graph Functions (Timer-Triggered)
 
@@ -309,9 +332,9 @@ Every document includes a type discriminator field:
 | Container | Discriminator | Values |
 |-----------|---------------|--------|
 | `principals` | `principalType` | `user`, `group`, `servicePrincipal`, `device` |
-| `resources` | `resourceType` | `application`, `directoryRoleDefinition`, `azureRoleDefinition`, `tenant`, `managementGroup`, `subscription`, `resourceGroup`, `keyVault`, `virtualMachine`, `automationAccount`, `functionApp`, `logicApp`, `webApp` |
-| `edges` | `edgeType` | `groupMember`, `directoryRole`, `pimEligible`, `azureRbac`, `hasManagedIdentity`, `caPolicyTargetsPrincipal`, `rolePolicyAssignment`, ... (24 types) |
-| `policies` | `policyType` | `conditionalAccess`, `roleManagement`, `namedLocation` |
+| `resources` | `resourceType` | `application`, `directoryRoleDefinition`, `azureRoleDefinition`, `tenant`, `managementGroup`, `subscription`, `resourceGroup`, `keyVault`, `virtualMachine`, `automationAccount`, `functionApp`, `logicApp`, `webApp`, `storageAccount`, `aksCluster`, `containerRegistry`, `vmScaleSet`, `dataFactory` |
+| `edges` | `edgeType` | `groupMember`, `directoryRole`, `pimEligible`, `azureRbac`, `hasManagedIdentity`, `caPolicyTargetsPrincipal`, `rolePolicyAssignment`, `canResetPassword`, `canManageCredentials`, `canModifyMembership`, `compliancePolicyTargets`, `appProtectionPolicyTargets`, ... (32+ types) |
+| `policies` | `policyType` | `conditionalAccess`, `roleManagement`, `namedLocation`, `compliancePolicy`, `appProtectionPolicy` |
 | `events` | `eventType` | `signIn`, `audit` |
 
 ### Blob Structure
@@ -340,37 +363,62 @@ raw-data/{timestamp}/
 
 | Collector | Output | principalType | Key Fields |
 |-----------|--------|---------------|------------|
-| `CollectUsersWithAuthMethods` | principals.jsonl | `user` | UPN, MFA state, auth methods, sign-in activity |
+| `CollectUsers` | principals.jsonl | `user` | UPN, MFA state, auth methods, sign-in activity, **riskLevel, riskState, isAtRisk** (embedded) |
 | `CollectEntraGroups` | principals.jsonl | `group` | Security/mail enabled, membership rule, member counts |
 | `CollectEntraServicePrincipals` | principals.jsonl | `servicePrincipal` | App ID, SP type, credentials, OAuth scopes |
 | `CollectDevices` | principals.jsonl | `device` | OS, compliance, trust type, last sign-in |
 
-### Resource Collectors (10)
+### Resource Collectors (4)
 
 | Collector | Output | resourceType | Key Fields |
 |-----------|--------|--------------|------------|
 | `CollectAppRegistrations` | resources.jsonl | `application` | API permissions, federated credentials, publisher |
-| `CollectDirectoryRoleDefinitions` | resources.jsonl | `directoryRoleDefinition` | Role template ID, isPrivileged, permissions |
-| `CollectAzureRoleDefinitions` | resources.jsonl | `azureRoleDefinition` | Role name, isBuiltIn, isPrivileged, permissions |
 | `CollectAzureHierarchy` | resources.jsonl, edges.jsonl | `tenant`, `managementGroup`, `subscription`, `resourceGroup` | Hierarchy containment |
-| `CollectKeyVaults` | resources.jsonl, edges.jsonl | `keyVault` | Access policies, RBAC, soft delete, network rules |
-| `CollectVirtualMachines` | resources.jsonl, edges.jsonl | `virtualMachine` | Managed identity, power state, OS, network |
-| `CollectAutomationAccounts` | resources.jsonl, edges.jsonl | `automationAccount` | Managed identity, local auth, runbooks |
-| `CollectFunctionApps` | resources.jsonl, edges.jsonl | `functionApp` | Managed identity, HTTPS, auth settings |
-| `CollectLogicApps` | resources.jsonl, edges.jsonl | `logicApp` | Managed identity, triggers, actions |
-| `CollectWebApps` | resources.jsonl, edges.jsonl | `webApp` | Managed identity, HTTPS, client certs |
+| `CollectAzureResources` | resources.jsonl, edges.jsonl | 11 types (see below) | **Config-driven via AzureResourceTypes.psd1** |
+| `CollectRoleDefinitions` | resources.jsonl | `directoryRoleDefinition`, `azureRoleDefinition` | Role name, isBuiltIn, isPrivileged, permissions |
 
-### Other Collectors (3)
+#### CollectAzureResources - Configuration-Driven Collection
+
+Collects 11 Azure resource types via `AzureResourceTypes.psd1`:
+
+| resourceType | ARM Provider | Security Fields |
+|--------------|--------------|-----------------|
+| `keyVault` | Microsoft.KeyVault/vaults | enableRbacAuthorization, enableSoftDelete |
+| `virtualMachine` | Microsoft.Compute/virtualMachines | identity (managed identity) |
+| `storageAccount` | Microsoft.Storage/storageAccounts | allowBlobPublicAccess, minimumTlsVersion |
+| `automationAccount` | Microsoft.Automation/automationAccounts | publicNetworkAccess |
+| `functionApp` | Microsoft.Web/sites (kind=functionapp) | identity, httpsOnly |
+| `logicApp` | Microsoft.Logic/workflows | identity |
+| `webApp` | Microsoft.Web/sites (kind=app) | identity, httpsOnly, clientCertEnabled |
+| `aksCluster` | Microsoft.ContainerService/managedClusters | enablePrivateCluster, disableLocalAccounts |
+| `containerRegistry` | Microsoft.ContainerRegistry/registries | adminUserEnabled |
+| `vmScaleSet` | Microsoft.Compute/virtualMachineScaleSets | identity |
+| `dataFactory` | Microsoft.DataFactory/factories | publicNetworkAccess |
+
+### Policy Collectors (2)
+
+| Collector | Output | policyType | Key Fields |
+|-----------|--------|------------|------------|
+| `CollectPolicies` | policies.jsonl | `conditionalAccess`, `roleManagement`, `namedLocation` | CA policies, role policies, named locations |
+| `CollectIntunePolicies` | policies.jsonl | `compliancePolicy`, `appProtectionPolicy` | Device compliance + App protection (MAM) policies |
+
+### Other Collectors (2)
 
 | Collector | Output | Notes |
 |-----------|--------|-------|
-| `CollectRelationships` | edges.jsonl | All Entra relationships (21 edge types incl. CA/PIM policy edges) |
-| `CollectPolicies` | policies.jsonl | CA policies, role policies, named locations |
+| `CollectRelationships` | edges.jsonl | All Entra relationships (24+ edge types incl. CA/PIM policy edges) |
 | `CollectEvents` | events.jsonl | Sign-ins, audit logs |
+
+### Derivation Functions (2)
+
+| Function | Output | Description |
+|----------|--------|-------------|
+| `DeriveAbuseEdges` | → edges container | Attack path capabilities from dangerous permissions (Graph API, Directory Roles, Ownership) |
+| `DeriveVirtualEdges` | → edges container | Intune policy targeting edges (compliance + app protection policy → group) |
 
 ---
 
-## Edge Types (24 total)
+## Edge Types (32+ total)
 
 ### Entra Edges (15 types)
 
@@ -410,11 +458,38 @@ raw-data/{timestamp}/
 | `caPolicyExcludesApplication` | CA Policy | App/SP | Application excluded from policy |
 | `caPolicyUsesLocation` | CA Policy | Named Location | Policy references this location condition |
 
-### Role Management Policy Edges (1 type) - NEW in V3.5
+### Role Management Policy Edges (1 type)
 
 | edgeType | Source | Target | Description |
 |----------|--------|--------|-------------|
 | `rolePolicyAssignment` | Role Mgmt Policy | Directory Role | PIM policy assigned to role |
+
+### Abuse Edges (6 types) - NEW in V3.5
+
+Derived by `DeriveAbuseEdges` from dangerous permissions defined in `DangerousPermissions.psd1`:
+
+| edgeType | Source | Target | Capability |
+|----------|--------|--------|------------|
+| `canResetPassword` | Principal | User | Can reset user's password (password reset permissions) |
+| `canManageCredentials` | Principal | SP/App | Can add credentials to service principal or app |
+| `canModifyMembership` | Principal | Group | Can add/remove members from group |
+| `canModifyOwnership` | Principal | Object | Can add/remove owners |
+| `canGrantConsent` | Principal | SP | Can grant admin consent for app permissions |
+| `canEscalatePrivilege` | Principal | Role | Can assign users to privileged roles |
+
+**Source Categories:**
+- **Graph API Permissions**: User.ReadWrite.All, Application.ReadWrite.All, Group.ReadWrite.All, etc.
+- **Directory Roles**: User Administrator, Privileged Role Administrator, Application Administrator, etc.
+- **Ownership**: Owner of group/app/SP
+
+### Virtual Edges (2 types) - NEW in V3.5
+
+Derived by `DeriveVirtualEdges` from Intune policies:
+
+| edgeType | Source | Target | Description |
+|----------|--------|--------|-------------|
+| `compliancePolicyTargets` | Compliance Policy | Group | Device compliance policy targets this group |
+| `appProtectionPolicyTargets` | App Protection Policy | Group | MAM/app protection policy targets this group |
 
 ---
 
@@ -783,14 +858,16 @@ g.E().hasLabel('rolePolicyAssignment')
 
 | Aspect | Value |
 |--------|-------|
-| Collectors | 17 (4 Principal + 10 Resource + 3 Other) |
+| Collectors | 12 (4 Principal + 4 Resource + 2 Policy + 2 Other) |
+| Derivation Functions | 2 (DeriveAbuseEdges + DeriveVirtualEdges) |
 | Indexers | 5 |
-| Graph Functions | 2 (Gremlin Projector + Snapshot Generator) |
+| Graph Functions | 2 (ProjectGraphToGremlin + GenerateGraphSnapshots) |
 | Cosmos SQL containers | 6 |
 | Cosmos Gremlin container | 1 |
-| Edge types | 24 (15 Entra + 3 Azure + 5 CA Policy + 1 Role Policy) |
-| Resource types | 13 (application, 2 role defs, tenant, MG, sub, RG, KV, VM, automation, function, logic, web) |
+| Edge types | 32+ (15 Entra + 3 Azure + 5 CA Policy + 1 Role Policy + 6 Abuse + 2 Virtual) |
+| Resource types | 17 (application, 2 role defs, tenant, MG, sub, RG, + 11 Azure resources) |
 | Principal types | 4 (user, group, servicePrincipal, device) |
+| Policy types | 5 (conditionalAccess, roleManagement, namedLocation, compliancePolicy, appProtectionPolicy) |
 | Blob files per run | 5 (principals, resources, edges, policies, events) |
 | Snapshot types | 7 attack path patterns |
 | Partition strategy | principalType/resourceType/edgeType for efficient queries |
@@ -814,6 +891,51 @@ g.E().hasLabel('rolePolicyAssignment')
 10. **Role definitions as vertices** - Enables path traversal through roles
 11. **Attack path snapshots** - Pre-computed common attack patterns
 12. **DOT format output** - Standard format for graph visualization tools
+13. **Configuration-driven Azure collection** - AzureResourceTypes.psd1 enables adding resources without code changes
+14. **Embedded risk data** - User risk from Identity Protection embedded in user documents, not separate collection
+15. **Abuse edge derivation** - DangerousPermissions.psd1 maps Graph permissions and roles to attack capabilities
+16. **Collector consolidation** - Reduced from 17 to 12 collectors for operational simplicity
+
+---
+
+## Future Roadmap (P4: Graph Visualization)
+
+> **Status:** NOT STARTED - Low Priority
+
+The following features are planned for future versions:
+
+| Feature | Description | Effort |
+|---------|-------------|--------|
+| **BloodHound JSON Export** | Export graph data in BloodHound-compatible format | Medium |
+| **Neo4j Integration** | Optional sync to Neo4j for users who prefer Cypher queries | Medium |
+| **Cytoscape.js UI** | Web-based graph visualization with path discovery | High |
+| **Path Discovery Queries** | Pre-built attack path queries (Cypher/Gremlin) | Medium |
+
+### Potential Query Examples
+
+```cypher
+// Find all paths from User X to Global Admin
+MATCH path = (u:User {objectId: 'xxx'})-[*1..6]->(r:Role {name: 'Global Administrator'})
+RETURN path
+
+// Find shortest path to any privileged role
+MATCH path = shortestPath(
+    (u:User {objectId: 'xxx'})-[*1..10]->(r:Role {isPrivileged: true})
+)
+RETURN path
+
+// Find all principals that can add secrets to apps
+MATCH (p)-[:canManageCredentials]->(target)
+RETURN p, target
+```
+
+### Visualization Options
+
+| Option | Pros | Cons |
+|--------|------|------|
+| **BloodHound Export** | Mature UI, path algorithms built-in | Requires Neo4j, data duplication |
+| **Neo4j + Custom UI** | Native Cypher, proven scale | Additional infrastructure |
+| **Cytoscape.js** | No new infra, web-native | Must implement path algorithms |
 
 ---
 
