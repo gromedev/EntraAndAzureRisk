@@ -1,15 +1,15 @@
 
-#region Durable Functions Orchestrator - V3.1 UNIFIED ARCHITECTURE
+#region Durable Functions Orchestrator - V3.5 UNIFIED ARCHITECTURE
 <#
 .SYNOPSIS
     Orchestrates comprehensive Entra and Azure data collection with unified containers
 .DESCRIPTION
-    V3.1 Architecture: Unified Containers with Semantic Correctness + Graph Support
+    V3.5 Architecture: Unified Containers with Semantic Correctness + Graph Support + Abuse Edges
 
     6 Containers:
     - principals (users, groups, servicePrincipals, devices) - partition: /principalType
     - resources (applications, Azure resources, role definitions) - partition: /resourceType
-    - edges (all relationships unified) - partition: /edgeType
+    - edges (all relationships unified + derived abuse edges) - partition: /edgeType
     - policies - partition: /policyType
     - events - partition: /eventDate
     - audit (changes + snapshots) - partition: /auditDate
@@ -30,18 +30,18 @@
       - CollectFunctionApps -> resources.jsonl (resourceType=functionApp)
       - CollectLogicApps -> resources.jsonl (resourceType=logicApp)
       - CollectWebApps -> resources.jsonl (resourceType=webApp)
-      - CollectDirectoryRoleDefinitions -> resources.jsonl (resourceType=directoryRoleDefinition) [V3.1]
-      - CollectAzureRoleDefinitions -> resources.jsonl (resourceType=azureRoleDefinition) [V3.1]
+      - CollectDirectoryRoleDefinitions -> resources.jsonl (resourceType=directoryRoleDefinition)
+      - CollectAzureRoleDefinitions -> resources.jsonl (resourceType=azureRoleDefinition)
 
       Policy/Event Collectors (2):
       - CollectPolicies -> policies.jsonl
       - CollectEvents -> events.jsonl
 
     Phase 2: Unified Edge Collection
-      - CollectRelationships -> edges.jsonl (all 21+ edgeTypes)
-        V3.1 adds: caPolicyTargetsPrincipal, caPolicyExcludesPrincipal,
-                   caPolicyTargetsApplication, caPolicyExcludesApplication,
-                   caPolicyUsesLocation, rolePolicyAssignment
+      - CollectRelationships -> edges.jsonl (all 24+ edgeTypes)
+        Includes: caPolicyTargetsPrincipal, caPolicyExcludesPrincipal,
+                  caPolicyTargetsApplication, caPolicyExcludesApplication,
+                  caPolicyUsesLocation, rolePolicyAssignment
 
     Phase 3: Unified Indexing (5 indexers)
       - IndexPrincipalsInCosmosDB -> principals container
@@ -50,7 +50,13 @@
       - IndexPoliciesInCosmosDB -> policies container
       - IndexEventsInCosmosDB -> events container
 
-    V3.1 Benefits:
+    Phase 4: Derive Abuse Edges (V3.5)
+      - DeriveAbuseEdges -> edges container (derived abuse capabilities)
+        Derives from: appRoleAssignment, directoryRole, appOwner, spOwner, groupOwner
+        Creates: canAddSecretToAnyApp, isGlobalAdmin, canAssignAnyRole, canAddSecret, etc.
+        "The core BloodHound value" - converting raw permissions to attack paths
+
+    V3.5 Benefits:
     - Semantic correctness (applications are resources, not principals)
     - Unified edge container enables Gremlin graph projection
     - Temporal fields (effectiveFrom/effectiveTo) for historical queries
@@ -59,6 +65,7 @@
     - Role definitions as synthetic vertices for complete graph
     - CA policy edges for MFA gap analysis
     - Role management policy edges for PIM activation risk analysis
+    - Derived abuse edges for attack path analysis (V3.5)
 #>
 #endregion
 
@@ -497,6 +504,29 @@ try {
     }
     #endregion
 
+    #region Phase 4: Derive Abuse Edges (V3.5)
+    Write-Verbose "Phase 4: Deriving abuse capability edges from permissions and roles..."
+
+    $abuseEdgesResult = @{ Success = $false; DerivedEdgeCount = 0; Statistics = @{} }
+    try {
+        $abuseEdgesInput = @{ Timestamp = $timestamp }
+        $abuseEdgesResult = Invoke-DurableActivity -FunctionName 'DeriveAbuseEdges' -Input $abuseEdgesInput
+        if ($abuseEdgesResult.Success) {
+            Write-Verbose "Abuse edge derivation complete: $($abuseEdgesResult.DerivedEdgeCount) edges derived"
+            Write-Verbose "  Graph Permission Abuse: $($abuseEdgesResult.Statistics.GraphPermissionAbuse ?? 0)"
+            Write-Verbose "  Directory Role Abuse: $($abuseEdgesResult.Statistics.DirectoryRoleAbuse ?? 0)"
+            Write-Verbose "  Ownership Abuse: $($abuseEdgesResult.Statistics.OwnershipAbuse ?? 0)"
+            Write-Verbose "  Azure RBAC Abuse: $($abuseEdgesResult.Statistics.AzureRbacAbuse ?? 0)"
+        } else {
+            Write-Warning "Abuse edge derivation failed: $($abuseEdgesResult.Error)"
+        }
+    }
+    catch {
+        Write-Warning "Abuse edge derivation threw exception: $_"
+        $abuseEdgesResult = @{ Success = $false; DerivedEdgeCount = 0; Error = $_.Exception.Message }
+    }
+    #endregion
+
     #region Build Final Result
     $finalResult = @{
         OrchestrationId = $Context.InstanceId
@@ -597,6 +627,12 @@ try {
                 BlobPath = $edgesResult.EdgesBlobName
                 Summary = $edgesResult.Summary
             }
+            # V3.5: Derived Abuse Edges
+            AbuseEdges = @{
+                Success = $abuseEdgesResult.Success
+                Count = $abuseEdgesResult.DerivedEdgeCount ?? 0
+                Statistics = $abuseEdgesResult.Statistics
+            }
             Policies = @{
                 Success = $policiesResult.Success
                 Count = $policiesResult.PolicyCount ?? 0
@@ -686,6 +722,7 @@ try {
 
             # Other counts
             TotalEdges = $edgesResult.EdgeCount ?? 0
+            TotalAbuseEdges = $abuseEdgesResult.DerivedEdgeCount ?? 0
             TotalPolicies = $policiesResult.PolicyCount ?? 0
             TotalEvents = $eventsResult.EventCount ?? 0
 
@@ -741,6 +778,7 @@ try {
     Write-Verbose "Principals: $($finalResult.Summary.TotalPrincipals) indexed"
     Write-Verbose "Resources: $($finalResult.Summary.TotalResources) indexed"
     Write-Verbose "Edges: $($finalResult.Summary.TotalEdges) indexed"
+    Write-Verbose "Abuse Edges: $($finalResult.Summary.TotalAbuseEdges) derived (V3.5)"
     Write-Verbose "New entities: $($finalResult.Summary.TotalNewEntities), Modified: $($finalResult.Summary.TotalModifiedEntities)"
     Write-Verbose "Events: $($finalResult.Summary.TotalEventsIndexed) indexed"
 

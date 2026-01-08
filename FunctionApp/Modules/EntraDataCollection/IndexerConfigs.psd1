@@ -969,6 +969,17 @@
             # V3.1: Temporal fields
             'effectiveFrom'
             'effectiveTo'
+
+            # V3.5: Abuse Edge fields (derived edges)
+            'derivedFrom'
+            'derivedFromEdgeId'
+            'permissionName'
+            'severity'
+            'description'
+            'roleName'
+            'roleTemplateId'
+            'tier'
+            'isRoleAssignableGroup'
         )
         ArrayFields = @(
             'inheritancePath'
@@ -1066,6 +1077,17 @@
             # V3.1: Temporal fields
             effectiveFrom = 'effectiveFrom'
             effectiveTo = 'effectiveTo'
+
+            # V3.5: Abuse Edge fields (derived edges)
+            derivedFrom = 'derivedFrom'
+            derivedFromEdgeId = 'derivedFromEdgeId'
+            permissionName = 'permissionName'
+            severity = 'severity'
+            description = 'description'
+            roleName = 'roleName'
+            # roleTemplateId already defined above
+            tier = 'tier'
+            isRoleAssignableGroup = 'isRoleAssignableGroup'
         }
         WriteDeletes = $true
         IncludeDeleteMarkers = $true
