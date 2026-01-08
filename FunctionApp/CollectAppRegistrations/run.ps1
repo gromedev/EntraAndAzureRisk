@@ -2,11 +2,13 @@
 .SYNOPSIS
     Collects App Registration data from Microsoft Entra ID and streams to Blob Storage
 .DESCRIPTION
+    V3 Architecture: Unified resources container
     - Queries Graph API /applications with pagination
     - Includes keyCredentials (certificates) and passwordCredentials (secrets)
     - Streams JSONL output to Blob Storage (memory-efficient)
     - Returns summary statistics for orchestrator
     - Token caching (eliminates redundant IMDS calls)
+    - Uses resourceType="application" discriminator (applications are resources, not principals)
 #>
 
 param($ActivityInput)
@@ -56,10 +58,15 @@ if ($missingVars) {
 try {
     Write-Verbose "Starting App Registration data collection"
 
-    # Generate ISO 8601 timestamps
-    $now = (Get-Date).ToUniversalTime()
-    $timestamp = $now.ToString("yyyy-MM-ddTHH-mm-ssZ")
-    $timestampFormatted = $now.ToString("yyyy-MM-ddTHH:mm:ssZ")
+    # V3: Use shared timestamp from orchestrator (critical for unified blob files)
+    if ($ActivityInput -and $ActivityInput.Timestamp) {
+        $timestamp = $ActivityInput.Timestamp
+        Write-Verbose "Using orchestrator timestamp: $timestamp"
+    } else {
+        $timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH-mm-ssZ")
+        Write-Warning "No orchestrator timestamp - using local: $timestamp"
+    }
+    $timestampFormatted = $timestamp -replace 'T(\d{2})-(\d{2})-(\d{2})Z', 'T$1:$2:$3Z'
     Write-Verbose "Collection timestamp: $timestampFormatted"
 
     # Get access tokens (cached)
@@ -99,16 +106,16 @@ try {
     $appsWithVerifiedPublisherCount = 0
     $appsWithApiPermissionsCount = 0
 
-    # Initialize append blob
-    $blobName = "$timestamp/$timestamp-appregistrations.jsonl"
-    Write-Verbose "Initializing append blob: $blobName"
+    # Initialize append blob (V3: unified resources.jsonl)
+    $resourcesBlobName = "$timestamp/$timestamp-resources.jsonl"
+    Write-Verbose "Initializing append blob: $resourcesBlobName"
 
     $containerName = if ($env:STORAGE_CONTAINER_RAW_DATA) { $env:STORAGE_CONTAINER_RAW_DATA } else { 'raw-data' }
 
     try {
         Initialize-AppendBlob -StorageAccountName $storageAccountName `
                               -ContainerName $containerName `
-                              -BlobName $blobName `
+                              -BlobName $resourcesBlobName `
                               -AccessToken $storageToken
     }
     catch {
@@ -273,10 +280,10 @@ try {
                 Write-Warning "Failed to get federated credentials for app $($app.displayName): $_"
             }
 
-            # Transform to consistent structure with objectId
+            # Transform to V3 structure with resourceType discriminator
             $appObj = @{
                 objectId = $app.id ?? ""
-                principalType = "application"
+                resourceType = "application"
                 appId = $app.appId ?? ""
                 displayName = $app.displayName ?? ""
                 createdDateTime = $app.createdDateTime ?? ""
@@ -302,6 +309,11 @@ try {
                 optionalClaims = $app.optionalClaims ?? $null
                 groupMembershipClaims = $app.groupMembershipClaims ?? $null
 
+                # V3: Temporal fields for historical tracking
+                effectiveFrom = $timestampFormatted
+                effectiveTo = $null
+
+                # Collection metadata
                 collectionTimestamp = $timestampFormatted
             }
 
@@ -314,13 +326,13 @@ try {
             try {
                 Add-BlobContent -StorageAccountName $storageAccountName `
                                 -ContainerName $containerName `
-                                -BlobName $blobName `
+                                -BlobName $resourcesBlobName `
                                 -Content $appsJsonL.ToString() `
                                 -AccessToken $storageToken `
                                 -MaxRetries 3 `
                                 -BaseRetryDelaySeconds 2
 
-                Write-Verbose "Flushed $($appsJsonL.Length) characters to blob (batch $batchNumber)"
+                Write-Verbose "Flushed $($appsJsonL.Length) characters to resources blob (batch $batchNumber)"
                 $appsJsonL.Clear()
             }
             catch {
@@ -337,7 +349,7 @@ try {
         try {
             Add-BlobContent -StorageAccountName $storageAccountName `
                             -ContainerName $containerName `
-                            -BlobName $blobName `
+                            -BlobName $resourcesBlobName `
                             -Content $appsJsonL.ToString() `
                             -AccessToken $storageToken `
                             -MaxRetries 3 `
@@ -350,7 +362,7 @@ try {
         }
     }
 
-    Write-Verbose "App Registration collection complete: $appCount apps written to $blobName"
+    Write-Verbose "App Registration collection complete: $appCount apps written to $resourcesBlobName"
 
     # Cleanup
     $appsJsonL.Clear()
@@ -371,7 +383,7 @@ try {
         appsWithFederatedCredentialsCount = $appsWithFederatedCredentialsCount
         appsWithVerifiedPublisherCount = $appsWithVerifiedPublisherCount
         appsWithApiPermissionsCount = $appsWithApiPermissionsCount
-        blobPath = $blobName
+        blobPath = $resourcesBlobName
     }
 
     # Garbage collection
@@ -387,9 +399,9 @@ try {
         AppCount = $appCount
         Data = @()
         Summary = $summary
-        FileName = "$timestamp-appregistrations.jsonl"
+        FileName = "$timestamp-resources.jsonl"
         Timestamp = $timestamp
-        BlobName = $blobName
+        ResourcesBlobName = $resourcesBlobName
     }
 }
 catch {

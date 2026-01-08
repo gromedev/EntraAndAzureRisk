@@ -1,3 +1,15 @@
+
+#
+#
+# 1. **FOLLOWING HAS BEEN IMPLEMENTED*:
+*** README JUST NOT UPDATED *** 
+  - Phase 1b (missing properties) and Phase 3 (new Azure collectors) were being implemented
+   - Phase 1b added security-relevant fields to 5 existing collectors
+   - Phase 3 created 4 new collectors (AutomationAccounts, FunctionApps, LogicApps, WebApps)
+#
+#
+
+
 # Future Roadmap: BloodHound-Style Attack Path Discovery
 
 > **Purpose:** Implementation roadmap for achieving BloodHound/AzureHound feature parity, enabling graph-based attack path visualization and discovery.
@@ -1002,6 +1014,51 @@ RETURN path
 MATCH (p)-[:canAddSecretToAnyApp|:canAddSecret]->(target)
 RETURN p, target
 ```
+
+---
+
+## Code Quality Improvements
+
+### Fixed: IndexEventsInCosmosDB Template Pattern ✅ COMPLETE
+
+**Date:** 2026-01-07
+**Status:** ✅ **FIXED**
+
+**Problem:**
+IndexEventsInCosmosDB had ~150 lines of custom code that called a non-existent `Get-BlobContent` function, causing events indexing to fail. This was inconsistent with all other indexers which use the standard 10-line template pattern with `Invoke-DeltaIndexingWithBinding`.
+
+**Solution:**
+Replaced the entire file with the standard template:
+
+```powershell
+param($ActivityInput, $eventsRawIn)
+
+$modulePath = Join-Path $PSScriptRoot "..\Modules\EntraDataCollection"
+Import-Module $modulePath -Force -ErrorAction Stop
+
+# Use shared function with entity type - all config loaded from IndexerConfigs.psd1
+return Invoke-DeltaIndexingWithBinding `
+    -EntityType 'events' `
+    -ActivityInput $ActivityInput `
+    -ExistingData $eventsRawIn
+```
+
+**Files Modified:**
+- `FunctionApp/IndexEventsInCosmosDB/run.ps1` - Replaced 150 lines with 10-line template
+- `FunctionApp/IndexEventsInCosmosDB/function.json` - Added `eventsRawIn` input binding
+
+**Why This Works:**
+- Events config already exists in `IndexerConfigs.psd1` (lines 1112-1173)
+- Config has `CompareFields = @()` (empty) for append-only mode
+- `Invoke-DeltaIndexingWithBinding` handles append-only when CompareFields is empty
+- Uses the fixed blob reading logic (byte[] → UTF-8 conversion)
+- Output binding `eventsRawOut` was already correctly configured
+
+**Impact:**
+- Events indexing now works consistently with all other indexers
+- Removed broken `Get-BlobContent` call
+- Reduced code duplication (150 lines → 10 lines)
+- Improved maintainability
 
 ---
 

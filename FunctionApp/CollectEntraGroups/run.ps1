@@ -2,11 +2,13 @@
 .SYNOPSIS
     Collects group data from Microsoft Entra ID and streams to Blob Storage
 .DESCRIPTION
+    V3 Architecture: Unified principals container
     - Queries Graph API (beta endpoint for reliable isAssignableToRole)
     - Collects member counts per group (total, users, groups, SPs, devices)
     - Streams JSONL output to Blob Storage (memory-efficient)
     - Returns summary statistics for orchestrator
     - Token caching (eliminates redundant IMDS calls)
+    - Uses principalType="group" discriminator
 #>
 #endregion
 
@@ -56,12 +58,17 @@ if ($missingVars) {
 
 #region Function Logic
 try {
-    Write-Verbose "Starting Entra group data collection"
+    Write-Verbose "Starting Entra group data collection (V3)"
 
-    # Generate ISO 8601 timestamps (single Get-Date to prevent race condition)
-    $now = (Get-Date).ToUniversalTime()
-    $timestamp = $now.ToString("yyyy-MM-ddTHH-mm-ssZ")
-    $timestampFormatted = $now.ToString("yyyy-MM-ddTHH:mm:ssZ")
+    # V3: Use shared timestamp from orchestrator (critical for unified blob files)
+    if ($ActivityInput -and $ActivityInput.Timestamp) {
+        $timestamp = $ActivityInput.Timestamp
+        Write-Verbose "Using orchestrator timestamp: $timestamp"
+    } else {
+        $timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH-mm-ssZ")
+        Write-Warning "No orchestrator timestamp - using local: $timestamp"
+    }
+    $timestampFormatted = $timestamp -replace 'T(\d{2})-(\d{2})-(\d{2})Z', 'T$1:$2:$3Z'
     Write-Verbose "Collection timestamp: $timestampFormatted"
 
     # Get access tokens (cached - eliminates redundant IMDS calls)
@@ -99,16 +106,16 @@ try {
     $syncedCount = 0
     $groupsWithNestedGroupsCount = 0
 
-    # Initialize append blob
-    $groupsBlobName = "$timestamp/$timestamp-groups.jsonl"
-    Write-Verbose "Initializing append blob: $groupsBlobName"
+    # Initialize append blob (V3: unified principals.jsonl)
+    $principalsBlobName = "$timestamp/$timestamp-principals.jsonl"
+    Write-Verbose "Initializing append blob: $principalsBlobName"
 
     $containerName = if ($env:STORAGE_CONTAINER_RAW_DATA) { $env:STORAGE_CONTAINER_RAW_DATA } else { 'raw-data' }
 
     try {
         Initialize-AppendBlob -StorageAccountName $storageAccountName `
                               -ContainerName $containerName `
-                              -BlobName $groupsBlobName `
+                              -BlobName $principalsBlobName `
                               -AccessToken $storageToken
     }
     catch {
@@ -161,7 +168,6 @@ try {
     }
 
     # Query groups with field selection (beta endpoint for isAssignableToRole)
-    # Phase 1b: Added expirationDateTime, renewedDateTime, resourceProvisioningOptions, resourceBehaviorOptions, onPremisesSamAccountName, onPremisesLastSyncDateTime, preferredDataLocation
     $selectFields = "displayName,id,classification,deletedDateTime,description,groupTypes,mailEnabled,membershipRule,securityEnabled,isAssignableToRole,createdDateTime,visibility,onPremisesSyncEnabled,onPremisesSecurityIdentifier,mail,expirationDateTime,renewedDateTime,resourceProvisioningOptions,resourceBehaviorOptions,onPremisesSamAccountName,onPremisesLastSyncDateTime,preferredDataLocation"
     $nextLink = "https://graph.microsoft.com/beta/groups?`$select=$selectFields&`$top=$batchSize"
 
@@ -191,7 +197,7 @@ try {
             # Get member counts for this group
             $memberCounts = Get-GroupMemberCount -GroupId $group.id -AccessToken $graphToken
 
-            # Transform to consistent camelCase structure with objectId
+            # Transform to V3 structure with principalType discriminator
             $groupObj = @{
                 # Core identifiers
                 objectId = $group.id ?? ""
@@ -223,7 +229,7 @@ try {
                 # Communication
                 mail = $group.mail ?? $null
 
-                # Phase 1b: Lifecycle and provisioning
+                # Lifecycle and provisioning
                 expirationDateTime = $group.expirationDateTime ?? $null
                 renewedDateTime = $group.renewedDateTime ?? $null
                 resourceProvisioningOptions = $group.resourceProvisioningOptions ?? @()
@@ -237,7 +243,11 @@ try {
                 servicePrincipalMemberCount = $memberCounts.servicePrincipalMemberCount
                 deviceMemberCount = $memberCounts.deviceMemberCount
 
-                # Locally-generated property (collection metadata)
+                # V3: Temporal fields for historical tracking
+                effectiveFrom = $timestampFormatted
+                effectiveTo = $null
+
+                # Collection metadata
                 collectionTimestamp = $timestampFormatted
             }
 
@@ -258,17 +268,17 @@ try {
             try {
                 Add-BlobContent -StorageAccountName $storageAccountName `
                                 -ContainerName $containerName `
-                                -BlobName $groupsBlobName `
+                                -BlobName $principalsBlobName `
                                 -Content $groupsJsonL.ToString() `
                                 -AccessToken $storageToken `
                                 -MaxRetries 3 `
                                 -BaseRetryDelaySeconds 2
 
-                Write-Verbose "Flushed $($groupsJsonL.Length) characters to blob (batch $batchNumber)"
+                Write-Verbose "Flushed $($groupsJsonL.Length) characters to principals blob (batch $batchNumber)"
                 $groupsJsonL.Clear()
             }
             catch {
-                Write-Error "CRITICAL: Blob write failed after retries at batch $batchNumber $_"
+                Write-Error "CRITICAL: Principals blob write failed after retries at batch $batchNumber $_"
                 throw "Cannot continue - data loss would occur"
             }
         }
@@ -281,7 +291,7 @@ try {
         try {
             Add-BlobContent -StorageAccountName $storageAccountName `
                             -ContainerName $containerName `
-                            -BlobName $groupsBlobName `
+                            -BlobName $principalsBlobName `
                             -Content $groupsJsonL.ToString() `
                             -AccessToken $storageToken `
                             -MaxRetries 3 `
@@ -294,7 +304,7 @@ try {
         }
     }
 
-    Write-Verbose "Group collection complete: $groupCount groups written to $groupsBlobName"
+    Write-Verbose "Group collection complete: $groupCount groups written to $principalsBlobName"
 
     # Cleanup
     $groupsJsonL.Clear()
@@ -313,7 +323,7 @@ try {
         cloudOnlyCount = $cloudOnlyCount
         syncedCount = $syncedCount
         groupsWithNestedGroupsCount = $groupsWithNestedGroupsCount
-        blobPath = $groupsBlobName
+        blobPath = $principalsBlobName
     }
 
     # Garbage collection
@@ -329,9 +339,9 @@ try {
         GroupCount = $groupCount
         Data = @()
         Summary = $summary
-        FileName = "$timestamp-groups.jsonl"
+        FileName = "$timestamp-principals.jsonl"
         Timestamp = $timestamp
-        BlobName = $groupsBlobName
+        PrincipalsBlobName = $principalsBlobName
     }
 }
 catch {

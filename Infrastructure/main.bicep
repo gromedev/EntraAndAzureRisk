@@ -24,8 +24,8 @@ param tags object = {
   Workload: workloadName
   ManagedBy: 'Bicep'
   CostCenter: 'IT-Security'
-  Project: 'EntraRiskAnalysis-V2'
-  Version: '2.0-Unified'
+  Project: 'EntraRiskAnalysis-V3'
+  Version: '3.0-Unified'
 }
 
 // Generate unique suffix for globally unique names
@@ -39,8 +39,6 @@ var appServicePlanName = 'asp-${workloadName}-${environment}-001'
 var keyVaultName = take('keyvault${workloadName}${environment}${uniqueSuffix}', 24)
 var appInsightsName = 'appi-${workloadName}-${environment}-001'
 var logAnalyticsName = 'log-${workloadName}-${environment}-001'
-var aiFoundryHubName = 'hub-${workloadName}-${environment}-${uniqueSuffix}'
-var aiFoundryProjectName = take('proj-${workloadName}-${environment}', 32)
 
 // STORAGE ACCOUNT WITH LIFECYCLE MANAGEMENT
 
@@ -166,9 +164,9 @@ resource cosmosDatabase 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2023
   }
 }
 
-// ===== V2 UNIFIED CONTAINERS (7 total) =====
+// ===== V3 UNIFIED CONTAINERS (6 total) =====
 
-// Container 1: principals (unified - users, groups, SPs, devices, apps)
+// Container 1: principals (unified - users, groups, SPs, devices)
 resource cosmosContainerPrincipals 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
   parent: cosmosDatabase
   name: 'principals'
@@ -189,6 +187,8 @@ resource cosmosContainerPrincipals 'Microsoft.DocumentDB/databaseAccounts/sqlDat
           { path: '/accountEnabled/?' }
           { path: '/userPrincipalName/?' }
           { path: '/deleted/?' }
+          { path: '/effectiveFrom/?' }
+          { path: '/effectiveTo/?' }
           { path: '/collectionTimestamp/?' }
         ]
         excludedPaths: [
@@ -200,15 +200,48 @@ resource cosmosContainerPrincipals 'Microsoft.DocumentDB/databaseAccounts/sqlDat
   }
 }
 
-// Container 2: relationships (unified - memberships, roles, permissions)
-resource cosmosContainerRelationships 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+// Container 2: resources (unified - applications, Azure resources)
+resource cosmosContainerResources 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
   parent: cosmosDatabase
-  name: 'relationships'
+  name: 'resources'
   properties: {
     resource: {
-      id: 'relationships'
+      id: 'resources'
       partitionKey: {
-        paths: ['/sourceId']
+        paths: ['/resourceType']
+        kind: 'Hash'
+      }
+      indexingPolicy: {
+        automatic: true
+        indexingMode: 'consistent'
+        includedPaths: [
+          { path: '/objectId/?' }
+          { path: '/resourceType/?' }
+          { path: '/displayName/?' }
+          { path: '/subscriptionId/?' }
+          { path: '/deleted/?' }
+          { path: '/effectiveFrom/?' }
+          { path: '/effectiveTo/?' }
+          { path: '/collectionTimestamp/?' }
+        ]
+        excludedPaths: [
+          { path: '/*' }
+        ]
+      }
+      defaultTtl: -1
+    }
+  }
+}
+
+// Container 3: edges (unified - all relationships)
+resource cosmosContainerEdges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+  parent: cosmosDatabase
+  name: 'edges'
+  properties: {
+    resource: {
+      id: 'edges'
+      partitionKey: {
+        paths: ['/edgeType']
         kind: 'Hash'
       }
       indexingPolicy: {
@@ -217,8 +250,10 @@ resource cosmosContainerRelationships 'Microsoft.DocumentDB/databaseAccounts/sql
         includedPaths: [
           { path: '/sourceId/?' }
           { path: '/targetId/?' }
-          { path: '/relationType/?' }
+          { path: '/edgeType/?' }
           { path: '/deleted/?' }
+          { path: '/effectiveFrom/?' }
+          { path: '/effectiveTo/?' }
           { path: '/collectionTimestamp/?' }
         ]
         excludedPaths: [
@@ -230,7 +265,7 @@ resource cosmosContainerRelationships 'Microsoft.DocumentDB/databaseAccounts/sql
   }
 }
 
-// Container 3: policies (unified - CA, role management)
+// Container 4: policies (unified - CA, role management, named locations)
 resource cosmosContainerPolicies 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
   parent: cosmosDatabase
   name: 'policies'
@@ -250,6 +285,8 @@ resource cosmosContainerPolicies 'Microsoft.DocumentDB/databaseAccounts/sqlDatab
           { path: '/displayName/?' }
           { path: '/state/?' }
           { path: '/deleted/?' }
+          { path: '/effectiveFrom/?' }
+          { path: '/effectiveTo/?' }
         ]
         excludedPaths: [
           { path: '/*' }
@@ -260,7 +297,7 @@ resource cosmosContainerPolicies 'Microsoft.DocumentDB/databaseAccounts/sqlDatab
   }
 }
 
-// Container 4: events (unified - sign-ins, audits, with TTL)
+// Container 5: events (unified - sign-ins, audits, with TTL)
 resource cosmosContainerEvents 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
   parent: cosmosDatabase
   name: 'events'
@@ -289,15 +326,15 @@ resource cosmosContainerEvents 'Microsoft.DocumentDB/databaseAccounts/sqlDatabas
   }
 }
 
-// Container 5: changes (unified audit trail - NO TTL, permanent history)
-resource cosmosContainerChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
+// Container 6: audit (unified audit trail - NO TTL, permanent history)
+resource cosmosContainerAudit 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
   parent: cosmosDatabase
-  name: 'changes'
+  name: 'audit'
   properties: {
     resource: {
-      id: 'changes'
+      id: 'audit'
       partitionKey: {
-        paths: ['/changeDate']
+        paths: ['/auditDate']
         kind: 'Hash'
       }
       indexingPolicy: {
@@ -305,7 +342,7 @@ resource cosmosContainerChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDataba
         indexingMode: 'consistent'
         includedPaths: [
           { path: '/objectId/?' }
-          { path: '/changeDate/?' }
+          { path: '/auditDate/?' }
           { path: '/changeType/?' }
           { path: '/entityType/?' }
         ]
@@ -314,54 +351,6 @@ resource cosmosContainerChanges 'Microsoft.DocumentDB/databaseAccounts/sqlDataba
         ]
       }
       defaultTtl: -1  // Keep forever - complete audit trail
-    }
-  }
-}
-
-// Container 6: snapshots (collection run metadata)
-resource cosmosContainerSnapshots 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'snapshots'
-  properties: {
-    resource: {
-      id: 'snapshots'
-      partitionKey: {
-        paths: ['/snapshotDate']
-        kind: 'Hash'
-      }
-      indexingPolicy: {
-        automatic: true
-        indexingMode: 'consistent'
-      }
-      defaultTtl: -1
-    }
-  }
-}
-
-// Container 7: roles (reference data - directory roles, Azure roles, licenses)
-resource cosmosContainerRoles 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2023-04-15' = {
-  parent: cosmosDatabase
-  name: 'roles'
-  properties: {
-    resource: {
-      id: 'roles'
-      partitionKey: {
-        paths: ['/roleType']
-        kind: 'Hash'
-      }
-      indexingPolicy: {
-        automatic: true
-        indexingMode: 'consistent'
-        includedPaths: [
-          { path: '/roleType/?' }
-          { path: '/displayName/?' }
-          { path: '/roleTemplateId/?' }
-        ]
-        excludedPaths: [
-          { path: '/*' }
-        ]
-      }
-      defaultTtl: -1
     }
   }
 }
@@ -550,14 +539,18 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
           name: 'COSMOS_DB_DATABASE'
           value: cosmosDatabase.name
         }
-        // V2 Unified Cosmos Container Names
+        // V3 Unified Cosmos Container Names
         {
           name: 'COSMOS_CONTAINER_PRINCIPALS'
           value: cosmosContainerPrincipals.name
         }
         {
-          name: 'COSMOS_CONTAINER_RELATIONSHIPS'
-          value: cosmosContainerRelationships.name
+          name: 'COSMOS_CONTAINER_RESOURCES'
+          value: cosmosContainerResources.name
+        }
+        {
+          name: 'COSMOS_CONTAINER_EDGES'
+          value: cosmosContainerEdges.name
         }
         {
           name: 'COSMOS_CONTAINER_POLICIES'
@@ -568,16 +561,8 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
           value: cosmosContainerEvents.name
         }
         {
-          name: 'COSMOS_CONTAINER_CHANGES'
-          value: cosmosContainerChanges.name
-        }
-        {
-          name: 'COSMOS_CONTAINER_SNAPSHOTS'
-          value: cosmosContainerSnapshots.name
-        }
-        {
-          name: 'COSMOS_CONTAINER_ROLES'
-          value: cosmosContainerRoles.name
+          name: 'COSMOS_CONTAINER_AUDIT'
+          value: cosmosContainerAudit.name
         }
         {
           name: 'CosmosDbConnectionString'
@@ -590,18 +575,6 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
         {
           name: 'TENANT_ID'
           value: tenantId
-        }
-        {
-          name: 'AI_FOUNDRY_ENDPOINT'
-          value: aiFoundryHub.properties.discoveryUrl
-        }
-        {
-          name: 'AI_FOUNDRY_PROJECT_NAME'
-          value: aiFoundryProjectName
-        }
-        {
-          name: 'AI_MODEL_DEPLOYMENT_NAME'
-          value: 'gpt-4o-mini'
         }
         // Collection Configuration
         {
@@ -640,45 +613,7 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
   }
 }
 
-resource aiFoundryHub 'Microsoft.MachineLearningServices/workspaces@2024-04-01' = {
-  name: aiFoundryHubName
-  location: location
-  tags: tags
-  identity: {
-    type: 'SystemAssigned'
-  }
-  sku: {
-    name: 'Basic'
-    tier: 'Basic'
-  }
-  kind: 'Hub'
-  properties: {
-    friendlyName: 'Entra Risk Analysis AI Hub - V2 Unified'
-    description: 'AI Foundry Hub with unified container architecture'
-    storageAccount: storageAccount.id
-    keyVault: keyVault.id
-    applicationInsights: appInsights.id
-  }
-}
-
-resource aiFoundryProject 'Microsoft.MachineLearningServices/workspaces@2024-04-01' = {
-  name: aiFoundryProjectName
-  location: location
-  tags: tags
-  identity: {
-    type: 'SystemAssigned'
-  }
-  sku: {
-    name: 'Basic'
-    tier: 'Basic'
-  }
-  kind: 'Project'
-  properties: {
-    friendlyName: 'Entra Risk Analysis Project - V2 Unified'
-    description: 'AI project with unified container architecture'
-    hubResourceId: aiFoundryHub.id
-  }
-}
+// AI Foundry removed in V3 - TestAIFoundry feature deleted
 
 // RBAC ASSIGNMENTS
 
@@ -705,35 +640,7 @@ resource functionAppKeyVaultRoleAssignment 'Microsoft.Authorization/roleAssignme
   }
 }
 
-resource functionAppAiRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(aiFoundryHub.id, functionApp.id, '64702f94-c441-49e6-a78b-ef80e0188fee')
-  scope: aiFoundryHub
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '64702f94-c441-49e6-a78b-ef80e0188fee') // Azure AI Developer
-    principalId: functionApp.identity.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource aiFoundryCosmosRoleAssignment 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2023-04-15' = {
-  parent: cosmosDbAccount
-  name: guid(aiFoundryHub.id, cosmosDbAccount.id, '00000000-0000-0000-0000-000000000001')
-  properties: {
-    roleDefinitionId: '${cosmosDbAccount.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000001'
-    principalId: aiFoundryHub.identity.principalId
-    scope: cosmosDbAccount.id
-  }
-}
-
-resource aiFoundryStorageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccount.id, aiFoundryHub.id, 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
-  scope: storageAccount
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
-    principalId: aiFoundryHub.identity.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
+// AI Foundry role assignments removed in V3
 
 // OUTPUTS
 
@@ -742,14 +649,13 @@ output functionAppName string = functionApp.name
 output cosmosDbAccountName string = cosmosDbAccount.name
 output cosmosDbEndpoint string = cosmosDbAccount.properties.documentEndpoint
 output cosmosDatabaseName string = cosmosDatabase.name
-// V2 Unified Container Outputs
+// V3 Unified Container Outputs
 output cosmosContainerPrincipals string = cosmosContainerPrincipals.name
-output cosmosContainerRelationships string = cosmosContainerRelationships.name
+output cosmosContainerResources string = cosmosContainerResources.name
+output cosmosContainerEdges string = cosmosContainerEdges.name
 output cosmosContainerPolicies string = cosmosContainerPolicies.name
 output cosmosContainerEvents string = cosmosContainerEvents.name
-output cosmosContainerChanges string = cosmosContainerChanges.name
-output cosmosContainerSnapshots string = cosmosContainerSnapshots.name
-output cosmosContainerRoles string = cosmosContainerRoles.name
+output cosmosContainerAudit string = cosmosContainerAudit.name
 output keyVaultName string = keyVault.name
 output appInsightsName string = appInsights.name
 output functionAppIdentityPrincipalId string = functionApp.identity.principalId

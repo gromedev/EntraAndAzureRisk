@@ -1,28 +1,37 @@
-#region Pilot Deployment Script - Delta Architecture
+#region V3 Deployment Script - Unified Architecture
 <#
 .SYNOPSIS
-    Deploys Entra Risk Analysis infrastructure
-    
+    Deploys Entra Risk Analysis V3 infrastructure
+
+.DESCRIPTION
+    V3 Architecture uses 6 unified Cosmos DB containers:
+    - principals: users, groups, SPs, devices
+    - resources: applications, Azure resources
+    - edges: all relationships (with edgeType discriminator)
+    - policies: CA policies, role policies, named locations
+    - events: sign-ins, audits (90 day TTL)
+    - audit: change audit trail (permanent)
+
 .PARAMETER SubscriptionId
     Azure subscription ID
 .PARAMETER TenantId
     Entra ID tenant ID
 .PARAMETER ResourceGroupName
-    Resource group name (default: rg-entrarisk-pilot)
+    Resource group name (default: rg-entrarisk-v3-001)
 .PARAMETER Location
-    Azure region (default: )
+    Azure region (default: swedencentral)
 .PARAMETER Environment
     Environment name (default: dev)
 .PARAMETER BlobRetentionDays
     Blob retention in days (default: 7)
 .PARAMETER WorkloadName
-    Workload name for resources (default: entrarisk)
-    
+    Workload name for resources (default: entrariskv3)
+
 .EXAMPLE
-    .\deploy-pilot-delta.ps1 -SubscriptionId "xxx" -TenantId "yyy"
-    
+    .\deploy.ps1 -SubscriptionId "xxx" -TenantId "yyy"
+
 .EXAMPLE
-    .\deploy-pilot-delta.ps1 -SubscriptionId "xxx" -TenantId "yyy" -BlobRetentionDays 30
+    .\deploy.ps1 -SubscriptionId "xxx" -TenantId "yyy" -BlobRetentionDays 30
 #>
 #endregion
 
@@ -37,7 +46,7 @@ param(
     [string]$TenantId,
     
     [Parameter(Mandatory=$false)]
-    [string]$ResourceGroupName = "rg-entrarisk-pilot-001",
+    [string]$ResourceGroupName = "rg-entrarisk-v3-001",
     
     [Parameter(Mandatory=$false)]
     [string]$Location = "swedencentral",
@@ -51,7 +60,7 @@ param(
     [int]$BlobRetentionDays = 7,
     
     [Parameter(Mandatory=$false)]
-    [string]$WorkloadName = "entrarisk"
+    [string]$WorkloadName = "entrariskv3"
 )
 
 #region Helper Functions
@@ -121,10 +130,10 @@ try {
         $rg = New-AzResourceGroup -Name $ResourceGroupName -Location $Location -Tag @{
             Environment = $Environment
             Workload = $WorkloadName
-            Project = 'EntraRiskAnalysis-Delta'
+            Project = 'EntraRiskAnalysis-V3'
             DeployedBy = $env:USERNAME
             DeployedDate = (Get-Date -Format 'yyyy-MM-dd')
-            Architecture = 'DeltaChangeDetection'
+            Architecture = 'V3-Unified'
         } -ErrorAction Stop
         
         Write-DeploymentSuccess "Resource group created"
@@ -303,10 +312,13 @@ Write-DeploymentInfo "Account" $deployment.Outputs.cosmosDbAccountName.Value
 Write-DeploymentInfo "Endpoint" $deployment.Outputs.cosmosDbEndpoint.Value
 Write-DeploymentInfo "Database" $deployment.Outputs.cosmosDatabaseName.Value
 Write-Host ""
-Write-Host "  Containers:" -ForegroundColor Gray
-Write-Host "    1. $($deployment.Outputs.cosmosContainerUsersRaw.Value) - Current user state"
-Write-Host "    2. $($deployment.Outputs.cosmosContainerUserChanges.Value) - Change log (365 day TTL)"
-Write-Host "    3. $($deployment.Outputs.cosmosContainerSnapshots.Value) - Collection metadata"
+Write-Host "  V3 Containers:" -ForegroundColor Gray
+Write-Host "    1. $($deployment.Outputs.cosmosContainerPrincipals.Value) - Users, groups, SPs, devices"
+Write-Host "    2. $($deployment.Outputs.cosmosContainerResources.Value) - Applications, Azure resources"
+Write-Host "    3. $($deployment.Outputs.cosmosContainerEdges.Value) - All relationships"
+Write-Host "    4. $($deployment.Outputs.cosmosContainerPolicies.Value) - CA policies, role policies"
+Write-Host "    5. $($deployment.Outputs.cosmosContainerEvents.Value) - Sign-ins, audits (90 day TTL)"
+Write-Host "    6. $($deployment.Outputs.cosmosContainerAudit.Value) - Change audit trail"
 Write-Host ""
 
 # Function App
@@ -317,10 +329,9 @@ Write-DeploymentInfo "Plan" "Consumption (Dynamic)"
 Write-DeploymentInfo "Features" "Delta detection enabled"
 Write-Host ""
 
-# AI Foundry
+# AI Foundry removed in V3
 Write-Host "AI FOUNDRY:" -ForegroundColor Yellow
-Write-DeploymentInfo "Hub" ($deployment.Outputs.aiFoundryHubName.Value ?? "N/A")
-Write-DeploymentInfo "Project" ($deployment.Outputs.aiFoundryProjectName.Value ?? "N/A")
+Write-Host "  (Removed in V3 architecture)" -ForegroundColor Gray
 Write-Host ""
 
 # Monitoring
@@ -403,20 +414,13 @@ Write-Host "NEXT STEPS (Required Manual Actions)"
 Write-Host "==========================================" -ForegroundColor Yellow
 Write-Host ""
 
-Write-Host "2. (OPTIONAL) DEPLOY AI MODEL" -ForegroundColor Gray
-Write-Host "   For AI Foundry testing:"
-Write-Host "   - Visit: https://ai.azure.com"
-Write-Host "   - Navigate to your project"
-Write-Host "   - Deploy 'gpt-4o-mini' model"
-Write-Host ""
-
-Write-Host "3. TEST THE DEPLOYMENT" -ForegroundColor Yellow
-Write-Host "   After steps 1-3 are complete:"
+Write-Host "2. TEST THE DEPLOYMENT" -ForegroundColor Yellow
+Write-Host "   After Graph permissions are granted:"
 Write-Host "   - Trigger via HTTP endpoint or wait for timer (every 6 hours)"
 Write-Host "   - Check Application Insights for logs"
 Write-Host "   - Verify data in Blob Storage (raw-data container)"
-Write-Host "   - Verify data in Cosmos DB (users_raw container)"
-Write-Host "   - Check user_changes container for deltas"
+Write-Host "   - Verify blob outputs: principals.jsonl, resources.jsonl, edges.jsonl"
+Write-Host "   - Verify Cosmos DB containers: principals, resources, edges, policies, audit"
 Write-Host ""
 #endregion
 
@@ -429,37 +433,37 @@ $deploymentInfo = @{
     Location = $Location
     Environment = $Environment
     BlobRetentionDays = $BlobRetentionDays
-    Architecture = 'DeltaChangeDetection'
-    
+    Architecture = 'V3-Unified'
+
     Resources = @{
         StorageAccount = $deployment.Outputs.storageAccountName.Value
         FunctionApp = $deployment.Outputs.functionAppName.Value
         CosmosDBAccount = $deployment.Outputs.cosmosDbAccountName.Value
         CosmosDatabase = $deployment.Outputs.cosmosDatabaseName.Value
         CosmosContainers = @{
-            UsersRaw = $deployment.Outputs.cosmosContainerUsersRaw.Value
-            UserChanges = $deployment.Outputs.cosmosContainerUserChanges.Value
-            Snapshots = $deployment.Outputs.cosmosContainerSnapshots.Value
+            Principals = $deployment.Outputs.cosmosContainerPrincipals.Value
+            Resources = $deployment.Outputs.cosmosContainerResources.Value
+            Edges = $deployment.Outputs.cosmosContainerEdges.Value
+            Policies = $deployment.Outputs.cosmosContainerPolicies.Value
+            Events = $deployment.Outputs.cosmosContainerEvents.Value
+            Audit = $deployment.Outputs.cosmosContainerAudit.Value
         }
         KeyVault = $deployment.Outputs.keyVaultName.Value
         ApplicationInsights = $deployment.Outputs.appInsightsName.Value
-        AIFoundryHub = $deployment.Outputs.aiFoundryHubName.Value
-        AIFoundryProject = $deployment.Outputs.aiFoundryProjectName.Value
     }
-    
+
     ManagedIdentities = @{
         FunctionApp = $deployment.Outputs.functionAppIdentityPrincipalId.Value
     }
-    
+
     NextSteps = @{
         GraphAPIPermissions = "Required - See steps above"
         ModulePublishing = "Required - Run publish-module.yml"
         AppDeployment = "Required - Run pilot-pipeline.yml"
-        AIModelDeployment = "Optional - Deploy in AI Foundry portal"
     }
 }
 
-$infoPath = Join-Path $PSScriptRoot "deployment-info-delta-$(Get-Date -Format 'yyyyMMdd-HHmmss').json"
+$infoPath = Join-Path $PSScriptRoot "deployment-info-v3-$(Get-Date -Format 'yyyyMMdd-HHmmss').json"
 $deploymentInfo | ConvertTo-Json -Depth 10 | Set-Content -Path $infoPath
 
 Write-Host ""
@@ -473,6 +477,6 @@ Write-Host "=========================================="
 Write-Host "Deployment script completed successfully!" -ForegroundColor Green
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "Remember to complete the 5 manual steps above before testing." -ForegroundColor Yellow
+Write-Host "Remember: Graph API permissions are auto-assigned. Test when ready." -ForegroundColor Yellow
 Write-Host ""
 #endregion

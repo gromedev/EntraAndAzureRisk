@@ -1,21 +1,22 @@
-#region Index Azure Resources in Cosmos DB - Unified Container
+#region Index Edges in Cosmos DB - Unified Container (V3)
 <#
 .SYNOPSIS
-    Indexes Azure resources (hierarchy, key vaults, VMs) in unified Cosmos DB container
+    Indexes edges (all relationships) in unified Cosmos DB container
 .DESCRIPTION
+    V3 Architecture: Unified edges container
     Uses Invoke-DeltaIndexingWithBinding with config from IndexerConfigs.psd1.
-    All Azure resource types are stored in a single container with resourceType discriminator.
+    All edge types (Entra + Azure relationships) are stored in a single container with edgeType discriminator.
     Configuration and binding logic handled by the shared function.
 #>
 #endregion
 
-param($ActivityInput, $azureResourcesRawIn)
+param($ActivityInput, $edgesRawIn)
 
 $modulePath = Join-Path $PSScriptRoot "..\Modules\EntraDataCollection"
 Import-Module $modulePath -Force -ErrorAction Stop
 
 # Use shared function with entity type - all config loaded from IndexerConfigs.psd1
 return Invoke-DeltaIndexingWithBinding `
-    -EntityType 'azureResources' `
+    -EntityType 'edges' `
     -ActivityInput $ActivityInput `
-    -ExistingData $azureResourcesRawIn
+    -ExistingData $edgesRawIn

@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-    Collects Azure Automation Account data with managed identity information
+    Collects Azure Automation Account data with managed identity information.
+    V3 Architecture: Unified resources and edges containers.
 .DESCRIPTION
     Phase 3 collector for Automation Accounts to enable lateral movement and execution attack path analysis.
 
@@ -60,10 +61,15 @@ if ($missingVars) {
 try {
     Write-Verbose "Starting Automation Account collection"
 
-    # Generate ISO 8601 timestamps
-    $now = (Get-Date).ToUniversalTime()
-    $timestamp = $now.ToString("yyyy-MM-ddTHH-mm-ssZ")
-    $timestampFormatted = $now.ToString("yyyy-MM-ddTHH:mm:ssZ")
+    # V3: Use shared timestamp from orchestrator (critical for unified blob files)
+    if ($ActivityInput -and $ActivityInput.Timestamp) {
+        $timestamp = $ActivityInput.Timestamp
+        Write-Verbose "Using orchestrator timestamp: $timestamp"
+    } else {
+        $timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH-mm-ssZ")
+        Write-Warning "No orchestrator timestamp - using local: $timestamp"
+    }
+    $timestampFormatted = $timestamp -replace 'T(\d{2})-(\d{2})-(\d{2})Z', 'T$1:$2:$3Z'
     Write-Verbose "Collection timestamp: $timestampFormatted"
 
     # Get access tokens
@@ -86,7 +92,7 @@ try {
 
     # Initialize buffers
     $resourcesJsonL = New-Object System.Text.StringBuilder(1048576)
-    $relationshipsJsonL = New-Object System.Text.StringBuilder(524288)
+    $edgesJsonL = New-Object System.Text.StringBuilder(524288)
     $writeThreshold = 500000
 
     # Results tracking
@@ -99,9 +105,9 @@ try {
     }
 
     # Initialize append blobs
-    $resourcesBlobName = "$timestamp/$timestamp-automationaccounts.jsonl"
-    $relationshipsBlobName = "$timestamp/$timestamp-automationaccount-relationships.jsonl"
-    Write-Verbose "Initializing blobs: $resourcesBlobName, $relationshipsBlobName"
+    $resourcesBlobName = "$timestamp/$timestamp-resources.jsonl"
+    $edgesBlobName = "$timestamp/$timestamp-edges.jsonl"
+    Write-Verbose "Initializing blobs: $resourcesBlobName, $edgesBlobName"
 
     try {
         Initialize-AppendBlob -StorageAccountName $storageAccountName `
@@ -110,7 +116,7 @@ try {
                               -AccessToken $storageToken
         Initialize-AppendBlob -StorageAccountName $storageAccountName `
                               -ContainerName $containerName `
-                              -BlobName $relationshipsBlobName `
+                              -BlobName $edgesBlobName `
                               -AccessToken $storageToken
     }
     catch {
@@ -128,10 +134,10 @@ try {
         BlobName = $resourcesBlobName
         AccessToken = $storageToken
     }
-    $relationshipsFlushParams = @{
+    $edgesFlushParams = @{
         StorageAccountName = $storageAccountName
         ContainerName = $containerName
-        BlobName = $relationshipsBlobName
+        BlobName = $edgesBlobName
         AccessToken = $storageToken
     }
 
@@ -227,6 +233,8 @@ try {
 
                     tags = $aa.tags ?? @{}
                     collectionTimestamp = $timestampFormatted
+                    effectiveFrom = $timestampFormatted
+                    effectiveTo = $null
                 }
 
                 [void]$resourcesJsonL.AppendLine(($aaObj | ConvertTo-Json -Compress -Depth 10))
@@ -237,7 +245,7 @@ try {
                     $containsRel = @{
                         id = "$($rgId)_$($aaId)_contains"
                         objectId = "$($rgId)_$($aaId)_contains"
-                        relationType = "contains"
+                        edgeType = "contains"
                         sourceId = $rgId
                         sourceType = "resourceGroup"
                         sourceDisplayName = $rgName
@@ -246,8 +254,10 @@ try {
                         targetDisplayName = $aaName
                         targetLocation = $aaObj.location
                         collectionTimestamp = $timestampFormatted
+                        effectiveFrom = $timestampFormatted
+                        effectiveTo = $null
                     }
-                    [void]$relationshipsJsonL.AppendLine(($containsRel | ConvertTo-Json -Compress))
+                    [void]$edgesJsonL.AppendLine(($containsRel | ConvertTo-Json -Compress))
                     $stats.ContainsRelationships++
                 }
 
@@ -256,7 +266,7 @@ try {
                     $miRel = @{
                         id = "$($aaId)_$($systemAssignedPrincipalId)_hasManagedIdentity"
                         objectId = "$($aaId)_$($systemAssignedPrincipalId)_hasManagedIdentity"
-                        relationType = "hasManagedIdentity"
+                        edgeType = "hasManagedIdentity"
                         sourceId = $aaId
                         sourceType = "automationAccount"
                         sourceDisplayName = $aaName
@@ -264,8 +274,10 @@ try {
                         targetType = "servicePrincipal"
                         identityType = "SystemAssigned"
                         collectionTimestamp = $timestampFormatted
+                        effectiveFrom = $timestampFormatted
+                        effectiveTo = $null
                     }
-                    [void]$relationshipsJsonL.AppendLine(($miRel | ConvertTo-Json -Compress))
+                    [void]$edgesJsonL.AppendLine(($miRel | ConvertTo-Json -Compress))
                     $stats.ManagedIdentityLinks++
                 }
 
@@ -274,7 +286,7 @@ try {
                         $miRel = @{
                             id = "$($aaId)_$($uai.principalId)_hasManagedIdentity"
                             objectId = "$($aaId)_$($uai.principalId)_hasManagedIdentity"
-                            relationType = "hasManagedIdentity"
+                            edgeType = "hasManagedIdentity"
                             sourceId = $aaId
                             sourceType = "automationAccount"
                             sourceDisplayName = $aaName
@@ -283,15 +295,17 @@ try {
                             identityType = "UserAssigned"
                             userAssignedIdentityId = $uai.id
                             collectionTimestamp = $timestampFormatted
+                            effectiveFrom = $timestampFormatted
+                            effectiveTo = $null
                         }
-                        [void]$relationshipsJsonL.AppendLine(($miRel | ConvertTo-Json -Compress))
+                        [void]$edgesJsonL.AppendLine(($miRel | ConvertTo-Json -Compress))
                         $stats.ManagedIdentityLinks++
                     }
                 }
 
                 # Periodic flush
                 if ($resourcesJsonL.Length -ge $writeThreshold) { Write-BlobBuffer -Buffer ([ref]$resourcesJsonL) @resourcesFlushParams }
-                if ($relationshipsJsonL.Length -ge $writeThreshold) { Write-BlobBuffer -Buffer ([ref]$relationshipsJsonL) @relationshipsFlushParams }
+                if ($edgesJsonL.Length -ge $writeThreshold) { Write-BlobBuffer -Buffer ([ref]$edgesJsonL) @edgesFlushParams }
             }
         }
         catch {
@@ -302,14 +316,14 @@ try {
 
     #region Final Flush
     Write-BlobBuffer -Buffer ([ref]$resourcesJsonL) @resourcesFlushParams
-    Write-BlobBuffer -Buffer ([ref]$relationshipsJsonL) @relationshipsFlushParams
+    Write-BlobBuffer -Buffer ([ref]$edgesJsonL) @edgesFlushParams
     #endregion
 
     # Cleanup
     $resourcesJsonL.Clear()
     $resourcesJsonL = $null
-    $relationshipsJsonL.Clear()
-    $relationshipsJsonL = $null
+    $edgesJsonL.Clear()
+    $edgesJsonL = $null
 
     [System.GC]::Collect()
     [System.GC]::WaitForPendingFinalizers()
@@ -320,10 +334,10 @@ try {
         Success = $true
         Timestamp = $timestamp
         ResourcesBlobName = $resourcesBlobName
-        RelationshipsBlobName = $relationshipsBlobName
+        EdgesBlobName = $edgesBlobName
         AutomationAccountCount = $stats.AutomationAccounts
         ManagedIdentityLinkCount = $stats.ManagedIdentityLinks
-        RelationshipCount = $stats.ContainsRelationships + $stats.ManagedIdentityLinks
+        EdgeCount = $stats.ContainsRelationships + $stats.ManagedIdentityLinks
 
         Stats = @{
             AutomationAccounts = $stats.AutomationAccounts

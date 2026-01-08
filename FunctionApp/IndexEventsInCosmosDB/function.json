@@ -16,16 +16,6 @@
       "partitionKey": "/eventDate"
     },
     {
-      "name": "snapshotsOut",
-      "type": "cosmosDB",
-      "direction": "out",
-      "databaseName": "EntraData",
-      "containerName": "snapshots",
-      "connection": "CosmosDbConnectionString",
-      "createIfNotExists": false,
-      "partitionKey": "/id"
-    },
-    {
       "name": "eventsRawIn",
       "type": "cosmosDB",
       "direction": "in",

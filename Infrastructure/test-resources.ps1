@@ -18,7 +18,7 @@ if (-not (Get-AzResourceGroup -Name $rg -ErrorAction SilentlyContinue)) {
 }
 
 # -----------------------------
-# Logic App (Consumption) — ARM deployment (this avoids ALL Az.LogicApp bugs)
+# Logic App (Consumption)
 # -----------------------------
 $logicAppTemplate = @{
     '$schema'        = 'https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#'
@@ -87,72 +87,3 @@ New-AzAutomationAccount `
     AppServicePlan    = $planName
     AutomationAccount = $automationName
 }
-
-
-
-<#
-$rg       = "rg-test-data"
-$location = "westeurope"
-$unique   = (Get-Random -Maximum 99999)
-
-$logicAppName   = "la-test-$unique"
-$planName       = "asp-free-$unique"
-$webAppName     = "webtest$unique"
-$automationName = "aa-test-$unique"
-
-# Resource group
-if (-not (Get-AzResourceGroup -Name $rg -ErrorAction SilentlyContinue)) {
-    New-AzResourceGroup -Name $rg -Location $location | Out-Null
-}
-
-# -----------------------------------
-# App Service Plan (Free)
-# -----------------------------------
-New-AzAppServicePlan `
-    -ResourceGroupName $rg `
-    -Name $planName `
-    -Location $location `
-    -Tier Free `
-    -WorkerSize Small `
-    -NumberofWorkers 1 | Out-Null
-
-# -----------------------------------
-# Web App (placeholder)
-# -----------------------------------
-New-AzWebApp `
-    -ResourceGroupName $rg `
-    -Name $webAppName `
-    -Location $location `
-    -AppServicePlan $planName | Out-Null
-
-# -----------------------------------
-# Logic App *Standard* (no workflow, no definition)
-# -----------------------------------
-New-AzWebApp `
-    -ResourceGroupName $rg `
-    -Name $logicAppName `
-    -Location $location `
-    -AppServicePlan $planName `
-    -Kind "workflowapp" | Out-Null
-
-# -----------------------------------
-# Automation Account (Free)
-# -----------------------------------
-New-AzAutomationAccount `
-    -ResourceGroupName $rg `
-    -Name $automationName `
-    -Location $location `
-    -Plan Free | Out-Null
-
-# -----------------------------------
-# Output
-# -----------------------------------
-[PSCustomObject]@{
-    ResourceGroup     = $rg
-    LogicAppStandard  = $logicAppName
-    WebApp            = $webAppName
-    AppServicePlan    = $planName
-    AutomationAccount = $automationName
-}
-
-#>

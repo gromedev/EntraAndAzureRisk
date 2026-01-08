@@ -1,0 +1,34 @@
+{
+  "Environment": "dev",
+  "ManagedIdentities": {
+    "FunctionApp": "d671370c-5d34-4e75-9faa-248bd02cc5b4"
+  },
+  "Resources": {
+    "KeyVault": "keyvaultentrariskv3dev76",
+    "CosmosDBAccount": "cosno-entrariskv3-dev-76q5bvq4grjmw",
+    "CosmosContainers": {
+      "Resources": "resources",
+      "Edges": "edges",
+      "Events": "events",
+      "Principals": "principals",
+      "Audit": "audit",
+      "Policies": "policies"
+    },
+    "CosmosDatabase": "EntraData",
+    "StorageAccount": "stentrariskv3dev76q5bvq4",
+    "ApplicationInsights": "appi-entrariskv3-dev-001",
+    "FunctionApp": "func-entrariskv3-data-dev-76q5bvq4grjmw"
+  },
+  "NextSteps": {
+    "AppDeployment": "Required - Run pilot-pipeline.yml",
+    "ModulePublishing": "Required - Run publish-module.yml",
+    "GraphAPIPermissions": "Required - See steps above"
+  },
+  "BlobRetentionDays": 7,
+  "Location": "swedencentral",
+  "SubscriptionId": "4e5adb24-09e8-4a01-adbb-c6cee339f639",
+  "ResourceGroupName": "rg-entrarisk-v3-001",
+  "DeploymentDate": "2026-01-08 01.06.20",
+  "DeploymentName": "delta-pilot-20260108-010103",
+  "Architecture": "V3-Unified"
+}

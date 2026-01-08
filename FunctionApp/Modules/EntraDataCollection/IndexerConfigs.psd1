@@ -880,17 +880,17 @@
     }
 
     # ============================================
-    # RELATIONSHIPS (Unified: memberships, roles, permissions)
+    # EDGES (V3: Unified graph edges - all relationships)
     # ============================================
-    relationships = @{
-        EntityType = 'relationships'
-        EntityNameSingular = 'relationship'
-        EntityNamePlural = 'Relationships'
-        # Note: For relationships, the composite key is sourceId_targetId_relationType
+    edges = @{
+        EntityType = 'edges'
+        EntityNameSingular = 'edge'
+        EntityNamePlural = 'Edges'
+        # Note: For edges, the composite key is sourceId_targetId_edgeType
         # The objectId field is set to this composite key
         CompareFields = @(
-            # Core relationship fields
-            'relationType'
+            # Core edge fields
+            'edgeType'
             'sourceId'
             'sourceType'
             'sourceDisplayName'
@@ -952,7 +952,7 @@
         )
         DocumentFields = @{
             # Core fields
-            relationType = 'relationType'
+            edgeType = 'edgeType'
             sourceId = 'sourceId'
             sourceType = 'sourceType'
             sourceDisplayName = 'sourceDisplayName'
@@ -1016,8 +1016,8 @@
         }
         WriteDeletes = $true
         IncludeDeleteMarkers = $true
-        RawOutBinding = 'relationshipsRawOut'
-        ChangesOutBinding = 'relationshipChangesOut'
+        RawOutBinding = 'edgesRawOut'
+        ChangesOutBinding = 'edgeChangesOut'
     }
 
     # ============================================
@@ -1207,12 +1207,12 @@
     }
 
     # ============================================
-    # AZURE RESOURCES (Phase 2: Hierarchy, Key Vaults, VMs)
+    # RESOURCES (V3: Unified - applications + Azure resources)
     # ============================================
-    azureResources = @{
-        EntityType = 'azureResources'
-        EntityNameSingular = 'azureResource'
-        EntityNamePlural = 'AzureResources'
+    resources = @{
+        EntityType = 'resources'
+        EntityNameSingular = 'resource'
+        EntityNamePlural = 'Resources'
         # Partition key is /resourceType for efficient queries
         CompareFields = @(
             # Common fields
@@ -1412,12 +1412,12 @@
         }
         WriteDeletes = $true
         IncludeDeleteMarkers = $true
-        RawOutBinding = 'azureResourcesRawOut'
-        ChangesOutBinding = 'azureResourceChangesOut'
+        RawOutBinding = 'resourcesRawOut'
+        ChangesOutBinding = 'resourceChangesOut'
     }
 
     # ============================================
-    # AZURE RELATIONSHIPS (Phase 2: Contains, Access, Identity)
+    # AZURE RELATIONSHIPS (DEPRECATED - V3 uses unified edges container) (Phase 2: Contains, Access, Identity)
     # ============================================
     azureRelationships = @{
         EntityType = 'azureRelationships'

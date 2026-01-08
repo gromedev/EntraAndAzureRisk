@@ -14,56 +14,29 @@
       "name": "Response"
     },
     {
-      "name": "usersIn",
+      "name": "principalsIn",
       "type": "cosmosDB",
       "direction": "in",
       "databaseName": "EntraData",
       "containerName": "principals",
       "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c WHERE c.principalType = 'user' AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
     },
     {
-      "name": "groupsIn",
+      "name": "resourcesIn",
       "type": "cosmosDB",
       "direction": "in",
       "databaseName": "EntraData",
-      "containerName": "principals",
+      "containerName": "resources",
       "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c WHERE c.principalType = 'group' AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
     },
     {
-      "name": "servicePrincipalsIn",
+      "name": "edgesIn",
       "type": "cosmosDB",
       "direction": "in",
       "databaseName": "EntraData",
-      "containerName": "principals",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c WHERE c.principalType = 'servicePrincipal' AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
-    },
-    {
-      "name": "devicesIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "principals",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c WHERE c.principalType = 'device' AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
-    },
-    {
-      "name": "applicationsIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "principals",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c WHERE c.principalType = 'application' AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
-    },
-    {
-      "name": "relationshipsIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "relationships",
+      "containerName": "edges",
       "connection": "CosmosDbConnectionString",
       "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
     },
@@ -83,43 +56,16 @@
       "databaseName": "EntraData",
       "containerName": "events",
       "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT TOP 500 * FROM c ORDER BY c.createdDateTime DESC"
+      "sqlQuery": "SELECT TOP 500 * FROM c"
     },
     {
-      "name": "changesIn",
+      "name": "auditIn",
       "type": "cosmosDB",
       "direction": "in",
       "databaseName": "EntraData",
-      "containerName": "changes",
+      "containerName": "audit",
       "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT TOP 200 * FROM c ORDER BY c.changeDate DESC"
-    },
-    {
-      "name": "rolesIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "roles",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c"
-    },
-    {
-      "name": "azureResourcesIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "azureResources",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c"
-    },
-    {
-      "name": "azureRelationshipsIn",
-      "type": "cosmosDB",
-      "direction": "in",
-      "databaseName": "EntraData",
-      "containerName": "azureRelationships",
-      "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c"
+      "sqlQuery": "SELECT TOP 200 * FROM c"
     }
   ]
 }

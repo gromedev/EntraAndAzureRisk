@@ -58,10 +58,16 @@ if ($missingVars) {
 try {
     Write-Verbose "Starting combined Users + AuthMethods data collection"
 
-    # Generate ISO 8601 timestamps
-    $now = (Get-Date).ToUniversalTime()
-    $timestamp = $now.ToString("yyyy-MM-ddTHH-mm-ssZ")
-    $timestampFormatted = $now.ToString("yyyy-MM-ddTHH:mm:ssZ")
+    # V3: Use shared timestamp from orchestrator (critical for unified blob files)
+    if ($ActivityInput -and $ActivityInput.Timestamp) {
+        $timestamp = $ActivityInput.Timestamp
+        Write-Verbose "Using orchestrator timestamp: $timestamp"
+    } else {
+        # Fallback for manual testing
+        $timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH-mm-ssZ")
+        Write-Warning "No orchestrator timestamp - using local: $timestamp"
+    }
+    $timestampFormatted = $timestamp -replace 'T(\d{2})-(\d{2})-(\d{2})Z', 'T$1:$2:$3Z'
     Write-Verbose "Collection timestamp: $timestampFormatted"
 
     # Get access tokens (cached)
@@ -109,14 +115,14 @@ try {
     $usersWithFido2Count = 0
     $usersWithWindowsHelloCount = 0
 
-    # Initialize append blob (single file - auth methods embedded in users)
-    $usersBlobName = "$timestamp/$timestamp-users.jsonl"
-    Write-Verbose "Initializing append blob: $usersBlobName (with embedded auth methods)"
+    # Initialize append blob (V3: unified principals.jsonl)
+    $principalsBlobName = "$timestamp/$timestamp-principals.jsonl"
+    Write-Verbose "Initializing append blob: $principalsBlobName (with embedded auth methods)"
 
     try {
         Initialize-AppendBlob -StorageAccountName $storageAccountName `
             -ContainerName $containerName `
-            -BlobName $usersBlobName `
+            -BlobName $principalsBlobName `
             -AccessToken $storageToken
     }
     catch {
@@ -237,7 +243,7 @@ try {
                 }
             }
 
-            # Transform to consistent structure WITH EMBEDDED AUTH METHODS
+            # Transform to consistent structure WITH EMBEDDED AUTH METHODS (V3)
             $userObj = @{
                 # Core identifiers
                 objectId                         = $userId
@@ -299,6 +305,10 @@ try {
                 authMethodCount                  = $methodCount
                 authMethodTypes                  = $authMethodTypes
 
+                # V3: Temporal fields for historical tracking
+                effectiveFrom                    = $timestampFormatted
+                effectiveTo                      = $null
+
                 # Collection metadata
                 collectionTimestamp              = $timestampFormatted
             }
@@ -319,17 +329,17 @@ try {
             try {
                 Add-BlobContent -StorageAccountName $storageAccountName `
                     -ContainerName $containerName `
-                    -BlobName $usersBlobName `
+                    -BlobName $principalsBlobName `
                     -Content $usersJsonL.ToString() `
                     -AccessToken $storageToken `
                     -MaxRetries 3 `
                     -BaseRetryDelaySeconds 2
 
-                Write-Verbose "Flushed $($usersJsonL.Length) chars to users blob (batch $batchNumber)"
+                Write-Verbose "Flushed $($usersJsonL.Length) chars to principals blob (batch $batchNumber)"
                 $usersJsonL.Clear()
             }
             catch {
-                Write-Error "CRITICAL: Users blob write failed after retries at batch $batchNumber $_"
+                Write-Error "CRITICAL: Principals blob write failed after retries at batch $batchNumber $_"
                 throw "Cannot continue - data loss would occur"
             }
         }
@@ -342,15 +352,15 @@ try {
         try {
             Add-BlobContent -StorageAccountName $storageAccountName `
                 -ContainerName $containerName `
-                -BlobName $usersBlobName `
+                -BlobName $principalsBlobName `
                 -Content $usersJsonL.ToString() `
                 -AccessToken $storageToken `
                 -MaxRetries 3 `
                 -BaseRetryDelaySeconds 2
-            Write-Verbose "Final users flush: $($usersJsonL.Length) characters written"
+            Write-Verbose "Final principals flush: $($usersJsonL.Length) characters written"
         }
         catch {
-            Write-Error "CRITICAL: Final users flush failed: $_"
+            Write-Error "CRITICAL: Final principals flush failed: $_"
             throw "Cannot complete collection"
         }
     }
@@ -381,7 +391,7 @@ try {
         usersWithPhoneCount         = $usersWithPhoneCount
         usersWithFido2Count         = $usersWithFido2Count
         usersWithWindowsHelloCount  = $usersWithWindowsHelloCount
-        blobPath                    = $usersBlobName
+        blobPath                    = $principalsBlobName
     }
 
     # Garbage collection
@@ -400,7 +410,7 @@ try {
         Data                      = @()
         Summary                   = $summary
         Timestamp                 = $timestamp
-        UsersBlobName             = $usersBlobName
+        PrincipalsBlobName        = $principalsBlobName
     }
 }
 catch {

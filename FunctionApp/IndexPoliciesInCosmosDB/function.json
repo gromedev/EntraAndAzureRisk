@@ -20,20 +20,10 @@
       "type": "cosmosDB",
       "direction": "out",
       "databaseName": "EntraData",
-      "containerName": "changes",
+      "containerName": "audit",
       "connection": "CosmosDbConnectionString",
       "createIfNotExists": false,
-      "partitionKey": "/changeDate"
-    },
-    {
-      "name": "snapshotsOut",
-      "type": "cosmosDB",
-      "direction": "out",
-      "databaseName": "EntraData",
-      "containerName": "snapshots",
-      "connection": "CosmosDbConnectionString",
-      "createIfNotExists": false,
-      "partitionKey": "/id"
+      "partitionKey": "/auditDate"
     },
     {
       "name": "policiesRawIn",

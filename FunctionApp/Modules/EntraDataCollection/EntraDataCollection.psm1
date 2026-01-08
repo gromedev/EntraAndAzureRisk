@@ -1309,7 +1309,7 @@ function Invoke-DeltaIndexing {
     #   - Full current state is always in the 'principals' container (delta-updated)
     #   - For NEW: the full entity exists in principals, no need to duplicate
     #   - For MODIFIED: only the delta matters for audit; current state is in principals
-    #   - For DELETED: entity is soft-deleted in principals (deleted=true, ttl set)
+    #   - For DELETED: entity is soft-deleted in principals (effectiveTo=now, ttl set)
     #
     # STORAGE SAVINGS: ~80% reduction in changes container size
     #   - Before: ~1,400 bytes per modified change (prev + new + delta + metadata)
@@ -1423,7 +1423,7 @@ function Invoke-DeltaIndexing {
                 $deletedEntities += $existingEntities[$objectId]
 
                 # Store minimal delete record - no need to duplicate the full entity
-                # The entity is soft-deleted in principals container with deleted=true
+                # The entity is soft-deleted in principals container with effectiveTo=now (V3)
                 $changeLog += @{
                     id = [Guid]::NewGuid().ToString()
                     objectId = $objectId
@@ -1481,17 +1481,30 @@ function Invoke-DeltaIndexing {
                 $doc[$fieldName] = $entity.$sourcePath
             }
 
-            # Add soft delete markers if configured
+            # Add V3 temporal fields for soft delete (effectiveTo instead of deleted flag)
             if ($includeDeleteMarkers) {
                 $isDeleted = $deletedEntities | Where-Object { $_.objectId -eq $entity.objectId }
+                $now = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
                 if ($isDeleted) {
-                    $doc['deleted'] = $true
-                    $doc['deletedTimestamp'] = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+                    # V3: Set effectiveTo = now for deleted entities (soft delete)
+                    $doc['effectiveTo'] = $now
+                    $doc['deleted'] = $true  # Keep for backward compatibility during transition
+                    $doc['deletedTimestamp'] = $now
                     $doc['ttl'] = 7776000  # 90 days in seconds
                 }
                 else {
+                    # Entity is current - effectiveTo should be null
+                    $doc['effectiveTo'] = $null
                     $doc['deleted'] = $false
+                }
+
+                # Preserve effectiveFrom: use existing if available, otherwise set to now
+                if ($entity.effectiveFrom) {
+                    $doc['effectiveFrom'] = $entity.effectiveFrom
+                }
+                elseif (-not $doc['effectiveFrom']) {
+                    $doc['effectiveFrom'] = $now
                 }
             }
 
@@ -1604,11 +1617,11 @@ function Invoke-DeltaIndexingWithBinding {
 
         if ($result.ChangeDocuments.Count -gt 0) {
             Push-OutputBinding -Name $config.ChangesOutBinding -Value $result.ChangeDocuments
-            Write-Verbose "Queued $($result.ChangeDocuments.Count) change events to changes container"
+            Write-Verbose "Queued $($result.ChangeDocuments.Count) change events to audit container"
         }
 
-        Push-OutputBinding -Name 'snapshotsOut' -Value $result.SnapshotDocument
-        Write-Verbose "Queued snapshot summary to snapshots container"
+        # V3: Snapshots container removed - snapshot data now tracked via audit container
+        Write-Verbose "Indexing complete for $($config.EntityNamePlural)"
 
         # Return standardized statistics with entity-specific property names
         $entityPlural = $config.EntityNamePlural

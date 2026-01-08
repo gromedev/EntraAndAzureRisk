@@ -58,10 +58,16 @@ if ($missingVars) {
 try {
     Write-Verbose "Starting combined events collection"
 
-    # Generate timestamps
+    # V3: Use shared timestamp from orchestrator (critical for unified blob files)
     $now = (Get-Date).ToUniversalTime()
-    $timestamp = $now.ToString("yyyy-MM-ddTHH-mm-ssZ")
-    $timestampFormatted = $now.ToString("yyyy-MM-ddTHH:mm:ssZ")
+    if ($ActivityInput -and $ActivityInput.Timestamp) {
+        $timestamp = $ActivityInput.Timestamp
+        Write-Verbose "Using orchestrator timestamp: $timestamp"
+    } else {
+        $timestamp = $now.ToString("yyyy-MM-ddTHH-mm-ssZ")
+        Write-Warning "No orchestrator timestamp - using local: $timestamp"
+    }
+    $timestampFormatted = $timestamp -replace 'T(\d{2})-(\d{2})-(\d{2})Z', 'T$1:$2:$3Z'
     Write-Verbose "Collection timestamp: $timestampFormatted"
 
     # Determine time window for collection

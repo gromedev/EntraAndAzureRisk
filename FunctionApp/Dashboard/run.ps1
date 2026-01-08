@@ -1,28 +1,22 @@
 using namespace System.Net
 
-# V2 Dashboard - Unified Container Architecture
+# V3 Dashboard - Unified Container Architecture
+# Uses 6 unified containers: principals, resources, edges, policies, events, audit
 param(
     $Request,
     $TriggerMetadata,
-    # Principals (unified by principalType)
-    $usersIn,
-    $groupsIn,
-    $servicePrincipalsIn,
-    $devicesIn,
-    $applicationsIn,
-    # Relationships (unified by relationType)
-    $relationshipsIn,
-    # Policies (unified by policyType)
+    # Principals (filter by principalType: user, group, servicePrincipal, device, application)
+    $principalsIn,
+    # Resources (filter by resourceType: tenant, subscription, keyVault, virtualMachine, etc.)
+    $resourcesIn,
+    # Edges (filter by edgeType: groupMember, directoryRole, azureRbac, etc.)
+    $edgesIn,
+    # Policies (filter by policyType: conditionalAccess, roleManagement, etc.)
     $policiesIn,
-    # Events (unified by eventType)
+    # Events (filter by eventType: signIn, audit)
     $eventsIn,
-    # Changes (unified audit trail)
-    $changesIn,
-    # Reference data
-    $rolesIn,
-    # Azure Resources (Phase 2)
-    $azureResourcesIn,
-    $azureRelationshipsIn
+    # Audit trail (change tracking)
+    $auditIn
 )
 
 Add-Type -AssemblyName System.Web
@@ -117,7 +111,7 @@ function Get-DynamicProperty {
             'collectionTimestamp', 'deleted'
         )
         "azureRelationship" = @(
-            'id', 'relationType', 'sourceId', 'sourceType', 'sourceDisplayName',
+            'id', 'edgeType', 'sourceId', 'sourceType', 'sourceDisplayName',
             'targetId', 'targetType', 'targetDisplayName',
             # Contains fields
             'targetLocation', 'targetSubscriptionId',
@@ -137,14 +131,14 @@ function Get-DynamicProperty {
         "servicePrincipal" { @('objectId', 'displayName', 'appId', 'servicePrincipalType', 'accountEnabled', 'secretCount', 'certificateCount') }
         "device" { @('objectId', 'displayName', 'deviceId', 'isCompliant', 'isManaged', 'operatingSystem') }
         "application" { @('objectId', 'displayName', 'appId', 'signInAudience', 'secretCount', 'certificateCount', 'apiPermissionCount', 'hasFederatedCredentials') }
-        "relationship" { @('id', 'sourceDisplayName', 'relationType', 'targetDisplayName', 'membershipType', 'inheritanceDepth', 'status') }
+        "relationship" { @('id', 'sourceDisplayName', 'edgeType', 'targetDisplayName', 'membershipType', 'inheritanceDepth', 'status') }
         "policy" { @('objectId', 'displayName', 'policyType', 'state') }
         "signIn" { @('id', 'userPrincipalName', 'errorCode', 'riskLevelAggregated', 'createdDateTime') }
         "audit" { @('id', 'activityDisplayName', 'category', 'result', 'activityDateTime') }
         "changes" { @('entityType', 'displayName', 'objectId', 'changeType', 'changeTimestamp') }
         "role" { @('objectId', 'displayName', 'roleType', 'isPrivileged', 'isBuiltIn') }
         "azureResource" { @('objectId', 'displayName', 'resourceType', 'location', 'subscriptionId', 'vaultUri', 'vmSize', 'powerState') }
-        "azureRelationship" { @('id', 'sourceDisplayName', 'relationType', 'targetDisplayName', 'identityType', 'canGetSecrets') }
+        "azureRelationship" { @('id', 'sourceDisplayName', 'edgeType', 'targetDisplayName', 'identityType', 'canGetSecrets') }
         default { @('objectId', 'displayName') }
     }
 
@@ -306,62 +300,61 @@ function New-TableHtml {
 }
 
 try {
-    # Process principals
-    $userData = Remove-Duplicate ($usersIn ?? @())
-    $groupData = Remove-Duplicate ($groupsIn ?? @())
-    $spData = Remove-Duplicate ($servicePrincipalsIn ?? @())
-    $deviceData = Remove-Duplicate ($devicesIn ?? @())
-    $appData = Remove-Duplicate ($applicationsIn ?? @())
+    # V3: Filter principals by principalType from unified container
+    $allPrincipals = $principalsIn ?? @()
+    $userData = Remove-Duplicate @($allPrincipals | Where-Object { $_.principalType -eq 'user' })
+    $groupData = Remove-Duplicate @($allPrincipals | Where-Object { $_.principalType -eq 'group' })
+    $spData = Remove-Duplicate @($allPrincipals | Where-Object { $_.principalType -eq 'servicePrincipal' })
+    $deviceData = Remove-Duplicate @($allPrincipals | Where-Object { $_.principalType -eq 'device' })
+    # V3: Applications are RESOURCES, not principals (semantic correctness)
+    $appData = Remove-Duplicate @($allResources | Where-Object { $_.resourceType -eq 'application' })
 
-    # Process relationships - group by relationType
-    $allRelationships = $relationshipsIn ?? @()
-    $groupMembershipData = @($allRelationships | Where-Object { $_.relationType -eq 'groupMember' -or $_.relationType -eq 'groupMemberTransitive' })
-    $directoryRoleData = @($allRelationships | Where-Object { $_.relationType -eq 'directoryRole' })
-    $pimRoleData = @($allRelationships | Where-Object { $_.relationType -match 'pimEligible|pimActive' })
-    $pimGroupData = @($allRelationships | Where-Object { $_.relationType -match 'pimGroupEligible|pimGroupActive' })
-    $azureRbacData = @($allRelationships | Where-Object { $_.relationType -eq 'azureRbac' })
-    $appRoleData = @($allRelationships | Where-Object { $_.relationType -eq 'appRoleAssignment' })
-    $ownershipData = @($allRelationships | Where-Object { $_.relationType -eq 'appOwner' -or $_.relationType -eq 'spOwner' })
-    $licenseData = @($allRelationships | Where-Object { $_.relationType -eq 'license' })
+    # V3: Filter edges by edgeType from unified container
+    $allEdges = $edgesIn ?? @()
+    $groupMembershipData = @($allEdges | Where-Object { $_.edgeType -eq 'groupMember' -or $_.edgeType -eq 'groupMemberTransitive' })
+    $directoryRoleData = @($allEdges | Where-Object { $_.edgeType -eq 'directoryRole' })
+    $pimRoleData = @($allEdges | Where-Object { $_.edgeType -match 'pimEligible|pimActive' })
+    $pimGroupData = @($allEdges | Where-Object { $_.edgeType -match 'pimGroupEligible|pimGroupActive' })
+    $azureRbacData = @($allEdges | Where-Object { $_.edgeType -eq 'azureRbac' })
+    $appRoleData = @($allEdges | Where-Object { $_.edgeType -eq 'appRoleAssignment' })
+    $ownershipData = @($allEdges | Where-Object { $_.edgeType -eq 'appOwner' -or $_.edgeType -eq 'spOwner' })
+    $licenseData = @($allEdges | Where-Object { $_.edgeType -eq 'license' })
 
-    # Process policies - group by policyType
+    # V3: Filter policies by policyType from unified container
     $allPolicies = $policiesIn ?? @()
     $caPolicyData = @($allPolicies | Where-Object { $_.policyType -eq 'conditionalAccess' })
     $rolePolicyData = @($allPolicies | Where-Object { $_.policyType -eq 'roleManagement' -or $_.policyType -eq 'roleManagementAssignment' })
 
-    # Process events - group by eventType
+    # V3: Filter events by eventType from unified container
     $allEvents = $eventsIn ?? @()
     $signInData = @($allEvents | Where-Object { $_.eventType -eq 'signIn' })
-    $auditData = @($allEvents | Where-Object { $_.eventType -eq 'audit' })
+    $auditEventData = @($allEvents | Where-Object { $_.eventType -eq 'audit' })
 
-    # Process changes
-    $changesData = $changesIn ?? @()
+    # V3: Process audit trail (change tracking from audit container)
+    $changesData = $auditIn ?? @()
 
-    # Process roles reference data
-    $rolesData = $rolesIn ?? @()
+    # V3: Directory roles are now edges with edgeType='directoryRoleDefinition'
+    $rolesData = @($allEdges | Where-Object { $_.edgeType -eq 'directoryRoleDefinition' })
 
-    # Process Azure Resources (Phase 2 + Phase 3) - group by resourceType
-    # Filter out deleted resources (deleted field might be true, false, null, or undefined)
-    $allAzureResources = @($azureResourcesIn | Where-Object { $_.deleted -ne $true })
-    $azureHierarchyData = @($allAzureResources | Where-Object { $_.resourceType -in @('tenant', 'managementGroup', 'subscription', 'resourceGroup') })
-    $keyVaultData = @($allAzureResources | Where-Object { $_.resourceType -eq 'keyVault' })
-    $virtualMachineData = @($allAzureResources | Where-Object { $_.resourceType -eq 'virtualMachine' })
+    # V3: Filter resources by resourceType from unified container
+    $allResources = $resourcesIn ?? @()
+    $azureHierarchyData = @($allResources | Where-Object { $_.resourceType -in @('tenant', 'managementGroup', 'subscription', 'resourceGroup') })
+    $keyVaultData = @($allResources | Where-Object { $_.resourceType -eq 'keyVault' })
+    $virtualMachineData = @($allResources | Where-Object { $_.resourceType -eq 'virtualMachine' })
     # Phase 3 resource types
-    $automationAccountData = @($allAzureResources | Where-Object { $_.resourceType -eq 'automationAccount' })
-    $functionAppData = @($allAzureResources | Where-Object { $_.resourceType -eq 'functionApp' })
-    $logicAppData = @($allAzureResources | Where-Object { $_.resourceType -eq 'logicApp' })
-    $webAppData = @($allAzureResources | Where-Object { $_.resourceType -eq 'webApp' })
+    $automationAccountData = @($allResources | Where-Object { $_.resourceType -eq 'automationAccount' })
+    $functionAppData = @($allResources | Where-Object { $_.resourceType -eq 'functionApp' })
+    $logicAppData = @($allResources | Where-Object { $_.resourceType -eq 'logicApp' })
+    $webAppData = @($allResources | Where-Object { $_.resourceType -eq 'webApp' })
 
-    # Process Azure Relationships - group by relationType
-    # Filter out deleted relationships
-    $allAzureRelationships = @($azureRelationshipsIn | Where-Object { $_.deleted -ne $true })
-    $containsData = @($allAzureRelationships | Where-Object { $_.relationType -eq 'contains' })
-    $keyVaultAccessData = @($allAzureRelationships | Where-Object { $_.relationType -eq 'keyVaultAccess' })
-    $managedIdentityData = @($allAzureRelationships | Where-Object { $_.relationType -eq 'hasManagedIdentity' })
+    # V3: Azure relationships are also edges - filter by edgeType
+    $containsData = @($allEdges | Where-Object { $_.edgeType -eq 'contains' })
+    $keyVaultAccessData = @($allEdges | Where-Object { $_.edgeType -eq 'keyVaultAccess' })
+    $managedIdentityData = @($allEdges | Where-Object { $_.edgeType -eq 'hasManagedIdentity' })
 
-    Write-Verbose "V2 Dashboard - Principals: Users=$($userData.Count), Groups=$($groupData.Count), SPs=$($spData.Count)"
-    Write-Verbose "V2 Dashboard - Azure: Hierarchy=$($azureHierarchyData.Count), KeyVaults=$($keyVaultData.Count), VMs=$($virtualMachineData.Count)"
-    Write-Verbose "V2 Dashboard - Phase 3: AutomationAccounts=$($automationAccountData.Count), FunctionApps=$($functionAppData.Count), LogicApps=$($logicAppData.Count), WebApps=$($webAppData.Count)"
+    Write-Verbose "V3 Dashboard - Principals: Users=$($userData.Count), Groups=$($groupData.Count), SPs=$($spData.Count)"
+    Write-Verbose "V3 Dashboard - Azure: Hierarchy=$($azureHierarchyData.Count), KeyVaults=$($keyVaultData.Count), VMs=$($virtualMachineData.Count)"
+    Write-Verbose "V3 Dashboard - Phase 3: AutomationAccounts=$($automationAccountData.Count), FunctionApps=$($functionAppData.Count), LogicApps=$($logicAppData.Count), WebApps=$($webAppData.Count)"
 
     # Generate tables
     $userTable = New-TableHtml -data $userData -tableId 'u-table' -dataType 'user'
@@ -380,7 +373,7 @@ try {
     $caTable = New-TableHtml -data $caPolicyData -tableId 'ca-table' -dataType 'policy'
     $rolePolicyTable = New-TableHtml -data $rolePolicyData -tableId 'rp-table' -dataType 'policy'
     $signInTable = New-TableHtml -data $signInData -tableId 'si-table' -dataType 'signIn'
-    $auditTable = New-TableHtml -data $auditData -tableId 'au-table' -dataType 'audit'
+    $auditTable = New-TableHtml -data $auditEventData -tableId 'au-table' -dataType 'audit'
     $changesTable = New-TableHtml -data $changesData -tableId 'ch-table' -dataType 'changes'
     $rolesTable = New-TableHtml -data $rolesData -tableId 'ro-table' -dataType 'role'
     # Azure tables (Phase 2)
@@ -399,11 +392,11 @@ try {
 
     $debugInfo = @"
         <div style='background:#e8f4fd;padding:10px;margin:10px 0;border-left:4px solid #0078d4;border-radius:5px;font-size:0.85em;'>
-            <b>V2 Unified Architecture - Data Summary:</b><br/>
+            <b>V3 Unified Architecture - Data Summary:</b><br/>
             <b>Principals:</b> Users: <b>$($userData.Count)</b> | Groups: <b>$($groupData.Count)</b> | SPs: <b>$($spData.Count)</b> | Devices: <b>$($deviceData.Count)</b> | Apps: <b>$($appData.Count)</b><br/>
             <b>Relationships:</b> Group Members: <b>$($groupMembershipData.Count)</b> | Dir Roles: <b>$($directoryRoleData.Count)</b> | PIM Roles: <b>$($pimRoleData.Count)</b> | PIM Groups: <b>$($pimGroupData.Count)</b> | Azure RBAC: <b>$($azureRbacData.Count)</b> | Owners: <b>$($ownershipData.Count)</b> | Licenses: <b>$($licenseData.Count)</b><br/>
             <b>Policies:</b> CA: <b>$($caPolicyData.Count)</b> | Role Mgmt: <b>$($rolePolicyData.Count)</b><br/>
-            <b>Events:</b> Sign-Ins: <b>$($signInData.Count)</b> | Audits: <b>$($auditData.Count)</b><br/>
+            <b>Events:</b> Sign-Ins: <b>$($signInData.Count)</b> | Audits: <b>$($auditEventData.Count)</b><br/>
             <b>Azure (Phase 2):</b> Hierarchy: <b>$($azureHierarchyData.Count)</b> | Key Vaults: <b>$($keyVaultData.Count)</b> | VMs: <b>$($virtualMachineData.Count)</b> | Contains: <b>$($containsData.Count)</b> | KV Access: <b>$($keyVaultAccessData.Count)</b> | Managed Identity: <b>$($managedIdentityData.Count)</b><br/>
             <b>Azure (Phase 3):</b> Automation: <b>$($automationAccountData.Count)</b> | Functions: <b>$($functionAppData.Count)</b> | Logic Apps: <b>$($logicAppData.Count)</b> | Web Apps: <b>$($webAppData.Count)</b><br/>
             <b>Changes:</b> <b>$($changesData.Count)</b> | <b>Roles:</b> <b>$($rolesData.Count)</b><br/>
@@ -414,13 +407,13 @@ try {
     $html = @"
 <html>
 <head>
-    <title>Entra Risk Dashboard - V2</title>
+    <title>Entra Risk Dashboard - V3</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; padding: 20px; background: #f4f4f9; margin: 0; }
         .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        .table-container { overflow-x: auto; max-width: 100%; max-height: 70vh; }
+        .table-container { overflow-x: auto; max-width: 100%; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; background: white; white-space: nowrap; }
-        th { background: #0078d4; color: white; padding: 12px; text-align: left; cursor: pointer; position: sticky; top: 0; z-index: 1; }
+        th { background: #0078d4; color: white; padding: 12px; text-align: left; cursor: pointer; }
         th:hover { background: #005a9e; }
         td { padding: 10px; border-bottom: 1px solid #eee; font-size: 0.9em; }
         tr:hover { background: #f5f5f5; }
@@ -459,7 +452,7 @@ try {
     </script>
 </head>
 <body>
-    <h2>Entra Risk Dashboard - V2 Unified</h2>
+    <h2>Entra Risk Dashboard - V3</h2>
     $debugInfo
     <div class="card">
         <div class="tabs">
@@ -486,7 +479,7 @@ try {
             <span class="tab-divider"></span>
             <span class="section-label">EVENTS:</span>
             <button class="tab" onclick="showTab('si-tab', this)">Sign-Ins ($($signInData.Count))</button>
-            <button class="tab" onclick="showTab('au-tab', this)">Audits ($($auditData.Count))</button>
+            <button class="tab" onclick="showTab('au-tab', this)">Audits ($($auditEventData.Count))</button>
             <button class="tab" onclick="showTab('ch-tab', this)">Changes ($($changesData.Count))</button>
             <span class="tab-divider"></span>
             <span class="section-label">REFERENCE:</span>

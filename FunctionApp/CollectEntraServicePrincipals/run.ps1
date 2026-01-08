@@ -2,11 +2,13 @@
 .SYNOPSIS
     Collects service principal data from Microsoft Entra ID and streams to Blob Storage
 .DESCRIPTION
+    V3 Architecture: Unified principals container
     - Queries Graph API (v1.0 endpoint for service principals)
     - Includes keyCredentials (certificates) and passwordCredentials (secrets)
     - Streams JSONL output to Blob Storage (memory-efficient)
     - Returns summary statistics for orchestrator
     - Token caching (eliminates redundant IMDS calls)
+    - Uses principalType="servicePrincipal" discriminator
 #>
 #endregion
 
@@ -58,10 +60,15 @@ if ($missingVars) {
 try {
     Write-Verbose "Starting Entra service principal data collection"
 
-    # Generate ISO 8601 timestamps (single Get-Date to prevent race condition)
-    $now = (Get-Date).ToUniversalTime()
-    $timestamp = $now.ToString("yyyy-MM-ddTHH-mm-ssZ")
-    $timestampFormatted = $now.ToString("yyyy-MM-ddTHH:mm:ssZ")
+    # V3: Use shared timestamp from orchestrator (critical for unified blob files)
+    if ($ActivityInput -and $ActivityInput.Timestamp) {
+        $timestamp = $ActivityInput.Timestamp
+        Write-Verbose "Using orchestrator timestamp: $timestamp"
+    } else {
+        $timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH-mm-ssZ")
+        Write-Warning "No orchestrator timestamp - using local: $timestamp"
+    }
+    $timestampFormatted = $timestamp -replace 'T(\d{2})-(\d{2})-(\d{2})Z', 'T$1:$2:$3Z'
     Write-Verbose "Collection timestamp: $timestampFormatted"
 
     # Get access tokens (cached - eliminates redundant IMDS calls)
@@ -110,16 +117,16 @@ try {
     $nowDate = (Get-Date).ToUniversalTime()
     $thirtyDaysFromNow = $nowDate.AddDays(30)
 
-    # Initialize append blob
-    $servicePrincipalsBlobName = "$timestamp/$timestamp-serviceprincipals.jsonl"
-    Write-Verbose "Initializing append blob: $servicePrincipalsBlobName"
+    # Initialize append blob (V3: unified principals.jsonl)
+    $principalsBlobName = "$timestamp/$timestamp-principals.jsonl"
+    Write-Verbose "Initializing append blob: $principalsBlobName"
 
     $containerName = if ($env:STORAGE_CONTAINER_RAW_DATA) { $env:STORAGE_CONTAINER_RAW_DATA } else { 'raw-data' }
 
     try {
         Initialize-AppendBlob -StorageAccountName $storageAccountName `
                               -ContainerName $containerName `
-                              -BlobName $servicePrincipalsBlobName `
+                              -BlobName $principalsBlobName `
                               -AccessToken $storageToken
     }
     catch {
@@ -267,7 +274,11 @@ try {
                 logoutUrl = $sp.logoutUrl ?? $null
                 replyUrls = $sp.replyUrls ?? @()
 
-                # Locally-generated property (collection metadata)
+                # V3: Temporal fields for historical tracking
+                effectiveFrom = $timestampFormatted
+                effectiveTo = $null
+
+                # Collection metadata
                 collectionTimestamp = $timestampFormatted
             }
 
@@ -292,17 +303,17 @@ try {
             try {
                 Add-BlobContent -StorageAccountName $storageAccountName `
                                 -ContainerName $containerName `
-                                -BlobName $servicePrincipalsBlobName `
+                                -BlobName $principalsBlobName `
                                 -Content $servicePrincipalsJsonL.ToString() `
                                 -AccessToken $storageToken `
                                 -MaxRetries 3 `
                                 -BaseRetryDelaySeconds 2
 
-                Write-Verbose "Flushed $($servicePrincipalsJsonL.Length) characters to blob (batch $batchNumber)"
+                Write-Verbose "Flushed $($servicePrincipalsJsonL.Length) characters to principals blob (batch $batchNumber)"
                 $servicePrincipalsJsonL.Clear()
             }
             catch {
-                Write-Error "CRITICAL: Blob write failed after retries at batch $batchNumber $_"
+                Write-Error "CRITICAL: Principals blob write failed after retries at batch $batchNumber $_"
                 throw "Cannot continue - data loss would occur"
             }
         }
@@ -315,7 +326,7 @@ try {
         try {
             Add-BlobContent -StorageAccountName $storageAccountName `
                             -ContainerName $containerName `
-                            -BlobName $servicePrincipalsBlobName `
+                            -BlobName $principalsBlobName `
                             -Content $servicePrincipalsJsonL.ToString() `
                             -AccessToken $storageToken `
                             -MaxRetries 3 `
@@ -328,7 +339,7 @@ try {
         }
     }
 
-    Write-Verbose "Service principal collection complete: $servicePrincipalCount service principals written to $servicePrincipalsBlobName"
+    Write-Verbose "Service principal collection complete: $servicePrincipalCount service principals written to $principalsBlobName"
 
     # Cleanup
     $servicePrincipalsJsonL.Clear()
@@ -353,7 +364,7 @@ try {
         expiredCertificatesCount = $expiredCertificatesCount
         expiringSecretsCount = $expiringSecretsCount
         expiringCertificatesCount = $expiringCertificatesCount
-        blobPath = $servicePrincipalsBlobName
+        blobPath = $principalsBlobName
     }
 
     # Garbage collection
@@ -369,9 +380,9 @@ try {
         ServicePrincipalCount = $servicePrincipalCount
         Data = @()
         Summary = $summary
-        FileName = "$timestamp-serviceprincipals.jsonl"
+        FileName = "$timestamp-principals.jsonl"
         Timestamp = $timestamp
-        BlobName = $servicePrincipalsBlobName
+        PrincipalsBlobName = $principalsBlobName
     }
 }
 catch {

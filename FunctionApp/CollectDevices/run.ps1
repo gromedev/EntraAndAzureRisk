@@ -2,10 +2,12 @@
 .SYNOPSIS
     Collects device data from Microsoft Entra ID and streams to Blob Storage
 .DESCRIPTION
+    V3 Architecture: Unified principals container
     - Queries Graph API /devices with pagination
     - Streams JSONL output to Blob Storage (memory-efficient)
     - Returns summary statistics for orchestrator
     - Token caching (eliminates redundant IMDS calls)
+    - Uses principalType="device" discriminator
 #>
 
 param($ActivityInput)
@@ -55,10 +57,15 @@ if ($missingVars) {
 try {
     Write-Verbose "Starting Entra device data collection"
 
-    # Generate ISO 8601 timestamps
-    $now = (Get-Date).ToUniversalTime()
-    $timestamp = $now.ToString("yyyy-MM-ddTHH-mm-ssZ")
-    $timestampFormatted = $now.ToString("yyyy-MM-ddTHH:mm:ssZ")
+    # V3: Use shared timestamp from orchestrator (critical for unified blob files)
+    if ($ActivityInput -and $ActivityInput.Timestamp) {
+        $timestamp = $ActivityInput.Timestamp
+        Write-Verbose "Using orchestrator timestamp: $timestamp"
+    } else {
+        $timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH-mm-ssZ")
+        Write-Warning "No orchestrator timestamp - using local: $timestamp"
+    }
+    $timestampFormatted = $timestamp -replace 'T(\d{2})-(\d{2})-(\d{2})Z', 'T$1:$2:$3Z'
     Write-Verbose "Collection timestamp: $timestampFormatted"
 
     # Get access tokens (cached)
@@ -95,16 +102,16 @@ try {
     $managedCount = 0
     $unmanagedCount = 0
 
-    # Initialize append blob
-    $blobName = "$timestamp/$timestamp-devices.jsonl"
-    Write-Verbose "Initializing append blob: $blobName"
+    # Initialize append blob (V3: unified principals.jsonl)
+    $principalsBlobName = "$timestamp/$timestamp-principals.jsonl"
+    Write-Verbose "Initializing append blob: $principalsBlobName"
 
     $containerName = if ($env:STORAGE_CONTAINER_RAW_DATA) { $env:STORAGE_CONTAINER_RAW_DATA } else { 'raw-data' }
 
     try {
         Initialize-AppendBlob -StorageAccountName $storageAccountName `
                               -ContainerName $containerName `
-                              -BlobName $blobName `
+                              -BlobName $principalsBlobName `
                               -AccessToken $storageToken
     }
     catch {
@@ -172,6 +179,11 @@ try {
                 managementType = $device.managementType ?? $null
                 systemLabels = $device.systemLabels ?? @()
 
+                # V3: Temporal fields for historical tracking
+                effectiveFrom = $timestampFormatted
+                effectiveTo = $null
+
+                # Collection metadata
                 collectionTimestamp = $timestampFormatted
             }
 
@@ -194,13 +206,13 @@ try {
             try {
                 Add-BlobContent -StorageAccountName $storageAccountName `
                                 -ContainerName $containerName `
-                                -BlobName $blobName `
+                                -BlobName $principalsBlobName `
                                 -Content $devicesJsonL.ToString() `
                                 -AccessToken $storageToken `
                                 -MaxRetries 3 `
                                 -BaseRetryDelaySeconds 2
 
-                Write-Verbose "Flushed $($devicesJsonL.Length) characters to blob (batch $batchNumber)"
+                Write-Verbose "Flushed $($devicesJsonL.Length) characters to principals blob (batch $batchNumber)"
                 $devicesJsonL.Clear()
             }
             catch {
@@ -217,7 +229,7 @@ try {
         try {
             Add-BlobContent -StorageAccountName $storageAccountName `
                             -ContainerName $containerName `
-                            -BlobName $blobName `
+                            -BlobName $principalsBlobName `
                             -Content $devicesJsonL.ToString() `
                             -AccessToken $storageToken `
                             -MaxRetries 3 `
@@ -230,7 +242,7 @@ try {
         }
     }
 
-    Write-Verbose "Device collection complete: $deviceCount devices written to $blobName"
+    Write-Verbose "Device collection complete: $deviceCount devices written to $principalsBlobName"
 
     # Cleanup
     $devicesJsonL.Clear()
@@ -248,7 +260,7 @@ try {
         nonCompliantCount = $nonCompliantCount
         managedCount = $managedCount
         unmanagedCount = $unmanagedCount
-        blobPath = $blobName
+        blobPath = $principalsBlobName
     }
 
     # Garbage collection
@@ -264,9 +276,9 @@ try {
         DeviceCount = $deviceCount
         Data = @()
         Summary = $summary
-        FileName = "$timestamp-devices.jsonl"
+        FileName = "$timestamp-principals.jsonl"
         Timestamp = $timestamp
-        BlobName = $blobName
+        PrincipalsBlobName = $principalsBlobName
     }
 }
 catch {

@@ -1,0 +1,38 @@
+{
+  "bindings": [
+    {
+      "name": "ActivityInput",
+      "type": "activityTrigger",
+      "direction": "in"
+    },
+    {
+      "name": "resourcesRawOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "resources",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/resourceType"
+    },
+    {
+      "name": "resourceChangesOut",
+      "type": "cosmosDB",
+      "direction": "out",
+      "databaseName": "EntraData",
+      "containerName": "audit",
+      "connection": "CosmosDbConnectionString",
+      "createIfNotExists": false,
+      "partitionKey": "/auditDate"
+    },
+    {
+      "name": "resourcesRawIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "resources",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT c.objectId, c.resourceType, c.displayName, c.name, c.appId, c.location, c.subscriptionId, c.resourceGroupName, c.resourceGroupId, c.tenantId, c.tags, c.deleted, c.tenantType, c.defaultDomain, c.verifiedDomains, c.technicalNotificationMails, c.securityComplianceNotificationMails, c.managementGroupId, c.parentId, c.parentDisplayName, c.childCount, c.state, c.authorizationSource, c.managedByTenants, c.provisioningState, c.managedBy, c.vaultUri, c.sku, c.enableRbacAuthorization, c.enableSoftDelete, c.enablePurgeProtection, c.softDeleteRetentionInDays, c.publicNetworkAccess, c.enabledForDeployment, c.enabledForDiskEncryption, c.enabledForTemplateDeployment, c.networkAcls, c.accessPolicies, c.accessPolicyCount, c.privateEndpointConnections, c.vmId, c.vmSize, c.zones, c.osType, c.osName, c.computerName, c.powerState, c.identityType, c.hasSystemAssignedIdentity, c.systemAssignedPrincipalId, c.systemAssignedTenantId, c.hasUserAssignedIdentity, c.userAssignedIdentities, c.userAssignedIdentityCount, c.networkInterfaces, c.networkInterfaceCount, c.adminUsername, c.disablePasswordAuthentication, c.signInAudience, c.publisherDomain, c.passwordCredentials, c.keyCredentials, c.secretCount, c.certificateCount, c.requiredResourceAccess, c.apiPermissionCount, c.verifiedPublisher, c.isPublisherVerified, c.federatedIdentityCredentials, c.hasFederatedCredentials, c.federatedCredentialCount, c.effectiveFrom, c.effectiveTo, c.collectionTimestamp FROM c"
+    }
+  ]
+}

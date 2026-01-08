@@ -2,7 +2,7 @@
 .SYNOPSIS
     Combined collector for relationship data
 .DESCRIPTION
-    V2 Architecture: Single collector for all relationship types → relationships.jsonl
+    V3 Architecture: Single collector for all edge types → edges.jsonl
 
     Collects:
     1. Group memberships (groups → members)
@@ -21,7 +21,7 @@
     13. Group owners
     14. Device owners
 
-    All output to single relationships.jsonl with relationType discriminator.
+    All output to single edges.jsonl with edgeType discriminator.
     Runs phases sequentially to manage memory, streams to blob.
 #>
 
@@ -64,10 +64,15 @@ if ($missingVars) {
 try {
     Write-Verbose "Starting combined relationships collection"
 
-    # Generate timestamps
-    $now = (Get-Date).ToUniversalTime()
-    $timestamp = $now.ToString("yyyy-MM-ddTHH-mm-ssZ")
-    $timestampFormatted = $now.ToString("yyyy-MM-ddTHH:mm:ssZ")
+    # V3: Use shared timestamp from orchestrator (critical for unified blob files)
+    if ($ActivityInput -and $ActivityInput.Timestamp) {
+        $timestamp = $ActivityInput.Timestamp
+        Write-Verbose "Using orchestrator timestamp: $timestamp"
+    } else {
+        $timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH-mm-ssZ")
+        Write-Warning "No orchestrator timestamp - using local: $timestamp"
+    }
+    $timestampFormatted = $timestamp -replace 'T(\d{2})-(\d{2})-(\d{2})Z', 'T$1:$2:$3Z'
     Write-Verbose "Collection timestamp: $timestampFormatted"
 
     # Get access tokens (cached)
@@ -111,14 +116,14 @@ try {
     # Track group nesting (which groups contain which groups)
     $groupNesting = @{}
 
-    # Initialize append blob
-    $blobName = "$timestamp/$timestamp-relationships.jsonl"
-    Write-Verbose "Initializing append blob: $blobName"
+    # Initialize append blob (V3: unified edges.jsonl)
+    $edgesBlobName = "$timestamp/$timestamp-edges.jsonl"
+    Write-Verbose "Initializing append blob: $edgesBlobName"
 
     try {
         Initialize-AppendBlob -StorageAccountName $storageAccountName `
                               -ContainerName $containerName `
-                              -BlobName $blobName `
+                              -BlobName $edgesBlobName `
                               -AccessToken $storageToken
     }
     catch {
@@ -134,7 +139,7 @@ try {
     $flushParams = @{
         StorageAccountName = $storageAccountName
         ContainerName = $containerName
-        BlobName = $blobName
+        BlobName = $edgesBlobName
         AccessToken = $storageToken
         MaxRetries = 3
         BaseRetryDelaySeconds = 2
@@ -198,7 +203,7 @@ try {
                         $relationship = @{
                             id = "$($member.id)_$($group.id)_groupMember"
                             objectId = "$($member.id)_$($group.id)_groupMember"
-                            relationType = "groupMember"
+                            edgeType = "groupMember"
                             sourceId = $member.id
                             sourceType = $memberType
                             sourceDisplayName = $member.displayName ?? ""
@@ -315,7 +320,7 @@ try {
                         $relationship = @{
                             id = "$($member.id)_$($group.id)_groupMemberTransitive"
                             objectId = "$($member.id)_$($group.id)_groupMemberTransitive"
-                            relationType = "groupMemberTransitive"
+                            edgeType = "groupMemberTransitive"
                             sourceId = $member.id
                             sourceType = $memberType
                             sourceDisplayName = $member.displayName ?? ""
@@ -390,7 +395,7 @@ try {
                         $relationship = @{
                             id = "$($member.id)_$($role.id)_directoryRole"
                             objectId = "$($member.id)_$($role.id)_directoryRole"
-                            relationType = "directoryRole"
+                            edgeType = "directoryRole"
                             sourceId = $member.id
                             sourceType = $memberType
                             sourceDisplayName = $member.displayName ?? ""
@@ -435,7 +440,7 @@ try {
                 $relationship = @{
                     id = "${principalId}_${roleDefId}_pimEligible"
                     objectId = "${principalId}_${roleDefId}_pimEligible"
-                    relationType = "pimEligible"
+                    edgeType = "pimEligible"
                     assignmentType = "eligible"
                     sourceId = $principalId
                     sourceType = ($assignment.principal.'@odata.type' -replace '#microsoft\.graph\.', '' ?? "")
@@ -472,7 +477,7 @@ try {
                 $relationship = @{
                     id = "${principalId}_${roleDefId}_pimActive"
                     objectId = "${principalId}_${roleDefId}_pimActive"
-                    relationType = "pimActive"
+                    edgeType = "pimActive"
                     assignmentType = "active"
                     sourceId = $principalId
                     sourceType = ($assignment.principal.'@odata.type' -replace '#microsoft\.graph\.', '' ?? "")
@@ -534,7 +539,7 @@ try {
                     $relationship = @{
                         id = "${principalId}_${grpId}_${accessId}_pimGroupEligible"
                         objectId = "${principalId}_${grpId}_${accessId}_pimGroupEligible"
-                        relationType = "pimGroupEligible"
+                        edgeType = "pimGroupEligible"
                         assignmentType = "eligible"
                         sourceId = $principalId
                         sourceType = ($membership.principal.'@odata.type' -replace '#microsoft\.graph\.', '' ?? "")
@@ -572,7 +577,7 @@ try {
                     $relationship = @{
                         id = "${principalId}_${grpId}_${accessId}_pimGroupActive"
                         objectId = "${principalId}_${grpId}_${accessId}_pimGroupActive"
-                        relationType = "pimGroupActive"
+                        edgeType = "pimGroupActive"
                         assignmentType = "active"
                         sourceId = $principalId
                         sourceType = ($membership.principal.'@odata.type' -replace '#microsoft\.graph\.', '' ?? "")
@@ -644,7 +649,7 @@ try {
                 $relationship = @{
                     id = "${principalId}_${scope}_azureRbac"
                     objectId = "${principalId}_${scope}_azureRbac"
-                    relationType = "azureRbac"
+                    edgeType = "azureRbac"
                     sourceId = $principalId
                     sourceType = $assignment.properties.principalType ?? ""
                     targetId = $roleDefId
@@ -700,7 +705,7 @@ try {
                         $relationship = @{
                             id = "$($owner.id)_$($app.id)_appOwner"
                             objectId = "$($owner.id)_$($app.id)_appOwner"
-                            relationType = "appOwner"
+                            edgeType = "appOwner"
                             sourceId = $owner.id
                             sourceType = $ownerType
                             sourceDisplayName = $owner.displayName ?? ""
@@ -758,7 +763,7 @@ try {
                         $relationship = @{
                             id = "$($owner.id)_$($sp.id)_spOwner"
                             objectId = "$($owner.id)_$($sp.id)_spOwner"
-                            relationType = "spOwner"
+                            edgeType = "spOwner"
                             sourceId = $owner.id
                             sourceType = $ownerType
                             sourceDisplayName = $owner.displayName ?? ""
@@ -849,7 +854,7 @@ try {
                         $relationship = @{
                             id = "$($user.id)_$($skuId)_license"
                             objectId = "$($user.id)_$($skuId)_license"
-                            relationType = "license"
+                            edgeType = "license"
                             sourceId = $user.id
                             sourceType = "user"
                             sourceDisplayName = $user.displayName ?? ""
@@ -924,7 +929,7 @@ try {
                 $relationship = @{
                     id = $grant.id
                     objectId = $grant.id
-                    relationType = "oauth2PermissionGrant"
+                    edgeType = "oauth2PermissionGrant"
                     sourceId = if ($principalId) { $principalId } else { "AllPrincipals" }
                     sourceType = if ($principalId) { "user" } else { "tenant" }
                     sourceDisplayName = if ($principalId) { "User Consent" } else { "Admin Consent (All Users)" }
@@ -996,7 +1001,7 @@ try {
                             $relationship = @{
                                 id = $assignment.id
                                 objectId = $assignment.id
-                                relationType = "appRoleAssignment"
+                                edgeType = "appRoleAssignment"
                                 sourceId = $assignment.principalId ?? ""
                                 sourceType = ($assignment.principalType ?? "").ToLower()
                                 sourceDisplayName = $assignment.principalDisplayName ?? ""
@@ -1052,7 +1057,7 @@ try {
                         $relationship = @{
                             id = "$($owner.id)_$($group.id)_groupOwner"
                             objectId = "$($owner.id)_$($group.id)_groupOwner"
-                            relationType = "groupOwner"
+                            edgeType = "groupOwner"
                             sourceId = $owner.id
                             sourceType = $ownerType
                             sourceDisplayName = $owner.displayName ?? ""
@@ -1109,7 +1114,7 @@ try {
                         $relationship = @{
                             id = "$($owner.id)_$($device.id)_deviceOwner"
                             objectId = "$($owner.id)_$($device.id)_deviceOwner"
-                            relationType = "deviceOwner"
+                            edgeType = "deviceOwner"
                             sourceId = $owner.id
                             sourceType = $ownerType
                             sourceDisplayName = $owner.displayName ?? ""
@@ -1155,7 +1160,7 @@ try {
     return @{
         Success = $true
         Timestamp = $timestamp
-        BlobName = $blobName
+        EdgesBlobName = $edgesBlobName
         RelationshipCount = $totalRelationships
         Stats = $stats
         Summary = @{

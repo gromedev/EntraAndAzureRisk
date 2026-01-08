@@ -2,7 +2,7 @@
 .SYNOPSIS
     Collects Azure resource hierarchy: Tenant, Management Groups, Subscriptions, Resource Groups
 .DESCRIPTION
-    Phase 2 collector for Azure resource hierarchy to enable attack path analysis.
+    V3 Architecture: Unified resources and edges containers
 
     Collects:
     - Tenant info (from Graph API /organization)
@@ -11,8 +11,8 @@
     - Resource Groups (from ARM API)
     - Contains relationships between hierarchy levels
 
-    All output goes to azureresources.jsonl with resourceType discriminator.
-    This enables unified indexing to the 'azureResources' container.
+    Output: resources.jsonl (resourceType discriminator), edges.jsonl (edgeType discriminator)
+    Temporal tracking: effectiveFrom/effectiveTo for historical queries
 #>
 
 param($ActivityInput)
@@ -60,10 +60,15 @@ if ($missingVars) {
 try {
     Write-Verbose "Starting Azure hierarchy collection"
 
-    # Generate ISO 8601 timestamps
-    $now = (Get-Date).ToUniversalTime()
-    $timestamp = $now.ToString("yyyy-MM-ddTHH-mm-ssZ")
-    $timestampFormatted = $now.ToString("yyyy-MM-ddTHH:mm:ssZ")
+    # V3: Use shared timestamp from orchestrator (critical for unified blob files)
+    if ($ActivityInput -and $ActivityInput.Timestamp) {
+        $timestamp = $ActivityInput.Timestamp
+        Write-Verbose "Using orchestrator timestamp: $timestamp"
+    } else {
+        $timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH-mm-ssZ")
+        Write-Warning "No orchestrator timestamp - using local: $timestamp"
+    }
+    $timestampFormatted = $timestamp -replace 'T(\d{2})-(\d{2})-(\d{2})Z', 'T$1:$2:$3Z'
     Write-Verbose "Collection timestamp: $timestampFormatted"
 
     # Get access tokens
@@ -88,7 +93,7 @@ try {
 
     # Initialize buffers
     $resourcesJsonL = New-Object System.Text.StringBuilder(1048576)  # 1MB initial
-    $relationshipsJsonL = New-Object System.Text.StringBuilder(524288)  # 512KB initial
+    $edgesJsonL = New-Object System.Text.StringBuilder(524288)  # 512KB initial
     $writeThreshold = 500000
 
     # Results tracking
@@ -100,10 +105,10 @@ try {
         ContainsRelationships = 0
     }
 
-    # Initialize append blobs
-    $resourcesBlobName = "$timestamp/$timestamp-azureresources.jsonl"
-    $relationshipsBlobName = "$timestamp/$timestamp-azurerelationships.jsonl"
-    Write-Verbose "Initializing blobs: $resourcesBlobName, $relationshipsBlobName"
+    # Initialize append blobs (V3: unified resources.jsonl and edges.jsonl)
+    $resourcesBlobName = "$timestamp/$timestamp-resources.jsonl"
+    $edgesBlobName = "$timestamp/$timestamp-edges.jsonl"
+    Write-Verbose "Initializing blobs: $resourcesBlobName, $edgesBlobName"
 
     try {
         Initialize-AppendBlob -StorageAccountName $storageAccountName `
@@ -112,7 +117,7 @@ try {
                               -AccessToken $storageToken
         Initialize-AppendBlob -StorageAccountName $storageAccountName `
                               -ContainerName $containerName `
-                              -BlobName $relationshipsBlobName `
+                              -BlobName $edgesBlobName `
                               -AccessToken $storageToken
     }
     catch {
@@ -130,10 +135,10 @@ try {
         BlobName = $resourcesBlobName
         AccessToken = $storageToken
     }
-    $relationshipsFlushParams = @{
+    $edgesFlushParams = @{
         StorageAccountName = $storageAccountName
         ContainerName = $containerName
-        BlobName = $relationshipsBlobName
+        BlobName = $edgesBlobName
         AccessToken = $storageToken
     }
 
@@ -171,6 +176,9 @@ try {
                 postalCode = $org.postalCode ?? $null
                 technicalNotificationMails = $org.technicalNotificationMails ?? @()
                 securityComplianceNotificationMails = $org.securityComplianceNotificationMails ?? @()
+                # V3: Temporal fields
+                effectiveFrom = $timestampFormatted
+                effectiveTo = $null
                 collectionTimestamp = $timestampFormatted
             }
 
@@ -220,6 +228,9 @@ try {
                     parentId = $parentId
                     parentDisplayName = $parentName
                     childCount = ($mgDetail.properties.children ?? @()).Count
+                    # V3: Temporal fields
+                    effectiveFrom = $timestampFormatted
+                    effectiveTo = $null
                     collectionTimestamp = $timestampFormatted
                 }
 
@@ -233,16 +244,19 @@ try {
                     $containsRel = @{
                         id = "$($parentId)_$($mgId)_contains"
                         objectId = "$($parentId)_$($mgId)_contains"
-                        relationType = "contains"
+                        edgeType = "contains"
                         sourceId = $parentId
                         sourceType = if ($parentId -match '/managementGroups/') { "managementGroup" } else { "tenant" }
                         sourceDisplayName = $parentName ?? ""
                         targetId = $mgId
                         targetType = "managementGroup"
                         targetDisplayName = $mgObj.displayName
+                        # V3: Temporal fields
+                        effectiveFrom = $timestampFormatted
+                        effectiveTo = $null
                         collectionTimestamp = $timestampFormatted
                     }
-                    [void]$relationshipsJsonL.AppendLine(($containsRel | ConvertTo-Json -Compress))
+                    [void]$edgesJsonL.AppendLine(($containsRel | ConvertTo-Json -Compress))
                     $stats.ContainsRelationships++
                 }
             }
@@ -260,7 +274,7 @@ try {
 
     # Periodic flush
     if ($resourcesJsonL.Length -ge $writeThreshold) { Write-BlobBuffer -Buffer ([ref]$resourcesJsonL) @resourcesFlushParams }
-    if ($relationshipsJsonL.Length -ge $writeThreshold) { Write-BlobBuffer -Buffer ([ref]$relationshipsJsonL) @relationshipsFlushParams }
+    if ($edgesJsonL.Length -ge $writeThreshold) { Write-BlobBuffer -Buffer ([ref]$edgesJsonL) @edgesFlushParams }
 
     #region 3. Collect Subscriptions
     Write-Verbose "=== Phase 3: Collecting subscriptions ==="
@@ -286,6 +300,9 @@ try {
                 authorizationSource = $sub.authorizationSource ?? ""
                 managedByTenants = $sub.managedByTenants ?? @()
                 tags = $sub.tags ?? @{}
+                # V3: Temporal fields
+                effectiveFrom = $timestampFormatted
+                effectiveTo = $null
                 collectionTimestamp = $timestampFormatted
             }
 
@@ -308,7 +325,7 @@ try {
                     $containsRel = @{
                         id = "$($parentMgId)_$($subId)_contains"
                         objectId = "$($parentMgId)_$($subId)_contains"
-                        relationType = "contains"
+                        edgeType = "contains"
                         sourceId = $parentMgId
                         sourceType = "managementGroup"
                         sourceDisplayName = $parentMgName ?? ""
@@ -316,9 +333,12 @@ try {
                         targetType = "subscription"
                         targetDisplayName = $subObj.displayName
                         targetSubscriptionId = $subscriptionId
+                        # V3: Temporal fields
+                        effectiveFrom = $timestampFormatted
+                        effectiveTo = $null
                         collectionTimestamp = $timestampFormatted
                     }
-                    [void]$relationshipsJsonL.AppendLine(($containsRel | ConvertTo-Json -Compress))
+                    [void]$edgesJsonL.AppendLine(($containsRel | ConvertTo-Json -Compress))
                     $stats.ContainsRelationships++
                 }
             }
@@ -337,7 +357,7 @@ try {
 
     # Periodic flush
     if ($resourcesJsonL.Length -ge $writeThreshold) { Write-BlobBuffer -Buffer ([ref]$resourcesJsonL) @resourcesFlushParams }
-    if ($relationshipsJsonL.Length -ge $writeThreshold) { Write-BlobBuffer -Buffer ([ref]$relationshipsJsonL) @relationshipsFlushParams }
+    if ($edgesJsonL.Length -ge $writeThreshold) { Write-BlobBuffer -Buffer ([ref]$edgesJsonL) @edgesFlushParams }
 
     #region 4. Collect Resource Groups
     Write-Verbose "=== Phase 4: Collecting resource groups ==="
@@ -364,6 +384,9 @@ try {
                     provisioningState = $rg.properties.provisioningState ?? ""
                     managedBy = $rg.managedBy ?? $null
                     tags = $rg.tags ?? @{}
+                    # V3: Temporal fields
+                    effectiveFrom = $timestampFormatted
+                    effectiveTo = $null
                     collectionTimestamp = $timestampFormatted
                 }
 
@@ -374,7 +397,7 @@ try {
                 $containsRel = @{
                     id = "$($subObj.id)_$($rgId)_contains"
                     objectId = "$($subObj.id)_$($rgId)_contains"
-                    relationType = "contains"
+                    edgeType = "contains"
                     sourceId = $subObj.id
                     sourceType = "subscription"
                     sourceDisplayName = $subObj.displayName
@@ -383,15 +406,18 @@ try {
                     targetType = "resourceGroup"
                     targetDisplayName = $rgName
                     targetLocation = $rgObj.location
+                    # V3: Temporal fields
+                    effectiveFrom = $timestampFormatted
+                    effectiveTo = $null
                     collectionTimestamp = $timestampFormatted
                 }
-                [void]$relationshipsJsonL.AppendLine(($containsRel | ConvertTo-Json -Compress))
+                [void]$edgesJsonL.AppendLine(($containsRel | ConvertTo-Json -Compress))
                 $stats.ContainsRelationships++
             }
 
             # Periodic flush during RG iteration
             if ($resourcesJsonL.Length -ge $writeThreshold) { Write-BlobBuffer -Buffer ([ref]$resourcesJsonL) @resourcesFlushParams }
-            if ($relationshipsJsonL.Length -ge $writeThreshold) { Write-BlobBuffer -Buffer ([ref]$relationshipsJsonL) @relationshipsFlushParams }
+            if ($edgesJsonL.Length -ge $writeThreshold) { Write-BlobBuffer -Buffer ([ref]$edgesJsonL) @edgesFlushParams }
         }
         catch {
             Write-Warning "Failed to collect resource groups for subscription $subscriptionId`: $_"
@@ -403,14 +429,14 @@ try {
 
     #region Final Flush
     Write-BlobBuffer -Buffer ([ref]$resourcesJsonL) @resourcesFlushParams
-    Write-BlobBuffer -Buffer ([ref]$relationshipsJsonL) @relationshipsFlushParams
+    Write-BlobBuffer -Buffer ([ref]$edgesJsonL) @edgesFlushParams
     #endregion
 
     # Cleanup
     $resourcesJsonL.Clear()
     $resourcesJsonL = $null
-    $relationshipsJsonL.Clear()
-    $relationshipsJsonL = $null
+    $edgesJsonL.Clear()
+    $edgesJsonL = $null
 
     [System.GC]::Collect()
     [System.GC]::WaitForPendingFinalizers()
@@ -423,16 +449,16 @@ try {
         Success = $true
         Timestamp = $timestamp
         ResourcesBlobName = $resourcesBlobName
-        RelationshipsBlobName = $relationshipsBlobName
+        EdgesBlobName = $edgesBlobName
         ResourceCount = $totalResources
-        RelationshipCount = $stats.ContainsRelationships
+        EdgeCount = $stats.ContainsRelationships
 
         Stats = @{
             TenantCount = $stats.Tenant
             ManagementGroupCount = $stats.ManagementGroups
             SubscriptionCount = $stats.Subscriptions
             ResourceGroupCount = $stats.ResourceGroups
-            ContainsRelationshipCount = $stats.ContainsRelationships
+            ContainsEdgeCount = $stats.ContainsRelationships
         }
 
         Summary = @{
@@ -441,7 +467,7 @@ try {
             managementGroups = $stats.ManagementGroups
             subscriptions = $stats.Subscriptions
             resourceGroups = $stats.ResourceGroups
-            containsRelationships = $stats.ContainsRelationships
+            containsEdges = $stats.ContainsRelationships
         }
     }
 }
