@@ -943,9 +943,36 @@
             'targetAppDisplayName'
             'targetServicePrincipalType'
             'targetAccountEnabled'
+
+            # V3.1: CA Policy edge fields
+            'policyState'
+            'requiresMfa'
+            'blocksAccess'
+            'requiresCompliantDevice'
+            'requiresHybridAzureADJoin'
+            'requiresApprovedApp'
+            'requiresAppProtection'
+            'clientAppTypes'
+            'hasLocationCondition'
+            'hasRiskCondition'
+            'locationUsageType'
+
+            # V3.1: Role Management Policy edge fields
+            'requiresMfaOnActivation'
+            'requiresApproval'
+            'requiresJustification'
+            'requiresTicketInfo'
+            'maxActivationDurationHours'
+            'permanentAssignmentAllowed'
+            'eligibleAssignmentMaxDurationDays'
+
+            # V3.1: Temporal fields
+            'effectiveFrom'
+            'effectiveTo'
         )
         ArrayFields = @(
             'inheritancePath'
+            'clientAppTypes'
         )
         EmbeddedObjectFields = @(
             'scheduleInfo'
@@ -1013,6 +1040,32 @@
             targetAppDisplayName = 'targetAppDisplayName'
             targetServicePrincipalType = 'targetServicePrincipalType'
             targetAccountEnabled = 'targetAccountEnabled'
+
+            # V3.1: CA Policy edge fields
+            policyState = 'policyState'
+            requiresMfa = 'requiresMfa'
+            blocksAccess = 'blocksAccess'
+            requiresCompliantDevice = 'requiresCompliantDevice'
+            requiresHybridAzureADJoin = 'requiresHybridAzureADJoin'
+            requiresApprovedApp = 'requiresApprovedApp'
+            requiresAppProtection = 'requiresAppProtection'
+            clientAppTypes = 'clientAppTypes'
+            hasLocationCondition = 'hasLocationCondition'
+            hasRiskCondition = 'hasRiskCondition'
+            locationUsageType = 'locationUsageType'
+
+            # V3.1: Role Management Policy edge fields
+            requiresMfaOnActivation = 'requiresMfaOnActivation'
+            requiresApproval = 'requiresApproval'
+            requiresJustification = 'requiresJustification'
+            requiresTicketInfo = 'requiresTicketInfo'
+            maxActivationDurationHours = 'maxActivationDurationHours'
+            permanentAssignmentAllowed = 'permanentAssignmentAllowed'
+            eligibleAssignmentMaxDurationDays = 'eligibleAssignmentMaxDurationDays'
+
+            # V3.1: Temporal fields
+            effectiveFrom = 'effectiveFrom'
+            effectiveTo = 'effectiveTo'
         }
         WriteDeletes = $true
         IncludeDeleteMarkers = $true

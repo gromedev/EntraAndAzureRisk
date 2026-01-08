@@ -4,7 +4,7 @@
 # 1. **FOLLOWING HAS BEEN IMPLEMENTED*:
 *** README JUST NOT UPDATED *** 
   - Phase 1b (missing properties) and Phase 3 (new Azure collectors) were being implemented
-   - Phase 1b added security-relevant fields to 5 existing collectors
+   - Phase 1b added security-relevant fields to 5 existing collectors. We chose NOT to add all the same fields as bloodhound collects. The fields that are currently collected are fine just as they are. 
    - Phase 3 created 4 new collectors (AutomationAccounts, FunctionApps, LogicApps, WebApps)
 #
 #

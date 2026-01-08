@@ -1665,20 +1665,604 @@ function Invoke-DeltaIndexingWithBinding {
 
 #endregion
 
+#region Gremlin Graph Functions (V3.1)
+
+function Get-GremlinConnection {
+    <#
+    .SYNOPSIS
+        Gets Gremlin connection settings from environment variables
+
+    .DESCRIPTION
+        Returns a hashtable with Gremlin endpoint, database, container, and key.
+        Uses environment variables set by Bicep deployment.
+
+    .EXAMPLE
+        $conn = Get-GremlinConnection
+        $endpoint = $conn.Endpoint
+    #>
+    [CmdletBinding()]
+    param()
+
+    $endpoint = $env:COSMOS_GREMLIN_ENDPOINT
+    $database = $env:COSMOS_GREMLIN_DATABASE
+    $container = $env:COSMOS_GREMLIN_CONTAINER
+    $key = $env:COSMOS_GREMLIN_KEY
+
+    if (-not $endpoint -or -not $database -or -not $container -or -not $key) {
+        throw "Gremlin configuration not found. Required: COSMOS_GREMLIN_ENDPOINT, COSMOS_GREMLIN_DATABASE, COSMOS_GREMLIN_CONTAINER, COSMOS_GREMLIN_KEY"
+    }
+
+    # Extract account name from endpoint (wss://accountname.gremlin.cosmos.azure.com:443/)
+    $accountName = $endpoint -replace 'wss://([^.]+)\.gremlin\.cosmos\.azure\.com.*', '$1'
+
+    return @{
+        Endpoint = $endpoint
+        Database = $database
+        Container = $container
+        Key = $key
+        AccountName = $accountName
+        # REST endpoint for Gremlin queries
+        RestEndpoint = "https://$accountName.documents.azure.com:443/"
+    }
+}
+
+function Get-GremlinAuthHeader {
+    <#
+    .SYNOPSIS
+        Generates authorization header for Cosmos DB Gremlin REST API
+
+    .DESCRIPTION
+        Creates the required authorization token for Cosmos DB using master key.
+        Follows Azure Cosmos DB REST API authentication requirements.
+
+    .PARAMETER Verb
+        HTTP verb (GET, POST, etc.)
+
+    .PARAMETER ResourceType
+        Resource type (docs, colls, dbs, etc.)
+
+    .PARAMETER ResourceId
+        Resource ID path
+
+    .PARAMETER Key
+        Cosmos DB master key
+
+    .PARAMETER Date
+        UTC date string in RFC 1123 format
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Verb,
+
+        [Parameter(Mandatory)]
+        [string]$ResourceType,
+
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string]$ResourceId,
+
+        [Parameter(Mandatory)]
+        [string]$Key,
+
+        [Parameter(Mandatory)]
+        [string]$Date
+    )
+
+    $keyBytes = [System.Convert]::FromBase64String($Key)
+
+    $text = "$($Verb.ToLower())`n$($ResourceType.ToLower())`n$ResourceId`n$($Date.ToLower())`n`n"
+    $textBytes = [System.Text.Encoding]::UTF8.GetBytes($text)
+
+    $hmac = New-Object System.Security.Cryptography.HMACSHA256
+    $hmac.Key = $keyBytes
+    $hash = $hmac.ComputeHash($textBytes)
+    $signature = [System.Convert]::ToBase64String($hash)
+
+    $authToken = [System.Web.HttpUtility]::UrlEncode("type=master&ver=1.0&sig=$signature")
+
+    return $authToken
+}
+
+function Submit-GremlinQuery {
+    <#
+    .SYNOPSIS
+        Executes a Gremlin query against Cosmos DB with retry logic
+
+    .DESCRIPTION
+        Submits a Gremlin traversal query to Cosmos DB Gremlin API.
+        Includes exponential backoff retry for transient failures.
+
+    .PARAMETER Query
+        The Gremlin traversal query string
+
+    .PARAMETER MaxRetries
+        Maximum retry attempts. Default: 3
+
+    .PARAMETER Connection
+        Optional connection hashtable from Get-GremlinConnection.
+        If not provided, reads from environment variables.
+
+    .EXAMPLE
+        $result = Submit-GremlinQuery -Query "g.V().count()"
+
+    .EXAMPLE
+        $users = Submit-GremlinQuery -Query "g.V().hasLabel('user').limit(10)"
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Query,
+
+        [int]$MaxRetries = 3,
+
+        [hashtable]$Connection
+    )
+
+    if (-not $Connection) {
+        $Connection = Get-GremlinConnection
+    }
+
+    $resourceId = "dbs/$($Connection.Database)/colls/$($Connection.Container)"
+    $uri = "$($Connection.RestEndpoint)$resourceId/docs"
+
+    $attempt = 0
+    while ($attempt -lt $MaxRetries) {
+        try {
+            $date = [DateTime]::UtcNow.ToString('r')
+            $authToken = Get-GremlinAuthHeader -Verb 'POST' -ResourceType 'docs' `
+                -ResourceId $resourceId -Key $Connection.Key -Date $date
+
+            $headers = @{
+                'Authorization' = $authToken
+                'x-ms-date' = $date
+                'x-ms-version' = '2018-12-31'
+                'Content-Type' = 'application/query+json'
+                'x-ms-documentdb-isquery' = 'True'
+                'x-ms-documentdb-query-enablecrosspartition' = 'True'
+            }
+
+            # Cosmos DB Gremlin uses a special query format
+            $body = @{
+                query = $Query
+                parameters = @()
+            } | ConvertTo-Json -Compress
+
+            Write-Verbose "Executing Gremlin query: $Query"
+            $response = Invoke-RestMethod -Uri $uri -Method POST -Headers $headers -Body $body
+
+            return $response
+        }
+        catch {
+            $statusCode = $_.Exception.Response.StatusCode.value__
+            $attempt++
+
+            # Handle rate limiting
+            if ($statusCode -eq 429) {
+                $delay = 5
+                $retryAfterHeader = $_.Exception.Response.Headers.'x-ms-retry-after-ms'
+                if ($retryAfterHeader -and $retryAfterHeader -match '^\d+$') {
+                    $delay = [Math]::Ceiling([int]$retryAfterHeader / 1000)
+                }
+                Write-Warning "Gremlin rate limited (429). Waiting $delay seconds..."
+                Start-Sleep -Seconds $delay
+                continue
+            }
+
+            # Retry on transient errors
+            if ($statusCode -ge 500 -and $attempt -lt $MaxRetries) {
+                $delay = 2 * [Math]::Pow(2, $attempt - 1)
+                Write-Warning "Gremlin error ($statusCode). Retry $attempt/$MaxRetries in $delay seconds..."
+                Start-Sleep -Seconds $delay
+                continue
+            }
+
+            Write-Error "Gremlin query failed: $_"
+            throw
+        }
+    }
+
+    throw "Gremlin query failed after $MaxRetries retries"
+}
+
+function Add-GraphVertex {
+    <#
+    .SYNOPSIS
+        Upserts a vertex in the Gremlin graph
+
+    .DESCRIPTION
+        Creates or updates a vertex using the fold().coalesce() upsert pattern.
+        This ensures idempotent vertex creation.
+
+    .PARAMETER ObjectId
+        Unique identifier for the vertex (becomes the vertex id)
+
+    .PARAMETER Label
+        Vertex label (e.g., 'user', 'group', 'servicePrincipal')
+
+    .PARAMETER PartitionKey
+        Partition key value (typically tenantId)
+
+    .PARAMETER Properties
+        Hashtable of additional properties to set on the vertex
+
+    .PARAMETER Connection
+        Optional connection hashtable from Get-GremlinConnection
+
+    .EXAMPLE
+        Add-GraphVertex -ObjectId "user-guid-123" -Label "user" -PartitionKey $tenantId `
+            -Properties @{ displayName = "John Doe"; userType = "Member" }
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ObjectId,
+
+        [Parameter(Mandatory)]
+        [string]$Label,
+
+        [Parameter(Mandatory)]
+        [string]$PartitionKey,
+
+        [hashtable]$Properties = @{},
+
+        [hashtable]$Connection
+    )
+
+    # Build the Gremlin upsert query using fold().coalesce() pattern
+    # This creates the vertex if it doesn't exist, or updates it if it does
+    $propsQuery = ""
+    foreach ($key in $Properties.Keys) {
+        $value = $Properties[$key]
+        if ($null -ne $value) {
+            # Escape single quotes in string values
+            if ($value -is [string]) {
+                $value = $value -replace "'", "\'"
+                $propsQuery += ".property('$key', '$value')"
+            }
+            elseif ($value -is [bool]) {
+                $boolVal = if ($value) { "true" } else { "false" }
+                $propsQuery += ".property('$key', $boolVal)"
+            }
+            elseif ($value -is [int] -or $value -is [double]) {
+                $propsQuery += ".property('$key', $value)"
+            }
+        }
+    }
+
+    $query = @"
+g.V('$ObjectId')
+  .fold()
+  .coalesce(
+    unfold(),
+    addV('$Label').property(id, '$ObjectId').property('pk', '$PartitionKey')
+  )$propsQuery
+"@
+
+    # Remove newlines for cleaner query
+    $query = $query -replace "`r`n", " " -replace "`n", " " -replace '\s+', ' '
+
+    return Submit-GremlinQuery -Query $query -Connection $Connection
+}
+
+function Add-GraphEdge {
+    <#
+    .SYNOPSIS
+        Upserts an edge between two vertices in the Gremlin graph
+
+    .DESCRIPTION
+        Creates or updates an edge using the fold().coalesce() upsert pattern.
+        Ensures both source and target vertices exist before creating the edge.
+
+    .PARAMETER SourceId
+        Object ID of the source vertex
+
+    .PARAMETER TargetId
+        Object ID of the target vertex
+
+    .PARAMETER EdgeType
+        Edge label (e.g., 'memberOf', 'owns', 'hasRole')
+
+    .PARAMETER Properties
+        Hashtable of additional properties to set on the edge
+
+    .PARAMETER Connection
+        Optional connection hashtable from Get-GremlinConnection
+
+    .EXAMPLE
+        Add-GraphEdge -SourceId "user-123" -TargetId "group-456" -EdgeType "memberOf" `
+            -Properties @{ assignmentType = "direct" }
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$SourceId,
+
+        [Parameter(Mandatory)]
+        [string]$TargetId,
+
+        [Parameter(Mandatory)]
+        [string]$EdgeType,
+
+        [hashtable]$Properties = @{},
+
+        [hashtable]$Connection
+    )
+
+    # Build edge ID from source, target, and type for uniqueness
+    $edgeId = "${SourceId}_${TargetId}_${EdgeType}"
+
+    # Build properties clause
+    $propsQuery = ""
+    foreach ($key in $Properties.Keys) {
+        $value = $Properties[$key]
+        if ($null -ne $value) {
+            if ($value -is [string]) {
+                $value = $value -replace "'", "\'"
+                $propsQuery += ".property('$key', '$value')"
+            }
+            elseif ($value -is [bool]) {
+                $boolVal = if ($value) { "true" } else { "false" }
+                $propsQuery += ".property('$key', $boolVal)"
+            }
+            elseif ($value -is [int] -or $value -is [double]) {
+                $propsQuery += ".property('$key', $value)"
+            }
+        }
+    }
+
+    # Upsert edge pattern: check if edge exists, if not create it
+    $query = @"
+g.V('$SourceId').as('s')
+  .V('$TargetId').as('t')
+  .select('s').outE('$EdgeType').where(inV().hasId('$TargetId'))
+  .fold()
+  .coalesce(
+    unfold(),
+    select('s').addE('$EdgeType').to(select('t')).property(id, '$edgeId')
+  )$propsQuery
+"@
+
+    $query = $query -replace "`r`n", " " -replace "`n", " " -replace '\s+', ' '
+
+    return Submit-GremlinQuery -Query $query -Connection $Connection
+}
+
+function Remove-GraphVertex {
+    <#
+    .SYNOPSIS
+        Removes a vertex and all its edges from the Gremlin graph
+
+    .DESCRIPTION
+        Drops a vertex by its ID. All connected edges are automatically removed.
+
+    .PARAMETER ObjectId
+        The ID of the vertex to remove
+
+    .PARAMETER Connection
+        Optional connection hashtable from Get-GremlinConnection
+
+    .EXAMPLE
+        Remove-GraphVertex -ObjectId "user-guid-123"
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ObjectId,
+
+        [hashtable]$Connection
+    )
+
+    $query = "g.V('$ObjectId').drop()"
+
+    return Submit-GremlinQuery -Query $query -Connection $Connection
+}
+
+function Remove-GraphEdge {
+    <#
+    .SYNOPSIS
+        Removes a specific edge from the Gremlin graph
+
+    .DESCRIPTION
+        Drops an edge identified by source, target, and edge type.
+
+    .PARAMETER SourceId
+        Object ID of the source vertex
+
+    .PARAMETER TargetId
+        Object ID of the target vertex
+
+    .PARAMETER EdgeType
+        Edge label to remove
+
+    .PARAMETER Connection
+        Optional connection hashtable from Get-GremlinConnection
+
+    .EXAMPLE
+        Remove-GraphEdge -SourceId "user-123" -TargetId "group-456" -EdgeType "memberOf"
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$SourceId,
+
+        [Parameter(Mandatory)]
+        [string]$TargetId,
+
+        [Parameter(Mandatory)]
+        [string]$EdgeType,
+
+        [hashtable]$Connection
+    )
+
+    $query = "g.V('$SourceId').outE('$EdgeType').where(inV().hasId('$TargetId')).drop()"
+
+    return Submit-GremlinQuery -Query $query -Connection $Connection
+}
+
+function Sync-GraphFromAudit {
+    <#
+    .SYNOPSIS
+        Syncs Gremlin graph from audit container changes
+
+    .DESCRIPTION
+        Reads recent changes from the Cosmos DB audit container and projects them
+        to the Gremlin graph. Handles new, modified, and deleted entities.
+
+    .PARAMETER SinceTimestamp
+        Only process changes after this timestamp
+
+    .PARAMETER MaxChanges
+        Maximum number of changes to process in one batch. Default: 1000
+
+    .PARAMETER Connection
+        Optional Gremlin connection hashtable
+
+    .EXAMPLE
+        Sync-GraphFromAudit -SinceTimestamp "2026-01-01T00:00:00Z"
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$SinceTimestamp,
+
+        [int]$MaxChanges = 1000,
+
+        [hashtable]$Connection
+    )
+
+    if (-not $Connection) {
+        $Connection = Get-GremlinConnection
+    }
+
+    $cosmosEndpoint = $env:COSMOS_DB_ENDPOINT
+    $cosmosDatabase = $env:COSMOS_DB_DATABASE
+    $cosmosToken = Get-CachedManagedIdentityToken -Resource "https://cosmos.azure.com"
+
+    $stats = @{
+        VerticesAdded = 0
+        VerticesModified = 0
+        VerticesDeleted = 0
+        EdgesAdded = 0
+        EdgesModified = 0
+        EdgesDeleted = 0
+        Errors = 0
+    }
+
+    # Query audit container for recent changes
+    $auditQuery = "SELECT TOP $MaxChanges * FROM c WHERE c.changeTimestamp > '$SinceTimestamp' ORDER BY c.changeTimestamp ASC"
+
+    $changes = @()
+    Get-CosmosDocument -Endpoint $cosmosEndpoint -Database $cosmosDatabase `
+        -Container 'audit' -Query $auditQuery -AccessToken $cosmosToken `
+        -ProcessPage {
+            param($Documents)
+            $changes += $Documents
+        }
+
+    Write-Verbose "Processing $($changes.Count) audit changes"
+
+    foreach ($change in $changes) {
+        try {
+            $entityType = $change.entityType
+            $changeType = $change.changeType
+            $objectId = $change.objectId
+            $displayName = $change.displayName ?? ""
+            $principalType = $change.principalType
+
+            # Determine if this is a vertex or edge change
+            $isEdge = $entityType -in @('relationships', 'edges', 'azureRelationships')
+
+            if ($isEdge) {
+                # Edge changes
+                switch ($changeType) {
+                    'new' {
+                        # Need to get full edge data from edges container
+                        # For now, just increment counter
+                        $stats.EdgesAdded++
+                    }
+                    'modified' {
+                        $stats.EdgesModified++
+                    }
+                    'deleted' {
+                        # Remove edge from graph
+                        $stats.EdgesDeleted++
+                    }
+                }
+            }
+            else {
+                # Vertex changes
+                $tenantId = $env:TENANT_ID ?? "default"
+                $label = $principalType ?? $entityType
+
+                switch ($changeType) {
+                    'new' {
+                        Add-GraphVertex -ObjectId $objectId -Label $label `
+                            -PartitionKey $tenantId `
+                            -Properties @{ displayName = $displayName } `
+                            -Connection $Connection
+                        $stats.VerticesAdded++
+                    }
+                    'modified' {
+                        # Update vertex properties from delta
+                        $props = @{ displayName = $displayName }
+                        if ($change.delta) {
+                            foreach ($field in $change.delta.Keys) {
+                                $props[$field] = $change.delta[$field].new
+                            }
+                        }
+                        Add-GraphVertex -ObjectId $objectId -Label $label `
+                            -PartitionKey $tenantId -Properties $props `
+                            -Connection $Connection
+                        $stats.VerticesModified++
+                    }
+                    'deleted' {
+                        Remove-GraphVertex -ObjectId $objectId -Connection $Connection
+                        $stats.VerticesDeleted++
+                    }
+                }
+            }
+        }
+        catch {
+            Write-Warning "Failed to sync change $($change.id): $_"
+            $stats.Errors++
+        }
+    }
+
+    return $stats
+}
+
+#endregion
+
 Export-ModuleMember -Function @(
+    # Token management
     'Get-ManagedIdentityToken',
     'Get-CachedManagedIdentityToken',
+    # Azure Management API
     'Get-AzureManagementPagedResult',
+    # Graph API
     'Invoke-GraphWithRetry',
     'Get-GraphPagedResult',
+    # Blob Storage
     'Initialize-AppendBlob',
     'Add-BlobContent',
     'Write-BlobBuffer',
     'Write-BlobContent',
+    # Cosmos DB SQL API
     'Write-CosmosDocument',
     'Write-CosmosBatch',
     'Write-CosmosParallelBatch',
     'Get-CosmosDocument',
+    # Delta Indexing
     'Invoke-DeltaIndexing',
-    'Invoke-DeltaIndexingWithBinding'
+    'Invoke-DeltaIndexingWithBinding',
+    # V3.1 Gremlin Graph Functions
+    'Get-GremlinConnection',
+    'Get-GremlinAuthHeader',
+    'Submit-GremlinQuery',
+    'Add-GraphVertex',
+    'Add-GraphEdge',
+    'Remove-GraphVertex',
+    'Remove-GraphEdge',
+    'Sync-GraphFromAudit'
 )

@@ -1,27 +1,27 @@
 
-#region Durable Functions Orchestrator - V3 UNIFIED ARCHITECTURE
+#region Durable Functions Orchestrator - V3.1 UNIFIED ARCHITECTURE
 <#
 .SYNOPSIS
     Orchestrates comprehensive Entra and Azure data collection with unified containers
 .DESCRIPTION
-    V3 Architecture: Unified Containers with Semantic Correctness
+    V3.1 Architecture: Unified Containers with Semantic Correctness + Graph Support
 
     6 Containers:
     - principals (users, groups, servicePrincipals, devices) - partition: /principalType
-    - resources (applications, Azure resources) - partition: /resourceType
+    - resources (applications, Azure resources, role definitions) - partition: /resourceType
     - edges (all relationships unified) - partition: /edgeType
     - policies - partition: /policyType
     - events - partition: /eventDate
     - audit (changes + snapshots) - partition: /auditDate
 
-    Phase 1: All Entity Collection (Parallel - 14 collectors)
+    Phase 1: All Entity Collection (Parallel - 17 collectors)
       Principal Collectors (4):
       - CollectUsersWithAuthMethods -> principals.jsonl (principalType=user)
       - CollectEntraGroups -> principals.jsonl (principalType=group)
       - CollectEntraServicePrincipals -> principals.jsonl (principalType=servicePrincipal)
       - CollectDevices -> principals.jsonl (principalType=device)
 
-      Resource Collectors (8):
+      Resource Collectors (10):
       - CollectAppRegistrations -> resources.jsonl (resourceType=application)
       - CollectAzureHierarchy -> resources.jsonl (resourceType=tenant/managementGroup/subscription/resourceGroup)
       - CollectKeyVaults -> resources.jsonl (resourceType=keyVault)
@@ -30,6 +30,8 @@
       - CollectFunctionApps -> resources.jsonl (resourceType=functionApp)
       - CollectLogicApps -> resources.jsonl (resourceType=logicApp)
       - CollectWebApps -> resources.jsonl (resourceType=webApp)
+      - CollectDirectoryRoleDefinitions -> resources.jsonl (resourceType=directoryRoleDefinition) [V3.1]
+      - CollectAzureRoleDefinitions -> resources.jsonl (resourceType=azureRoleDefinition) [V3.1]
 
       Policy/Event Collectors (2):
       - CollectPolicies -> policies.jsonl
@@ -37,6 +39,9 @@
 
     Phase 2: Unified Edge Collection
       - CollectRelationships -> edges.jsonl (all 21+ edgeTypes)
+        V3.1 adds: caPolicyTargetsPrincipal, caPolicyExcludesPrincipal,
+                   caPolicyTargetsApplication, caPolicyExcludesApplication,
+                   caPolicyUsesLocation, rolePolicyAssignment
 
     Phase 3: Unified Indexing (5 indexers)
       - IndexPrincipalsInCosmosDB -> principals container
@@ -45,12 +50,15 @@
       - IndexPoliciesInCosmosDB -> policies container
       - IndexEventsInCosmosDB -> events container
 
-    V3 Benefits:
+    V3.1 Benefits:
     - Semantic correctness (applications are resources, not principals)
     - Unified edge container enables Gremlin graph projection
     - Temporal fields (effectiveFrom/effectiveTo) for historical queries
     - Simplified container structure (9 -> 6 containers)
     - edgeType discriminator for all relationships
+    - Role definitions as synthetic vertices for complete graph
+    - CA policy edges for MFA gap analysis
+    - Role management policy edges for PIM activation risk analysis
 #>
 #endregion
 
@@ -136,6 +144,17 @@ try {
         -Input $collectionInput `
         -NoWait
 
+    # V3.1: Role Definition Collectors (2) - synthetic vertices
+    $directoryRoleDefsTask = Invoke-DurableActivity `
+        -FunctionName 'CollectDirectoryRoleDefinitions' `
+        -Input $collectionInput `
+        -NoWait
+
+    $azureRoleDefsTask = Invoke-DurableActivity `
+        -FunctionName 'CollectAzureRoleDefinitions' `
+        -Input $collectionInput `
+        -NoWait
+
     # Policy and Event Collectors (2)
     $policiesTask = Invoke-DurableActivity `
         -FunctionName 'CollectPolicies' `
@@ -158,7 +177,7 @@ try {
     #endregion
 
     #region Wait for All Collections
-    Write-Verbose "Waiting for all 15 collectors to complete..."
+    Write-Verbose "Waiting for all 17 collectors to complete..."
 
     $allResults = Wait-ActivityFunction -Task @(
         $usersTask,
@@ -173,6 +192,8 @@ try {
         $functionAppsTask,
         $logicAppsTask,
         $webAppsTask,
+        $directoryRoleDefsTask,
+        $azureRoleDefsTask,
         $policiesTask,
         $eventsTask,
         $edgesTask
@@ -191,9 +212,11 @@ try {
     $functionAppsResult = $allResults[9]
     $logicAppsResult = $allResults[10]
     $webAppsResult = $allResults[11]
-    $policiesResult = $allResults[12]
-    $eventsResult = $allResults[13]
-    $edgesResult = $allResults[14]
+    $directoryRoleDefsResult = $allResults[12]
+    $azureRoleDefsResult = $allResults[13]
+    $policiesResult = $allResults[14]
+    $eventsResult = $allResults[15]
+    $edgesResult = $allResults[16]
     #endregion
 
     #region Validate Collection Results
@@ -260,6 +283,17 @@ try {
         $webAppsResult = @{ Success = $false; WebAppCount = 0; ResourcesBlobName = $null; EdgesBlobName = $null }
     }
 
+    # V3.1: Role definition collectors (non-critical)
+    if (-not $directoryRoleDefsResult.Success) {
+        Write-Warning "Directory Role Definitions collection failed: $($directoryRoleDefsResult.Error)"
+        $directoryRoleDefsResult = @{ Success = $false; RoleDefinitionCount = 0; ResourcesBlobName = $null }
+    }
+
+    if (-not $azureRoleDefsResult.Success) {
+        Write-Warning "Azure Role Definitions collection failed: $($azureRoleDefsResult.Error)"
+        $azureRoleDefsResult = @{ Success = $false; RoleDefinitionCount = 0; ResourcesBlobName = $null }
+    }
+
     if (-not $policiesResult.Success) {
         Write-Warning "Policies collection failed: $($policiesResult.Error)"
         $policiesResult = @{ Success = $false; PolicyCount = 0; BlobName = $null }
@@ -291,6 +325,8 @@ try {
     Write-Verbose "  Policies: $($policiesResult.PolicyCount ?? 0)"
     Write-Verbose "  Events: $($eventsResult.EventCount ?? 0)"
     Write-Verbose "  Edges: $($edgesResult.EdgeCount ?? 0)"
+    Write-Verbose "  Directory Role Definitions: $($directoryRoleDefsResult.RoleDefinitionCount ?? 0)"
+    Write-Verbose "  Azure Role Definitions: $($azureRoleDefsResult.RoleDefinitionCount ?? 0)"
     #endregion
 
     #region Phase 3: Unified Indexing (5 indexers)
@@ -383,7 +419,9 @@ try {
         @{ Result = $automationAccountsResult; Name = 'AutomationAccounts' },
         @{ Result = $functionAppsResult; Name = 'FunctionApps' },
         @{ Result = $logicAppsResult; Name = 'LogicApps' },
-        @{ Result = $webAppsResult; Name = 'WebApps' }
+        @{ Result = $webAppsResult; Name = 'WebApps' },
+        @{ Result = $directoryRoleDefsResult; Name = 'DirectoryRoleDefinitions' },
+        @{ Result = $azureRoleDefsResult; Name = 'AzureRoleDefinitions' }
     )
 
     foreach ($collector in $azureResourceCollectors) {
@@ -538,6 +576,20 @@ try {
                 EdgesBlobPath = $webAppsResult.EdgesBlobName
             }
 
+            # V3.1: Role Definitions (synthetic vertices)
+            DirectoryRoleDefinitions = @{
+                Success = $directoryRoleDefsResult.Success
+                Count = $directoryRoleDefsResult.RoleDefinitionCount ?? 0
+                ResourcesBlobPath = $directoryRoleDefsResult.ResourcesBlobName
+                Summary = $directoryRoleDefsResult.Summary
+            }
+            AzureRoleDefinitions = @{
+                Success = $azureRoleDefsResult.Success
+                Count = $azureRoleDefsResult.RoleDefinitionCount ?? 0
+                ResourcesBlobPath = $azureRoleDefsResult.ResourcesBlobName
+                Summary = $azureRoleDefsResult.Summary
+            }
+
             # Edges, Policies, Events
             Edges = @{
                 Success = $edgesResult.Success
@@ -617,6 +669,8 @@ try {
             TotalFunctionApps = $functionAppsResult.FunctionAppCount ?? 0
             TotalLogicApps = $logicAppsResult.LogicAppCount ?? 0
             TotalWebApps = $webAppsResult.WebAppCount ?? 0
+            TotalDirectoryRoleDefinitions = $directoryRoleDefsResult.RoleDefinitionCount ?? 0
+            TotalAzureRoleDefinitions = $azureRoleDefsResult.RoleDefinitionCount ?? 0
             TotalResources = (
                 ($applicationsResult.AppCount ?? 0) +
                 ($azureHierarchyResult.ResourceCount ?? 0) +
@@ -625,7 +679,9 @@ try {
                 ($automationAccountsResult.AutomationAccountCount ?? 0) +
                 ($functionAppsResult.FunctionAppCount ?? 0) +
                 ($logicAppsResult.LogicAppCount ?? 0) +
-                ($webAppsResult.WebAppCount ?? 0)
+                ($webAppsResult.WebAppCount ?? 0) +
+                ($directoryRoleDefsResult.RoleDefinitionCount ?? 0) +
+                ($azureRoleDefsResult.RoleDefinitionCount ?? 0)
             )
 
             # Other counts
@@ -667,7 +723,9 @@ try {
                 $automationAccountsResult.Success -and
                 $functionAppsResult.Success -and
                 $logicAppsResult.Success -and
-                $webAppsResult.Success
+                $webAppsResult.Success -and
+                $directoryRoleDefsResult.Success -and
+                $azureRoleDefsResult.Success
             )
             AllIndexingSucceeded = (
                 $principalsIndexResult.Success -and

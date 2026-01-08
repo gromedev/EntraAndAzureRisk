@@ -2,24 +2,30 @@
 .SYNOPSIS
     Combined collector for relationship data
 .DESCRIPTION
-    V3 Architecture: Single collector for all edge types → edges.jsonl
+    V3.1 Architecture: Single collector for all edge types → edges.jsonl
 
     Collects:
-    1. Group memberships (groups → members)
-    1b. Transitive group memberships
-    2. Directory role members (roles → members)
-    3. PIM eligible role assignments
-    4. PIM active role assignments
-    5. PIM group eligible memberships
-    6. PIM group active memberships
-    7. Azure RBAC assignments
-    8. Application owners
-    9. Service Principal owners
-    10. User license assignments
-    11. OAuth2 permission grants (consents)
-    12. App role assignments
-    13. Group owners
-    14. Device owners
+    Phase 1.  Group memberships (groups → members)
+    Phase 1b. Transitive group memberships
+    Phase 2.  Directory role members (roles → members)
+    Phase 3.  PIM eligible/active role assignments
+    Phase 4.  PIM group eligible/active memberships
+    Phase 5.  Azure RBAC assignments
+    Phase 6.  Application owners
+    Phase 7.  Service Principal owners
+    Phase 8.  User license assignments
+    Phase 9.  OAuth2 permission grants (consents)
+    Phase 10. App role assignments
+    Phase 11. Group owners
+    Phase 12. Device owners
+    Phase 13. Conditional Access policy edges (V3.1)
+             - caPolicyTargetsPrincipal
+             - caPolicyExcludesPrincipal
+             - caPolicyTargetsApplication
+             - caPolicyExcludesApplication
+             - caPolicyUsesLocation
+    Phase 14. Role management policy edges (V3.1)
+             - rolePolicyAssignment
 
     All output to single edges.jsonl with edgeType discriminator.
     Runs phases sequentially to manage memory, streams to blob.
@@ -110,6 +116,7 @@ try {
         GroupOwners = 0
         DeviceOwners = 0
         CaPolicyEdges = 0
+        RolePolicyEdges = 0
     }
 
     # Track direct memberships for transitive comparison
@@ -1151,12 +1158,352 @@ try {
     Write-Verbose "Device owners complete: $($stats.DeviceOwners)"
     #endregion
 
+    #region Phase 13: Conditional Access Policy Edges
+    Write-Verbose "=== Phase 13: Conditional Access Policy Edges ==="
+
+    # Get all Conditional Access policies
+    $caPoliciesUri = "https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies"
+
+    while ($caPoliciesUri) {
+        try {
+            $response = Invoke-GraphWithRetry -Uri $caPoliciesUri -AccessToken $graphToken
+
+            foreach ($policy in $response.value) {
+                $policyId = $policy.id
+                $policyState = $policy.state
+                $policyDisplayName = $policy.displayName
+
+                # Extract grant controls
+                $grantControls = $policy.grantControls.builtInControls ?? @()
+                $requiresMfa = $grantControls -contains 'mfa'
+                $blocksAccess = $grantControls -contains 'block'
+                $requiresCompliantDevice = $grantControls -contains 'compliantDevice'
+                $requiresHybridAzureADJoin = $grantControls -contains 'domainJoinedDevice'
+                $requiresApprovedApp = $grantControls -contains 'approvedApplication'
+                $requiresAppProtection = $grantControls -contains 'compliantApplication'
+
+                $clientAppTypes = $policy.conditions.clientAppTypes ?? @()
+                $hasLocationCondition = ($null -ne $policy.conditions.locations)
+                $hasRiskCondition = (($policy.conditions.signInRiskLevels ?? @()).Count -gt 0) -or
+                                   (($policy.conditions.userRiskLevels ?? @()).Count -gt 0)
+
+                # Common edge properties
+                $baseEdge = @{
+                    sourceId = $policyId
+                    sourceType = "conditionalAccessPolicy"
+                    sourceDisplayName = $policyDisplayName
+                    policyState = $policyState
+                    requiresMfa = $requiresMfa
+                    blocksAccess = $blocksAccess
+                    requiresCompliantDevice = $requiresCompliantDevice
+                    requiresHybridAzureADJoin = $requiresHybridAzureADJoin
+                    requiresApprovedApp = $requiresApprovedApp
+                    requiresAppProtection = $requiresAppProtection
+                    clientAppTypes = $clientAppTypes
+                    hasLocationCondition = $hasLocationCondition
+                    hasRiskCondition = $hasRiskCondition
+                    effectiveFrom = $timestampFormatted
+                    effectiveTo = $null
+                    collectionTimestamp = $timestampFormatted
+                }
+
+                #region Process User/Group Inclusions
+                $userConditions = $policy.conditions.users
+
+                # Include users
+                foreach ($userId in ($userConditions.includeUsers ?? @())) {
+                    $targetType = switch ($userId) {
+                        'All' { 'allUsers' }
+                        'GuestsOrExternalUsers' { 'allGuestUsers' }
+                        default { 'user' }
+                    }
+
+                    $edge = $baseEdge.Clone()
+                    $edge.id = "${policyId}_${userId}_caPolicyTargetsPrincipal"
+                    $edge.objectId = "${policyId}_${userId}_caPolicyTargetsPrincipal"
+                    $edge.edgeType = "caPolicyTargetsPrincipal"
+                    $edge.targetId = $userId
+                    $edge.targetType = $targetType
+                    $edge.targetDisplayName = ""
+
+                    [void]$jsonL.AppendLine(($edge | ConvertTo-Json -Compress -Depth 5))
+                    $stats.CaPolicyEdges++
+                }
+
+                # Include groups
+                foreach ($groupId in ($userConditions.includeGroups ?? @())) {
+                    $edge = $baseEdge.Clone()
+                    $edge.id = "${policyId}_${groupId}_caPolicyTargetsPrincipal"
+                    $edge.objectId = "${policyId}_${groupId}_caPolicyTargetsPrincipal"
+                    $edge.edgeType = "caPolicyTargetsPrincipal"
+                    $edge.targetId = $groupId
+                    $edge.targetType = "group"
+                    $edge.targetDisplayName = ""
+
+                    [void]$jsonL.AppendLine(($edge | ConvertTo-Json -Compress -Depth 5))
+                    $stats.CaPolicyEdges++
+                }
+
+                # Include roles
+                foreach ($roleId in ($userConditions.includeRoles ?? @())) {
+                    $edge = $baseEdge.Clone()
+                    $edge.id = "${policyId}_${roleId}_caPolicyTargetsPrincipal"
+                    $edge.objectId = "${policyId}_${roleId}_caPolicyTargetsPrincipal"
+                    $edge.edgeType = "caPolicyTargetsPrincipal"
+                    $edge.targetId = $roleId
+                    $edge.targetType = "directoryRole"
+                    $edge.targetDisplayName = ""
+
+                    [void]$jsonL.AppendLine(($edge | ConvertTo-Json -Compress -Depth 5))
+                    $stats.CaPolicyEdges++
+                }
+
+                # Exclude users
+                foreach ($userId in ($userConditions.excludeUsers ?? @())) {
+                    $targetType = if ($userId -eq 'GuestsOrExternalUsers') { 'allGuestUsers' } else { 'user' }
+
+                    $edge = $baseEdge.Clone()
+                    $edge.id = "${policyId}_${userId}_caPolicyExcludesPrincipal"
+                    $edge.objectId = "${policyId}_${userId}_caPolicyExcludesPrincipal"
+                    $edge.edgeType = "caPolicyExcludesPrincipal"
+                    $edge.targetId = $userId
+                    $edge.targetType = $targetType
+                    $edge.targetDisplayName = ""
+
+                    [void]$jsonL.AppendLine(($edge | ConvertTo-Json -Compress -Depth 5))
+                    $stats.CaPolicyEdges++
+                }
+
+                # Exclude groups
+                foreach ($groupId in ($userConditions.excludeGroups ?? @())) {
+                    $edge = $baseEdge.Clone()
+                    $edge.id = "${policyId}_${groupId}_caPolicyExcludesPrincipal"
+                    $edge.objectId = "${policyId}_${groupId}_caPolicyExcludesPrincipal"
+                    $edge.edgeType = "caPolicyExcludesPrincipal"
+                    $edge.targetId = $groupId
+                    $edge.targetType = "group"
+                    $edge.targetDisplayName = ""
+
+                    [void]$jsonL.AppendLine(($edge | ConvertTo-Json -Compress -Depth 5))
+                    $stats.CaPolicyEdges++
+                }
+
+                # Exclude roles
+                foreach ($roleId in ($userConditions.excludeRoles ?? @())) {
+                    $edge = $baseEdge.Clone()
+                    $edge.id = "${policyId}_${roleId}_caPolicyExcludesPrincipal"
+                    $edge.objectId = "${policyId}_${roleId}_caPolicyExcludesPrincipal"
+                    $edge.edgeType = "caPolicyExcludesPrincipal"
+                    $edge.targetId = $roleId
+                    $edge.targetType = "directoryRole"
+                    $edge.targetDisplayName = ""
+
+                    [void]$jsonL.AppendLine(($edge | ConvertTo-Json -Compress -Depth 5))
+                    $stats.CaPolicyEdges++
+                }
+                #endregion
+
+                #region Process Application Inclusions/Exclusions
+                $appConditions = $policy.conditions.applications
+
+                # Include applications
+                foreach ($appId in ($appConditions.includeApplications ?? @())) {
+                    $targetType = switch ($appId) {
+                        'All' { 'allApps' }
+                        'Office365' { 'office365' }
+                        default { 'application' }
+                    }
+
+                    $edge = $baseEdge.Clone()
+                    $edge.id = "${policyId}_${appId}_caPolicyTargetsApplication"
+                    $edge.objectId = "${policyId}_${appId}_caPolicyTargetsApplication"
+                    $edge.edgeType = "caPolicyTargetsApplication"
+                    $edge.targetId = $appId
+                    $edge.targetType = $targetType
+                    $edge.targetDisplayName = ""
+
+                    [void]$jsonL.AppendLine(($edge | ConvertTo-Json -Compress -Depth 5))
+                    $stats.CaPolicyEdges++
+                }
+
+                # Exclude applications
+                foreach ($appId in ($appConditions.excludeApplications ?? @())) {
+                    $targetType = if ($appId -eq 'Office365') { 'office365' } else { 'application' }
+
+                    $edge = $baseEdge.Clone()
+                    $edge.id = "${policyId}_${appId}_caPolicyExcludesApplication"
+                    $edge.objectId = "${policyId}_${appId}_caPolicyExcludesApplication"
+                    $edge.edgeType = "caPolicyExcludesApplication"
+                    $edge.targetId = $appId
+                    $edge.targetType = $targetType
+                    $edge.targetDisplayName = ""
+
+                    [void]$jsonL.AppendLine(($edge | ConvertTo-Json -Compress -Depth 5))
+                    $stats.CaPolicyEdges++
+                }
+                #endregion
+
+                #region Process Location Conditions
+                $locationConditions = $policy.conditions.locations
+
+                # Include locations
+                foreach ($locationId in ($locationConditions.includeLocations ?? @())) {
+                    $targetType = switch ($locationId) {
+                        'All' { 'allLocations' }
+                        'AllTrusted' { 'allTrustedLocations' }
+                        default { 'namedLocation' }
+                    }
+
+                    $edge = $baseEdge.Clone()
+                    $edge.id = "${policyId}_${locationId}_caPolicyUsesLocation"
+                    $edge.objectId = "${policyId}_${locationId}_caPolicyUsesLocation"
+                    $edge.edgeType = "caPolicyUsesLocation"
+                    $edge.targetId = $locationId
+                    $edge.targetType = $targetType
+                    $edge.targetDisplayName = ""
+                    $edge.locationUsageType = "include"
+
+                    [void]$jsonL.AppendLine(($edge | ConvertTo-Json -Compress -Depth 5))
+                    $stats.CaPolicyEdges++
+                }
+
+                # Exclude locations
+                foreach ($locationId in ($locationConditions.excludeLocations ?? @())) {
+                    $targetType = switch ($locationId) {
+                        'AllTrusted' { 'allTrustedLocations' }
+                        default { 'namedLocation' }
+                    }
+
+                    $edge = $baseEdge.Clone()
+                    $edge.id = "${policyId}_${locationId}_caPolicyUsesLocation_exclude"
+                    $edge.objectId = "${policyId}_${locationId}_caPolicyUsesLocation_exclude"
+                    $edge.edgeType = "caPolicyUsesLocation"
+                    $edge.targetId = $locationId
+                    $edge.targetType = $targetType
+                    $edge.targetDisplayName = ""
+                    $edge.locationUsageType = "exclude"
+
+                    [void]$jsonL.AppendLine(($edge | ConvertTo-Json -Compress -Depth 5))
+                    $stats.CaPolicyEdges++
+                }
+                #endregion
+            }
+
+            $caPoliciesUri = $response.'@odata.nextLink'
+        }
+        catch { Write-Warning "Failed to retrieve CA policies: $_"; break }
+    }
+
+    Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
+    Write-Verbose "CA policy edges complete: $($stats.CaPolicyEdges)"
+    #endregion
+
+    #region Phase 14: Role Management Policy Edges
+    Write-Verbose "=== Phase 14: Role Management Policy Edges ==="
+
+    # Get role management policy assignments (links policies to directory roles)
+    $policyAssignmentsUri = "https://graph.microsoft.com/v1.0/policies/roleManagementPolicyAssignments?`$filter=scopeId eq '/' and scopeType eq 'DirectoryRole'"
+
+    try {
+        $assignmentsResponse = Invoke-GraphWithRetry -Uri $policyAssignmentsUri -AccessToken $graphToken
+
+        foreach ($assignment in $assignmentsResponse.value) {
+            $policyId = $assignment.policyId
+            $roleDefinitionId = $assignment.roleDefinitionId
+
+            # Get the policy details with rules expanded
+            try {
+                $policyUri = "https://graph.microsoft.com/v1.0/policies/roleManagementPolicies/${policyId}?`$expand=rules"
+                $policyResponse = Invoke-GraphWithRetry -Uri $policyUri -AccessToken $graphToken
+
+                # Extract rule settings
+                $requiresMfaOnActivation = $false
+                $requiresApproval = $false
+                $requiresJustification = $false
+                $requiresTicketInfo = $false
+                $maxActivationDurationHours = $null
+                $permanentAssignmentAllowed = $true
+                $eligibleAssignmentMaxDurationDays = $null
+
+                foreach ($rule in $policyResponse.rules) {
+                    $ruleType = $rule.'@odata.type'
+                    $ruleId = $rule.id
+
+                    switch -Wildcard ($ruleType) {
+                        '*unifiedRoleManagementPolicyEnablementRule' {
+                            if ($ruleId -eq 'Enablement_EndUser_Assignment') {
+                                $enabledRules = $rule.enabledRules ?? @()
+                                $requiresMfaOnActivation = $enabledRules -contains 'MultiFactorAuthentication'
+                                $requiresJustification = $enabledRules -contains 'Justification'
+                                $requiresTicketInfo = $enabledRules -contains 'Ticketing'
+                            }
+                        }
+                        '*unifiedRoleManagementPolicyApprovalRule' {
+                            if ($ruleId -eq 'Approval_EndUser_Assignment') {
+                                $setting = $rule.setting
+                                $requiresApproval = $setting.isApprovalRequired ?? $false
+                            }
+                        }
+                        '*unifiedRoleManagementPolicyExpirationRule' {
+                            if ($ruleId -eq 'Expiration_EndUser_Assignment') {
+                                # Maximum activation duration
+                                $maxDuration = $rule.maximumDuration
+                                if ($maxDuration -match 'PT(\d+)H') {
+                                    $maxActivationDurationHours = [int]$matches[1]
+                                }
+                            }
+                            elseif ($ruleId -eq 'Expiration_Admin_Eligibility') {
+                                # Eligible assignment settings
+                                $permanentAssignmentAllowed = -not ($rule.isExpirationRequired ?? $false)
+                                $maxDuration = $rule.maximumDuration
+                                if ($maxDuration -match 'P(\d+)D') {
+                                    $eligibleAssignmentMaxDurationDays = [int]$matches[1]
+                                }
+                            }
+                        }
+                    }
+                }
+
+                $edge = @{
+                    id = "${policyId}_${roleDefinitionId}_rolePolicyAssignment"
+                    objectId = "${policyId}_${roleDefinitionId}_rolePolicyAssignment"
+                    edgeType = "rolePolicyAssignment"
+                    sourceId = $policyId
+                    sourceType = "roleManagementPolicy"
+                    sourceDisplayName = $policyResponse.displayName ?? ""
+                    targetId = $roleDefinitionId
+                    targetType = "directoryRole"
+                    targetDisplayName = ""
+                    requiresMfaOnActivation = $requiresMfaOnActivation
+                    requiresApproval = $requiresApproval
+                    requiresJustification = $requiresJustification
+                    requiresTicketInfo = $requiresTicketInfo
+                    maxActivationDurationHours = $maxActivationDurationHours
+                    permanentAssignmentAllowed = $permanentAssignmentAllowed
+                    eligibleAssignmentMaxDurationDays = $eligibleAssignmentMaxDurationDays
+                    effectiveFrom = $timestampFormatted
+                    effectiveTo = $null
+                    collectionTimestamp = $timestampFormatted
+                }
+
+                [void]$jsonL.AppendLine(($edge | ConvertTo-Json -Compress -Depth 5))
+                $stats.RolePolicyEdges++
+            }
+            catch { Write-Warning "Failed to get policy details for $policyId : $_" }
+        }
+    }
+    catch { Write-Warning "Failed to retrieve role management policy assignments: $_" }
+
+    Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
+    Write-Verbose "Role policy edges complete: $($stats.RolePolicyEdges)"
+    #endregion
+
     # Cleanup
     $jsonL = $null
     [System.GC]::Collect()
     [System.GC]::WaitForPendingFinalizers()
 
-    $totalRelationships = $stats.GroupMembershipsDirect + $stats.GroupMembershipsTransitive + $stats.DirectoryRoles + $stats.PimEligible + $stats.PimActive + $stats.PimGroupEligible + $stats.PimGroupActive + $stats.AzureRbac + $stats.AppOwners + $stats.SpOwners + $stats.Licenses + $stats.OAuth2PermissionGrants + $stats.AppRoleAssignments + $stats.GroupOwners + $stats.DeviceOwners
+    $totalRelationships = $stats.GroupMembershipsDirect + $stats.GroupMembershipsTransitive + $stats.DirectoryRoles + $stats.PimEligible + $stats.PimActive + $stats.PimGroupEligible + $stats.PimGroupActive + $stats.AzureRbac + $stats.AppOwners + $stats.SpOwners + $stats.Licenses + $stats.OAuth2PermissionGrants + $stats.AppRoleAssignments + $stats.GroupOwners + $stats.DeviceOwners + $stats.CaPolicyEdges + $stats.RolePolicyEdges
 
     Write-Verbose "Combined relationships collection complete: $totalRelationships total"
 
@@ -1184,6 +1531,8 @@ try {
             appRoleAssignments = $stats.AppRoleAssignments
             groupOwners = $stats.GroupOwners
             deviceOwners = $stats.DeviceOwners
+            caPolicyEdges = $stats.CaPolicyEdges
+            rolePolicyEdges = $stats.RolePolicyEdges
         }
     }
 }
