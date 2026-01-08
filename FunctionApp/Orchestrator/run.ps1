@@ -1,47 +1,39 @@
 
-#region Durable Functions Orchestrator - V3.5 UNIFIED ARCHITECTURE
+#region Durable Functions Orchestrator - V3.5 CONSOLIDATED ARCHITECTURE
 <#
 .SYNOPSIS
     Orchestrates comprehensive Entra and Azure data collection with unified containers
 .DESCRIPTION
-    V3.5 Architecture: Unified Containers with Semantic Correctness + Graph Support + Abuse Edges
+    V3.5 Architecture: Consolidated Collectors with Unified Containers
 
-    6 Containers:
+    6 Cosmos DB Containers:
     - principals (users, groups, servicePrincipals, devices) - partition: /principalType
     - resources (applications, Azure resources, role definitions) - partition: /resourceType
-    - edges (all relationships unified + derived abuse edges) - partition: /edgeType
-    - policies - partition: /policyType
+    - edges (all relationships unified + derived abuse/virtual edges) - partition: /edgeType
+    - policies (CA + Intune policies) - partition: /policyType
     - events - partition: /eventDate
     - audit (changes + snapshots) - partition: /auditDate
 
-    Phase 1: All Entity Collection (Parallel - 17 collectors)
+    Phase 1: Entity Collection (Parallel - 12 collectors)
       Principal Collectors (4):
-      - CollectUsersWithAuthMethods -> principals.jsonl (principalType=user)
+      - CollectUsers -> principals.jsonl (principalType=user, with embedded auth methods + risk data)
       - CollectEntraGroups -> principals.jsonl (principalType=group)
       - CollectEntraServicePrincipals -> principals.jsonl (principalType=servicePrincipal)
       - CollectDevices -> principals.jsonl (principalType=device)
 
-      Resource Collectors (10):
+      Resource Collectors (4):
       - CollectAppRegistrations -> resources.jsonl (resourceType=application)
       - CollectAzureHierarchy -> resources.jsonl (resourceType=tenant/managementGroup/subscription/resourceGroup)
-      - CollectKeyVaults -> resources.jsonl (resourceType=keyVault)
-      - CollectVirtualMachines -> resources.jsonl (resourceType=virtualMachine)
-      - CollectAutomationAccounts -> resources.jsonl (resourceType=automationAccount)
-      - CollectFunctionApps -> resources.jsonl (resourceType=functionApp)
-      - CollectLogicApps -> resources.jsonl (resourceType=logicApp)
-      - CollectWebApps -> resources.jsonl (resourceType=webApp)
-      - CollectDirectoryRoleDefinitions -> resources.jsonl (resourceType=directoryRoleDefinition)
-      - CollectAzureRoleDefinitions -> resources.jsonl (resourceType=azureRoleDefinition)
+      - CollectAzureResources -> resources.jsonl (CONSOLIDATED: keyVault, virtualMachine, storageAccount, etc.)
+      - CollectRoleDefinitions -> resources.jsonl (CONSOLIDATED: directoryRoleDefinition, azureRoleDefinition)
 
-      Policy/Event Collectors (2):
-      - CollectPolicies -> policies.jsonl
+      Policy/Event Collectors (3):
+      - CollectPolicies -> policies.jsonl (CA policies)
+      - CollectIntunePolicies -> policies.jsonl (compliance + app protection policies)
       - CollectEvents -> events.jsonl
 
     Phase 2: Unified Edge Collection
       - CollectRelationships -> edges.jsonl (all 24+ edgeTypes)
-        Includes: caPolicyTargetsPrincipal, caPolicyExcludesPrincipal,
-                  caPolicyTargetsApplication, caPolicyExcludesApplication,
-                  caPolicyUsesLocation, rolePolicyAssignment
 
     Phase 3: Unified Indexing (5 indexers)
       - IndexPrincipalsInCosmosDB -> principals container
@@ -50,29 +42,24 @@
       - IndexPoliciesInCosmosDB -> policies container
       - IndexEventsInCosmosDB -> events container
 
-    Phase 4: Derive Abuse Edges (V3.5)
-      - DeriveAbuseEdges -> edges container (derived abuse capabilities)
-        Derives from: appRoleAssignment, directoryRole, appOwner, spOwner, groupOwner
-        Creates: canAddSecretToAnyApp, isGlobalAdmin, canAssignAnyRole, canAddSecret, etc.
-        "The core BloodHound value" - converting raw permissions to attack paths
+    Phase 4: Derive Edges (2 derivation functions)
+      - DeriveAbuseEdges -> edges container (attack path capabilities)
+      - DeriveVirtualEdges -> edges container (policy gate edges)
 
     V3.5 Benefits:
+    - Consolidated collectors: 17 -> 12 collectors
+    - Configuration-driven Azure resource collection (AzureResourceTypes.psd1)
+    - Embedded risk data in users (no separate risky users collection)
+    - Derived virtual edges for Intune policy coverage analysis
     - Semantic correctness (applications are resources, not principals)
     - Unified edge container enables Gremlin graph projection
-    - Temporal fields (effectiveFrom/effectiveTo) for historical queries
-    - Simplified container structure (9 -> 6 containers)
-    - edgeType discriminator for all relationships
-    - Role definitions as synthetic vertices for complete graph
-    - CA policy edges for MFA gap analysis
-    - Role management policy edges for PIM activation risk analysis
-    - Derived abuse edges for attack path analysis (V3.5)
 #>
 #endregion
 
 param($Context)
 
 try {
-    Write-Verbose "Starting Entra data collection orchestration (V3 - Unified Architecture)"
+    Write-Verbose "Starting Entra data collection orchestration (V3.5 - Consolidated Architecture)"
     Write-Verbose "Instance ID: $($Context.InstanceId)"
 
     # Single Get-Date call to prevent race condition
@@ -86,12 +73,12 @@ try {
         Timestamp = $timestamp
     }
 
-    #region Phase 1: Entity Collection (Parallel - 14 collectors)
-    Write-Verbose "Phase 1: Collecting all entities in parallel (14 collectors)..."
+    #region Phase 1: Entity Collection (Parallel - 12 collectors)
+    Write-Verbose "Phase 1: Collecting all entities in parallel (12 collectors)..."
 
     # Principal Collectors (4) - output to principals.jsonl
     $usersTask = Invoke-DurableActivity `
-        -FunctionName 'CollectUsersWithAuthMethods' `
+        -FunctionName 'CollectUsers' `
         -Input $collectionInput `
         -NoWait
 
@@ -110,7 +97,7 @@ try {
         -Input $collectionInput `
         -NoWait
 
-    # Resource Collectors (8) - output to resources.jsonl
+    # Resource Collectors (4) - output to resources.jsonl
     $applicationsTask = Invoke-DurableActivity `
         -FunctionName 'CollectAppRegistrations' `
         -Input $collectionInput `
@@ -121,53 +108,31 @@ try {
         -Input $collectionInput `
         -NoWait
 
-    $keyVaultsTask = Invoke-DurableActivity `
-        -FunctionName 'CollectKeyVaults' `
+    # V3.5 CONSOLIDATED: Azure Resources (keyVault, virtualMachine, storageAccount, etc.)
+    $azureResourcesTask = Invoke-DurableActivity `
+        -FunctionName 'CollectAzureResources' `
         -Input $collectionInput `
         -NoWait
 
-    $virtualMachinesTask = Invoke-DurableActivity `
-        -FunctionName 'CollectVirtualMachines' `
+    # V3.5 CONSOLIDATED: Role Definitions (directory + Azure)
+    $roleDefinitionsTask = Invoke-DurableActivity `
+        -FunctionName 'CollectRoleDefinitions' `
         -Input $collectionInput `
         -NoWait
 
-    $automationAccountsTask = Invoke-DurableActivity `
-        -FunctionName 'CollectAutomationAccounts' `
-        -Input $collectionInput `
-        -NoWait
-
-    $functionAppsTask = Invoke-DurableActivity `
-        -FunctionName 'CollectFunctionApps' `
-        -Input $collectionInput `
-        -NoWait
-
-    $logicAppsTask = Invoke-DurableActivity `
-        -FunctionName 'CollectLogicApps' `
-        -Input $collectionInput `
-        -NoWait
-
-    $webAppsTask = Invoke-DurableActivity `
-        -FunctionName 'CollectWebApps' `
-        -Input $collectionInput `
-        -NoWait
-
-    # V3.1: Role Definition Collectors (2) - synthetic vertices
-    $directoryRoleDefsTask = Invoke-DurableActivity `
-        -FunctionName 'CollectDirectoryRoleDefinitions' `
-        -Input $collectionInput `
-        -NoWait
-
-    $azureRoleDefsTask = Invoke-DurableActivity `
-        -FunctionName 'CollectAzureRoleDefinitions' `
-        -Input $collectionInput `
-        -NoWait
-
-    # Policy and Event Collectors (2)
+    # Policy Collectors (2) - output to policies.jsonl
     $policiesTask = Invoke-DurableActivity `
         -FunctionName 'CollectPolicies' `
         -Input $collectionInput `
         -NoWait
 
+    # V3.5: Consolidated Intune Policies (compliance + app protection)
+    $intunePoliciesTask = Invoke-DurableActivity `
+        -FunctionName 'CollectIntunePolicies' `
+        -Input $collectionInput `
+        -NoWait
+
+    # Event Collector
     $eventsTask = Invoke-DurableActivity `
         -FunctionName 'CollectEvents' `
         -Input $collectionInput `
@@ -184,7 +149,7 @@ try {
     #endregion
 
     #region Wait for All Collections
-    Write-Verbose "Waiting for all 17 collectors to complete..."
+    Write-Verbose "Waiting for all 12 collectors to complete..."
 
     $allResults = Wait-ActivityFunction -Task @(
         $usersTask,
@@ -193,37 +158,27 @@ try {
         $devicesTask,
         $applicationsTask,
         $azureHierarchyTask,
-        $keyVaultsTask,
-        $virtualMachinesTask,
-        $automationAccountsTask,
-        $functionAppsTask,
-        $logicAppsTask,
-        $webAppsTask,
-        $directoryRoleDefsTask,
-        $azureRoleDefsTask,
+        $azureResourcesTask,
+        $roleDefinitionsTask,
         $policiesTask,
+        $intunePoliciesTask,
         $eventsTask,
         $edgesTask
     )
 
-    # Unpack results
+    # Unpack results (12 collectors)
     $usersResult = $allResults[0]
     $groupsResult = $allResults[1]
     $servicePrincipalsResult = $allResults[2]
     $devicesResult = $allResults[3]
     $applicationsResult = $allResults[4]
     $azureHierarchyResult = $allResults[5]
-    $keyVaultsResult = $allResults[6]
-    $virtualMachinesResult = $allResults[7]
-    $automationAccountsResult = $allResults[8]
-    $functionAppsResult = $allResults[9]
-    $logicAppsResult = $allResults[10]
-    $webAppsResult = $allResults[11]
-    $directoryRoleDefsResult = $allResults[12]
-    $azureRoleDefsResult = $allResults[13]
-    $policiesResult = $allResults[14]
-    $eventsResult = $allResults[15]
-    $edgesResult = $allResults[16]
+    $azureResourcesResult = $allResults[6]
+    $roleDefinitionsResult = $allResults[7]
+    $policiesResult = $allResults[8]
+    $intunePoliciesResult = $allResults[9]
+    $eventsResult = $allResults[10]
+    $edgesResult = $allResults[11]
     #endregion
 
     #region Validate Collection Results
@@ -260,50 +215,27 @@ try {
         $azureHierarchyResult = @{ Success = $false; ResourceCount = 0; ResourcesBlobName = $null; EdgesBlobName = $null }
     }
 
-    if (-not $keyVaultsResult.Success) {
-        Write-Warning "Key Vaults collection failed: $($keyVaultsResult.Error)"
-        $keyVaultsResult = @{ Success = $false; KeyVaultCount = 0; ResourcesBlobName = $null; EdgesBlobName = $null }
+    # V3.5 CONSOLIDATED: Azure Resources (replaces individual collectors)
+    if (-not $azureResourcesResult.Success) {
+        Write-Warning "Azure Resources collection failed: $($azureResourcesResult.Error)"
+        $azureResourcesResult = @{ Success = $false; ResourceCount = 0; ResourcesBlobName = $null; EdgesBlobName = $null; Statistics = @{} }
     }
 
-    if (-not $virtualMachinesResult.Success) {
-        Write-Warning "Virtual Machines collection failed: $($virtualMachinesResult.Error)"
-        $virtualMachinesResult = @{ Success = $false; VirtualMachineCount = 0; ResourcesBlobName = $null; EdgesBlobName = $null }
-    }
-
-    if (-not $automationAccountsResult.Success) {
-        Write-Warning "Automation Accounts collection failed: $($automationAccountsResult.Error)"
-        $automationAccountsResult = @{ Success = $false; AutomationAccountCount = 0; ResourcesBlobName = $null; EdgesBlobName = $null }
-    }
-
-    if (-not $functionAppsResult.Success) {
-        Write-Warning "Function Apps collection failed: $($functionAppsResult.Error)"
-        $functionAppsResult = @{ Success = $false; FunctionAppCount = 0; ResourcesBlobName = $null; EdgesBlobName = $null }
-    }
-
-    if (-not $logicAppsResult.Success) {
-        Write-Warning "Logic Apps collection failed: $($logicAppsResult.Error)"
-        $logicAppsResult = @{ Success = $false; LogicAppCount = 0; ResourcesBlobName = $null; EdgesBlobName = $null }
-    }
-
-    if (-not $webAppsResult.Success) {
-        Write-Warning "Web Apps collection failed: $($webAppsResult.Error)"
-        $webAppsResult = @{ Success = $false; WebAppCount = 0; ResourcesBlobName = $null; EdgesBlobName = $null }
-    }
-
-    # V3.1: Role definition collectors (non-critical)
-    if (-not $directoryRoleDefsResult.Success) {
-        Write-Warning "Directory Role Definitions collection failed: $($directoryRoleDefsResult.Error)"
-        $directoryRoleDefsResult = @{ Success = $false; RoleDefinitionCount = 0; ResourcesBlobName = $null }
-    }
-
-    if (-not $azureRoleDefsResult.Success) {
-        Write-Warning "Azure Role Definitions collection failed: $($azureRoleDefsResult.Error)"
-        $azureRoleDefsResult = @{ Success = $false; RoleDefinitionCount = 0; ResourcesBlobName = $null }
+    # V3.5 CONSOLIDATED: Role Definitions
+    if (-not $roleDefinitionsResult.Success) {
+        Write-Warning "Role Definitions collection failed: $($roleDefinitionsResult.Error)"
+        $roleDefinitionsResult = @{ Success = $false; RoleDefinitionCount = 0; ResourcesBlobName = $null; Statistics = @{} }
     }
 
     if (-not $policiesResult.Success) {
         Write-Warning "Policies collection failed: $($policiesResult.Error)"
         $policiesResult = @{ Success = $false; PolicyCount = 0; BlobName = $null }
+    }
+
+    # V3.5: Intune Policies (non-critical - requires Intune license)
+    if (-not $intunePoliciesResult.Success) {
+        Write-Warning "Intune Policies collection failed: $($intunePoliciesResult.Error)"
+        $intunePoliciesResult = @{ Success = $false; PolicyCount = 0; BlobName = $null; Statistics = @{} }
     }
 
     if (-not $eventsResult.Success) {
@@ -317,23 +249,18 @@ try {
     }
 
     Write-Verbose "Collection complete:"
-    Write-Verbose "  Users: $($usersResult.UserCount ?? 0)"
+    Write-Verbose "  Users: $($usersResult.UserCount ?? 0) (risk data embedded)"
     Write-Verbose "  Groups: $($groupsResult.GroupCount ?? 0)"
     Write-Verbose "  Service Principals: $($servicePrincipalsResult.ServicePrincipalCount ?? 0)"
     Write-Verbose "  Devices: $($devicesResult.DeviceCount ?? 0)"
     Write-Verbose "  Applications: $($applicationsResult.AppCount ?? 0)"
     Write-Verbose "  Azure Hierarchy: $($azureHierarchyResult.ResourceCount ?? 0)"
-    Write-Verbose "  Key Vaults: $($keyVaultsResult.KeyVaultCount ?? 0)"
-    Write-Verbose "  Virtual Machines: $($virtualMachinesResult.VirtualMachineCount ?? 0)"
-    Write-Verbose "  Automation Accounts: $($automationAccountsResult.AutomationAccountCount ?? 0)"
-    Write-Verbose "  Function Apps: $($functionAppsResult.FunctionAppCount ?? 0)"
-    Write-Verbose "  Logic Apps: $($logicAppsResult.LogicAppCount ?? 0)"
-    Write-Verbose "  Web Apps: $($webAppsResult.WebAppCount ?? 0)"
-    Write-Verbose "  Policies: $($policiesResult.PolicyCount ?? 0)"
+    Write-Verbose "  Azure Resources: $($azureResourcesResult.ResourceCount ?? 0) (consolidated)"
+    Write-Verbose "  Role Definitions: $($roleDefinitionsResult.RoleDefinitionCount ?? 0) (consolidated)"
+    Write-Verbose "  CA Policies: $($policiesResult.PolicyCount ?? 0)"
+    Write-Verbose "  Intune Policies: $($intunePoliciesResult.PolicyCount ?? 0)"
     Write-Verbose "  Events: $($eventsResult.EventCount ?? 0)"
     Write-Verbose "  Edges: $($edgesResult.EdgeCount ?? 0)"
-    Write-Verbose "  Directory Role Definitions: $($directoryRoleDefsResult.RoleDefinitionCount ?? 0)"
-    Write-Verbose "  Azure Role Definitions: $($azureRoleDefsResult.RoleDefinitionCount ?? 0)"
     #endregion
 
     #region Phase 3: Unified Indexing (5 indexers)
@@ -401,7 +328,7 @@ try {
 
     $principalsIndexResult.Success = $true
 
-    # Index Resources (unified: applications + all Azure resources)
+    # Index Resources (unified: applications + Azure resources + role definitions)
     $resourcesIndexResult = @{ Success = $false; TotalResources = 0; NewResources = 0; ModifiedResources = 0; DeletedResources = 0; UnchangedResources = 0; CosmosWriteCount = 0 }
 
     if ($applicationsResult.Success -and $applicationsResult.ResourcesBlobName) {
@@ -418,32 +345,48 @@ try {
         }
     }
 
-    # Index Azure resources (hierarchy, key vaults, VMs, etc.)
-    $azureResourceCollectors = @(
-        @{ Result = $azureHierarchyResult; Name = 'AzureHierarchy' },
-        @{ Result = $keyVaultsResult; Name = 'KeyVaults' },
-        @{ Result = $virtualMachinesResult; Name = 'VirtualMachines' },
-        @{ Result = $automationAccountsResult; Name = 'AutomationAccounts' },
-        @{ Result = $functionAppsResult; Name = 'FunctionApps' },
-        @{ Result = $logicAppsResult; Name = 'LogicApps' },
-        @{ Result = $webAppsResult; Name = 'WebApps' },
-        @{ Result = $directoryRoleDefsResult; Name = 'DirectoryRoleDefinitions' },
-        @{ Result = $azureRoleDefsResult; Name = 'AzureRoleDefinitions' }
-    )
+    # Index Azure Hierarchy resources
+    if ($azureHierarchyResult.Success -and $azureHierarchyResult.ResourcesBlobName) {
+        $indexInput = @{ Timestamp = $timestamp; BlobName = $azureHierarchyResult.ResourcesBlobName }
+        $indexResult = Invoke-DurableActivity -FunctionName 'IndexResourcesInCosmosDB' -Input $indexInput
+        if ($indexResult.Success) {
+            Write-Verbose "Azure Hierarchy resources indexing complete: $($indexResult.TotalResources) total"
+            $resourcesIndexResult.TotalResources += $indexResult.TotalResources
+            $resourcesIndexResult.NewResources += $indexResult.NewResources
+            $resourcesIndexResult.ModifiedResources += $indexResult.ModifiedResources
+            $resourcesIndexResult.CosmosWriteCount += $indexResult.CosmosWriteCount
+        } else {
+            Write-Warning "Azure Hierarchy resources indexing failed: $($indexResult.Error)"
+        }
+    }
 
-    foreach ($collector in $azureResourceCollectors) {
-        if ($collector.Result.Success -and $collector.Result.ResourcesBlobName) {
-            $indexInput = @{ Timestamp = $timestamp; BlobName = $collector.Result.ResourcesBlobName }
-            $indexResult = Invoke-DurableActivity -FunctionName 'IndexResourcesInCosmosDB' -Input $indexInput
-            if ($indexResult.Success) {
-                Write-Verbose "$($collector.Name) resources indexing complete: $($indexResult.TotalResources) total"
-                $resourcesIndexResult.TotalResources += $indexResult.TotalResources
-                $resourcesIndexResult.NewResources += $indexResult.NewResources
-                $resourcesIndexResult.ModifiedResources += $indexResult.ModifiedResources
-                $resourcesIndexResult.CosmosWriteCount += $indexResult.CosmosWriteCount
-            } else {
-                Write-Warning "$($collector.Name) resources indexing failed: $($indexResult.Error)"
-            }
+    # V3.5 CONSOLIDATED: Index Azure Resources (all resource types from AzureResourceTypes.psd1)
+    if ($azureResourcesResult.Success -and $azureResourcesResult.ResourcesBlobName) {
+        $indexInput = @{ Timestamp = $timestamp; BlobName = $azureResourcesResult.ResourcesBlobName }
+        $indexResult = Invoke-DurableActivity -FunctionName 'IndexResourcesInCosmosDB' -Input $indexInput
+        if ($indexResult.Success) {
+            Write-Verbose "Azure Resources indexing complete: $($indexResult.TotalResources) total"
+            $resourcesIndexResult.TotalResources += $indexResult.TotalResources
+            $resourcesIndexResult.NewResources += $indexResult.NewResources
+            $resourcesIndexResult.ModifiedResources += $indexResult.ModifiedResources
+            $resourcesIndexResult.CosmosWriteCount += $indexResult.CosmosWriteCount
+        } else {
+            Write-Warning "Azure Resources indexing failed: $($indexResult.Error)"
+        }
+    }
+
+    # V3.5 CONSOLIDATED: Index Role Definitions
+    if ($roleDefinitionsResult.Success -and $roleDefinitionsResult.ResourcesBlobName) {
+        $indexInput = @{ Timestamp = $timestamp; BlobName = $roleDefinitionsResult.ResourcesBlobName }
+        $indexResult = Invoke-DurableActivity -FunctionName 'IndexResourcesInCosmosDB' -Input $indexInput
+        if ($indexResult.Success) {
+            Write-Verbose "Role Definitions indexing complete: $($indexResult.TotalResources) total"
+            $resourcesIndexResult.TotalResources += $indexResult.TotalResources
+            $resourcesIndexResult.NewResources += $indexResult.NewResources
+            $resourcesIndexResult.ModifiedResources += $indexResult.ModifiedResources
+            $resourcesIndexResult.CosmosWriteCount += $indexResult.CosmosWriteCount
+        } else {
+            Write-Warning "Role Definitions indexing failed: $($indexResult.Error)"
         }
     }
 
@@ -462,32 +405,61 @@ try {
         }
     }
 
-    # Also index Azure relationship edges from each collector
-    foreach ($collector in $azureResourceCollectors) {
-        if ($collector.Result.Success -and $collector.Result.EdgesBlobName) {
-            $indexInput = @{ Timestamp = $timestamp; BlobName = $collector.Result.EdgesBlobName }
-            $indexResult = Invoke-DurableActivity -FunctionName 'IndexEdgesInCosmosDB' -Input $indexInput
-            if ($indexResult.Success) {
-                Write-Verbose "$($collector.Name) edges indexing complete: $($indexResult.TotalEdges) total"
-                $edgesIndexResult.TotalEdges += $indexResult.TotalEdges
-                $edgesIndexResult.NewEdges += $indexResult.NewEdges
-                $edgesIndexResult.ModifiedEdges += $indexResult.ModifiedEdges
-                $edgesIndexResult.CosmosWriteCount += $indexResult.CosmosWriteCount
-            } else {
-                Write-Warning "$($collector.Name) edges indexing failed: $($indexResult.Error)"
-            }
+    # Index Azure Hierarchy edges
+    if ($azureHierarchyResult.Success -and $azureHierarchyResult.EdgesBlobName) {
+        $indexInput = @{ Timestamp = $timestamp; BlobName = $azureHierarchyResult.EdgesBlobName }
+        $indexResult = Invoke-DurableActivity -FunctionName 'IndexEdgesInCosmosDB' -Input $indexInput
+        if ($indexResult.Success) {
+            Write-Verbose "Azure Hierarchy edges indexing complete: $($indexResult.TotalEdges) total"
+            $edgesIndexResult.TotalEdges += $indexResult.TotalEdges
+            $edgesIndexResult.NewEdges += $indexResult.NewEdges
+            $edgesIndexResult.ModifiedEdges += $indexResult.ModifiedEdges
+            $edgesIndexResult.CosmosWriteCount += $indexResult.CosmosWriteCount
+        } else {
+            Write-Warning "Azure Hierarchy edges indexing failed: $($indexResult.Error)"
         }
     }
 
-    # Index Policies (policies container)
+    # V3.5 CONSOLIDATED: Index Azure Resources edges (managed identity associations)
+    if ($azureResourcesResult.Success -and $azureResourcesResult.EdgesBlobName) {
+        $indexInput = @{ Timestamp = $timestamp; BlobName = $azureResourcesResult.EdgesBlobName }
+        $indexResult = Invoke-DurableActivity -FunctionName 'IndexEdgesInCosmosDB' -Input $indexInput
+        if ($indexResult.Success) {
+            Write-Verbose "Azure Resources edges indexing complete: $($indexResult.TotalEdges) total"
+            $edgesIndexResult.TotalEdges += $indexResult.TotalEdges
+            $edgesIndexResult.NewEdges += $indexResult.NewEdges
+            $edgesIndexResult.ModifiedEdges += $indexResult.ModifiedEdges
+            $edgesIndexResult.CosmosWriteCount += $indexResult.CosmosWriteCount
+        } else {
+            Write-Warning "Azure Resources edges indexing failed: $($indexResult.Error)"
+        }
+    }
+
+    # Index Policies (policies container - CA policies)
     $policiesIndexResult = @{ Success = $false; TotalPolicies = 0; NewPolicies = 0; ModifiedPolicies = 0; DeletedPolicies = 0; UnchangedPolicies = 0; CosmosWriteCount = 0 }
     if ($policiesResult.Success -and $policiesResult.BlobName) {
         $policiesIndexInput = @{ Timestamp = $timestamp; BlobName = $policiesResult.BlobName }
         $policiesIndexResult = Invoke-DurableActivity -FunctionName 'IndexPoliciesInCosmosDB' -Input $policiesIndexInput
         if ($policiesIndexResult.Success) {
-            Write-Verbose "Policies indexing complete: $($policiesIndexResult.TotalPolicies) total, $($policiesIndexResult.NewPolicies) new"
+            Write-Verbose "CA Policies indexing complete: $($policiesIndexResult.TotalPolicies) total, $($policiesIndexResult.NewPolicies) new"
         } else {
-            Write-Warning "Policies indexing failed: $($policiesIndexResult.Error)"
+            Write-Warning "CA Policies indexing failed: $($policiesIndexResult.Error)"
+        }
+    }
+
+    # V3.5: Index Intune Policies
+    $intunePoliciesIndexResult = @{ Success = $false; TotalPolicies = 0; NewPolicies = 0; ModifiedPolicies = 0; CosmosWriteCount = 0 }
+    if ($intunePoliciesResult.Success -and $intunePoliciesResult.BlobName) {
+        $intunePoliciesIndexInput = @{ Timestamp = $timestamp; BlobName = $intunePoliciesResult.BlobName }
+        $intunePoliciesIndexResult = Invoke-DurableActivity -FunctionName 'IndexPoliciesInCosmosDB' -Input $intunePoliciesIndexInput
+        if ($intunePoliciesIndexResult.Success) {
+            Write-Verbose "Intune Policies indexing complete: $($intunePoliciesIndexResult.TotalPolicies) total"
+            $policiesIndexResult.TotalPolicies += $intunePoliciesIndexResult.TotalPolicies
+            $policiesIndexResult.NewPolicies += $intunePoliciesIndexResult.NewPolicies
+            $policiesIndexResult.ModifiedPolicies += $intunePoliciesIndexResult.ModifiedPolicies
+            $policiesIndexResult.CosmosWriteCount += $intunePoliciesIndexResult.CosmosWriteCount
+        } else {
+            Write-Warning "Intune Policies indexing failed: $($intunePoliciesIndexResult.Error)"
         }
     }
 
@@ -504,9 +476,10 @@ try {
     }
     #endregion
 
-    #region Phase 4: Derive Abuse Edges (V3.5)
-    Write-Verbose "Phase 4: Deriving abuse capability edges from permissions and roles..."
+    #region Phase 4: Derive Edges (2 derivation functions)
+    Write-Verbose "Phase 4: Deriving abuse and virtual edges..."
 
+    # Derive Abuse Edges (attack path capabilities from permissions/roles)
     $abuseEdgesResult = @{ Success = $false; DerivedEdgeCount = 0; Statistics = @{} }
     try {
         $abuseEdgesInput = @{ Timestamp = $timestamp }
@@ -525,6 +498,24 @@ try {
         Write-Warning "Abuse edge derivation threw exception: $_"
         $abuseEdgesResult = @{ Success = $false; DerivedEdgeCount = 0; Error = $_.Exception.Message }
     }
+
+    # V3.5: Derive Virtual Edges (policy gate edges from Intune policies)
+    $virtualEdgesResult = @{ Success = $false; DerivedEdgeCount = 0; Statistics = @{} }
+    try {
+        $virtualEdgesInput = @{ Timestamp = $timestamp }
+        $virtualEdgesResult = Invoke-DurableActivity -FunctionName 'DeriveVirtualEdges' -Input $virtualEdgesInput
+        if ($virtualEdgesResult.Success) {
+            Write-Verbose "Virtual edge derivation complete: $($virtualEdgesResult.DerivedEdgeCount) edges derived"
+            Write-Verbose "  Compliance Policy Targets: $($virtualEdgesResult.Statistics.CompliancePolicyTargetEdges ?? 0)"
+            Write-Verbose "  App Protection Policy Targets: $($virtualEdgesResult.Statistics.AppProtectionPolicyTargetEdges ?? 0)"
+        } else {
+            Write-Warning "Virtual edge derivation failed: $($virtualEdgesResult.Error)"
+        }
+    }
+    catch {
+        Write-Warning "Virtual edge derivation threw exception: $_"
+        $virtualEdgesResult = @{ Success = $false; DerivedEdgeCount = 0; Error = $_.Exception.Message }
+    }
     #endregion
 
     #region Build Final Result
@@ -532,7 +523,7 @@ try {
         OrchestrationId = $Context.InstanceId
         Timestamp = $timestampFormatted
         Status = 'Completed'
-        Architecture = 'V3-UnifiedContainers'
+        Architecture = 'V3.5-Consolidated'
 
         Collection = @{
             # Principals
@@ -540,6 +531,7 @@ try {
                 Success = $usersResult.Success
                 Count = $usersResult.UserCount ?? 0
                 BlobPath = $usersResult.PrincipalsBlobName
+                RiskDataEmbedded = $true
             }
             Groups = @{
                 Success = $groupsResult.Success
@@ -569,81 +561,59 @@ try {
                 ResourcesBlobPath = $azureHierarchyResult.ResourcesBlobName
                 EdgesBlobPath = $azureHierarchyResult.EdgesBlobName
             }
-            KeyVaults = @{
-                Success = $keyVaultsResult.Success
-                Count = $keyVaultsResult.KeyVaultCount ?? 0
-                ResourcesBlobPath = $keyVaultsResult.ResourcesBlobName
-                EdgesBlobPath = $keyVaultsResult.EdgesBlobName
+            # V3.5 CONSOLIDATED
+            AzureResources = @{
+                Success = $azureResourcesResult.Success
+                Count = $azureResourcesResult.ResourceCount ?? 0
+                ResourcesBlobPath = $azureResourcesResult.ResourcesBlobName
+                EdgesBlobPath = $azureResourcesResult.EdgesBlobName
+                Statistics = $azureResourcesResult.Statistics
             }
-            VirtualMachines = @{
-                Success = $virtualMachinesResult.Success
-                Count = $virtualMachinesResult.VirtualMachineCount ?? 0
-                ResourcesBlobPath = $virtualMachinesResult.ResourcesBlobName
-                EdgesBlobPath = $virtualMachinesResult.EdgesBlobName
-            }
-            AutomationAccounts = @{
-                Success = $automationAccountsResult.Success
-                Count = $automationAccountsResult.AutomationAccountCount ?? 0
-                ResourcesBlobPath = $automationAccountsResult.ResourcesBlobName
-                EdgesBlobPath = $automationAccountsResult.EdgesBlobName
-            }
-            FunctionApps = @{
-                Success = $functionAppsResult.Success
-                Count = $functionAppsResult.FunctionAppCount ?? 0
-                ResourcesBlobPath = $functionAppsResult.ResourcesBlobName
-                EdgesBlobPath = $functionAppsResult.EdgesBlobName
-            }
-            LogicApps = @{
-                Success = $logicAppsResult.Success
-                Count = $logicAppsResult.LogicAppCount ?? 0
-                ResourcesBlobPath = $logicAppsResult.ResourcesBlobName
-                EdgesBlobPath = $logicAppsResult.EdgesBlobName
-            }
-            WebApps = @{
-                Success = $webAppsResult.Success
-                Count = $webAppsResult.WebAppCount ?? 0
-                ResourcesBlobPath = $webAppsResult.ResourcesBlobName
-                EdgesBlobPath = $webAppsResult.EdgesBlobName
+            RoleDefinitions = @{
+                Success = $roleDefinitionsResult.Success
+                Count = $roleDefinitionsResult.RoleDefinitionCount ?? 0
+                ResourcesBlobPath = $roleDefinitionsResult.ResourcesBlobName
+                Statistics = $roleDefinitionsResult.Statistics
             }
 
-            # V3.1: Role Definitions (synthetic vertices)
-            DirectoryRoleDefinitions = @{
-                Success = $directoryRoleDefsResult.Success
-                Count = $directoryRoleDefsResult.RoleDefinitionCount ?? 0
-                ResourcesBlobPath = $directoryRoleDefsResult.ResourcesBlobName
-                Summary = $directoryRoleDefsResult.Summary
+            # Policies
+            CAPolicies = @{
+                Success = $policiesResult.Success
+                Count = $policiesResult.PolicyCount ?? 0
+                BlobPath = $policiesResult.BlobName
+                Summary = $policiesResult.Summary
             }
-            AzureRoleDefinitions = @{
-                Success = $azureRoleDefsResult.Success
-                Count = $azureRoleDefsResult.RoleDefinitionCount ?? 0
-                ResourcesBlobPath = $azureRoleDefsResult.ResourcesBlobName
-                Summary = $azureRoleDefsResult.Summary
+            IntunePolicies = @{
+                Success = $intunePoliciesResult.Success
+                Count = $intunePoliciesResult.PolicyCount ?? 0
+                BlobPath = $intunePoliciesResult.BlobName
+                Statistics = $intunePoliciesResult.Statistics
             }
 
-            # Edges, Policies, Events
+            # Edges and Events
             Edges = @{
                 Success = $edgesResult.Success
                 Count = $edgesResult.EdgeCount ?? 0
                 BlobPath = $edgesResult.EdgesBlobName
                 Summary = $edgesResult.Summary
             }
-            # V3.5: Derived Abuse Edges
-            AbuseEdges = @{
-                Success = $abuseEdgesResult.Success
-                Count = $abuseEdgesResult.DerivedEdgeCount ?? 0
-                Statistics = $abuseEdgesResult.Statistics
-            }
-            Policies = @{
-                Success = $policiesResult.Success
-                Count = $policiesResult.PolicyCount ?? 0
-                BlobPath = $policiesResult.BlobName
-                Summary = $policiesResult.Summary
-            }
             Events = @{
                 Success = $eventsResult.Success
                 Count = $eventsResult.EventCount ?? 0
                 BlobPath = $eventsResult.BlobName
                 Summary = $eventsResult.Summary
+            }
+
+            # Derived Edges
+            AbuseEdges = @{
+                Success = $abuseEdgesResult.Success
+                Count = $abuseEdgesResult.DerivedEdgeCount ?? 0
+                Statistics = $abuseEdgesResult.Statistics
+            }
+            VirtualEdges = @{
+                Success = $virtualEdgesResult.Success
+                Count = $virtualEdgesResult.DerivedEdgeCount ?? 0
+                Statistics = $virtualEdgesResult.Statistics
             }
         }
 
@@ -699,31 +669,31 @@ try {
             # Resource counts
             TotalApplications = $applicationsResult.AppCount ?? 0
             TotalAzureHierarchyResources = $azureHierarchyResult.ResourceCount ?? 0
-            TotalKeyVaults = $keyVaultsResult.KeyVaultCount ?? 0
-            TotalVirtualMachines = $virtualMachinesResult.VirtualMachineCount ?? 0
-            TotalAutomationAccounts = $automationAccountsResult.AutomationAccountCount ?? 0
-            TotalFunctionApps = $functionAppsResult.FunctionAppCount ?? 0
-            TotalLogicApps = $logicAppsResult.LogicAppCount ?? 0
-            TotalWebApps = $webAppsResult.WebAppCount ?? 0
-            TotalDirectoryRoleDefinitions = $directoryRoleDefsResult.RoleDefinitionCount ?? 0
-            TotalAzureRoleDefinitions = $azureRoleDefsResult.RoleDefinitionCount ?? 0
+            TotalAzureResources = $azureResourcesResult.ResourceCount ?? 0
+            TotalRoleDefinitions = $roleDefinitionsResult.RoleDefinitionCount ?? 0
             TotalResources = (
                 ($applicationsResult.AppCount ?? 0) +
                 ($azureHierarchyResult.ResourceCount ?? 0) +
-                ($keyVaultsResult.KeyVaultCount ?? 0) +
-                ($virtualMachinesResult.VirtualMachineCount ?? 0) +
-                ($automationAccountsResult.AutomationAccountCount ?? 0) +
-                ($functionAppsResult.FunctionAppCount ?? 0) +
-                ($logicAppsResult.LogicAppCount ?? 0) +
-                ($webAppsResult.WebAppCount ?? 0) +
-                ($directoryRoleDefsResult.RoleDefinitionCount ?? 0) +
-                ($azureRoleDefsResult.RoleDefinitionCount ?? 0)
+                ($azureResourcesResult.ResourceCount ?? 0) +
+                ($roleDefinitionsResult.RoleDefinitionCount ?? 0)
             )
 
-            # Other counts
+            # Policy counts
+            TotalCAPolicies = $policiesResult.PolicyCount ?? 0
+            TotalIntunePolicies = $intunePoliciesResult.PolicyCount ?? 0
+            TotalPolicies = (
+                ($policiesResult.PolicyCount ?? 0) +
+                ($intunePoliciesResult.PolicyCount ?? 0)
+            )
+
+            # Edge counts
             TotalEdges = $edgesResult.EdgeCount ?? 0
             TotalAbuseEdges = $abuseEdgesResult.DerivedEdgeCount ?? 0
-            TotalPolicies = $policiesResult.PolicyCount ?? 0
+            TotalVirtualEdges = $virtualEdgesResult.DerivedEdgeCount ?? 0
+            TotalDerivedEdges = (
+                ($abuseEdgesResult.DerivedEdgeCount ?? 0) +
+                ($virtualEdgesResult.DerivedEdgeCount ?? 0)
+            )
             TotalEvents = $eventsResult.EventCount ?? 0
 
             # Indexing summary
@@ -755,14 +725,12 @@ try {
             AllResourceCollectionsSucceeded = (
                 $applicationsResult.Success -and
                 $azureHierarchyResult.Success -and
-                $keyVaultsResult.Success -and
-                $virtualMachinesResult.Success -and
-                $automationAccountsResult.Success -and
-                $functionAppsResult.Success -and
-                $logicAppsResult.Success -and
-                $webAppsResult.Success -and
-                $directoryRoleDefsResult.Success -and
-                $azureRoleDefsResult.Success
+                $azureResourcesResult.Success -and
+                $roleDefinitionsResult.Success
+            )
+            AllPolicyCollectionsSucceeded = (
+                $policiesResult.Success -and
+                $intunePoliciesResult.Success
             )
             AllIndexingSucceeded = (
                 $principalsIndexResult.Success -and
@@ -771,14 +739,19 @@ try {
                 $policiesIndexResult.Success -and
                 $eventsIndexResult.Success
             )
+            AllDerivationsSucceeded = (
+                $abuseEdgesResult.Success -and
+                $virtualEdgesResult.Success
+            )
         }
     }
 
-    Write-Verbose "Orchestration complete successfully"
+    Write-Verbose "Orchestration complete successfully (V3.5 - Consolidated)"
     Write-Verbose "Principals: $($finalResult.Summary.TotalPrincipals) indexed"
     Write-Verbose "Resources: $($finalResult.Summary.TotalResources) indexed"
     Write-Verbose "Edges: $($finalResult.Summary.TotalEdges) indexed"
-    Write-Verbose "Abuse Edges: $($finalResult.Summary.TotalAbuseEdges) derived (V3.5)"
+    Write-Verbose "Derived Edges: $($finalResult.Summary.TotalDerivedEdges) (abuse + virtual)"
+    Write-Verbose "Policies: $($finalResult.Summary.TotalPolicies) (CA + Intune)"
     Write-Verbose "New entities: $($finalResult.Summary.TotalNewEntities), Modified: $($finalResult.Summary.TotalModifiedEntities)"
     Write-Verbose "Events: $($finalResult.Summary.TotalEventsIndexed) indexed"
 

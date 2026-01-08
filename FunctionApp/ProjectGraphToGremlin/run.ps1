@@ -11,6 +11,8 @@
     - Maintains sync watermark in blob storage
 #>
 
+# Azure Functions runtime passes this parameter - used for schedule info but not explicitly referenced
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'Timer', Justification = 'Required by Azure Functions runtime')]
 param($Timer)
 
 #region Import Module

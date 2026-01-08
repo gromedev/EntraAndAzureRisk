@@ -19,10 +19,12 @@
 
 #region LDAP Connection Management
 function New-LDAPConnection {
+    # Creates an in-memory LDAP connection object, not a persistent system resource
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Creates in-memory connection object only')]
     param (
         [Parameter(Mandatory)]
         [object]$Config,
-        
+
         [int]$RetryCount = 0
     )
     
@@ -54,6 +56,8 @@ function New-LDAPConnection {
     }
 }
 function New-LDAPSearchRequest {
+    # Creates an in-memory search request object, not a persistent system resource
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Creates in-memory request object only')]
     param (
         [string]$SearchBase,
         [string]$Filter,

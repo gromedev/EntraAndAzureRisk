@@ -8,6 +8,9 @@ using namespace System.Net
 # 5. events (sign-ins, audits)
 # 6. audit (change tracking)
 
+# Azure Functions runtime passes these parameters - not all are used in this function
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'Request', Justification = 'Required by Azure Functions runtime')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'TriggerMetadata', Justification = 'Required by Azure Functions runtime')]
 param(
     $Request,
     $TriggerMetadata,
@@ -216,6 +219,7 @@ try {
             <div class="tabs">
                 <button class="tab active" onclick="event.stopPropagation(); showTab('resources-section', 'apps-tab', this)">Applications ($($apps.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'tenants-tab', this)">Tenants ($($tenants.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'mgmt-tab', this)">Mgmt Groups ($($mgmtGroups.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'subs-tab', this)">Subscriptions ($($subscriptions.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'rgs-tab', this)">Resource Groups ($($resourceGroups.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'kvs-tab', this)">Key Vaults ($($keyVaults.Count))</button>
@@ -227,6 +231,7 @@ try {
             </div>
             <div id="apps-tab" class="tab-content active">$(Build-Table $apps 'apps-tbl' $appCols)</div>
             <div id="tenants-tab" class="tab-content">$(Build-Table $tenants 'tenants-tbl' $azureResCols)</div>
+            <div id="mgmt-tab" class="tab-content">$(Build-Table $mgmtGroups 'mgmt-tbl' $azureResCols)</div>
             <div id="subs-tab" class="tab-content">$(Build-Table $subscriptions 'subs-tbl' $azureResCols)</div>
             <div id="rgs-tab" class="tab-content">$(Build-Table $resourceGroups 'rgs-tbl' $azureResCols)</div>
             <div id="kvs-tab" class="tab-content">$(Build-Table $keyVaults 'kvs-tbl' $azureResCols)</div>

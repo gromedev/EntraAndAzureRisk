@@ -2045,6 +2045,8 @@ function Remove-GraphVertex {
     .EXAMPLE
         Remove-GraphVertex -ObjectId "user-guid-123"
     #>
+    # Used in Azure Functions automation - ShouldProcess not applicable for non-interactive scenarios
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Azure Functions automation - no interactive confirmation')]
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -2081,6 +2083,8 @@ function Remove-GraphEdge {
     .EXAMPLE
         Remove-GraphEdge -SourceId "user-123" -TargetId "group-456" -EdgeType "memberOf"
     #>
+    # Used in Azure Functions automation - ShouldProcess not applicable for non-interactive scenarios
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Azure Functions automation - no interactive confirmation')]
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]

@@ -571,8 +571,8 @@
         EntityNameSingular = 'principal'
         EntityNamePlural = 'Principals'
         # NOTE: Only include fields that are ACTUALLY COLLECTED by the collectors
-        # See: CollectUsersWithAuthMethods, CollectEntraGroups, CollectEntraServicePrincipals,
-        #      CollectDevices, CollectAppRegistrations
+        # See: CollectUsers (with embedded auth methods + risk data), CollectEntraGroups,
+        #      CollectEntraServicePrincipals, CollectDevices, CollectAppRegistrations
         CompareFields = @(
             # Common fields (all principal types)
             'principalType'
@@ -581,7 +581,7 @@
             'deleted'
             'createdDateTime'
 
-            # User-specific fields (from CollectUsersWithAuthMethods)
+            # User-specific fields (from CollectUsers)
             'userPrincipalName'
             'userType'
             'lastSignInDateTime'
@@ -598,7 +598,7 @@
             'lastPasswordChangeDateTime'
             'signInSessionsValidFromDateTime'
             'refreshTokensValidFromDateTime'
-            # User auth methods (embedded in user - from CollectUsersWithAuthMethods)
+            # User auth methods (embedded in user - from CollectUsers)
             'perUserMfaState'
             'hasAuthenticator'
             'hasPhone'
@@ -610,6 +610,12 @@
             'hasSoftwareOath'
             'authMethodCount'
             'authMethodTypes'
+            # V3.5: User risk data (embedded from Identity Protection - from CollectUsers)
+            'riskLevel'
+            'riskState'
+            'riskDetail'
+            'riskLastUpdatedDateTime'
+            'isAtRisk'
             # Phase 1b: User identity and contact fields
             'mail'
             'mailNickname'
@@ -743,7 +749,7 @@
             deletedDateTime = 'deletedDateTime'
             collectionTimestamp = 'collectionTimestamp'
 
-            # User fields (from CollectUsersWithAuthMethods)
+            # User fields (from CollectUsers)
             userPrincipalName = 'userPrincipalName'
             userType = 'userType'
             lastSignInDateTime = 'lastSignInDateTime'
@@ -760,7 +766,7 @@
             lastPasswordChangeDateTime = 'lastPasswordChangeDateTime'
             signInSessionsValidFromDateTime = 'signInSessionsValidFromDateTime'
             refreshTokensValidFromDateTime = 'refreshTokensValidFromDateTime'
-            # User auth methods (embedded - from CollectUsersWithAuthMethods)
+            # User auth methods (embedded - from CollectUsers)
             perUserMfaState = 'perUserMfaState'
             hasAuthenticator = 'hasAuthenticator'
             hasPhone = 'hasPhone'
@@ -772,6 +778,12 @@
             hasSoftwareOath = 'hasSoftwareOath'
             authMethodCount = 'authMethodCount'
             authMethodTypes = 'authMethodTypes'
+            # V3.5: User risk data (embedded from Identity Protection - from CollectUsers)
+            riskLevel = 'riskLevel'
+            riskState = 'riskState'
+            riskDetail = 'riskDetail'
+            riskLastUpdatedDateTime = 'riskLastUpdatedDateTime'
+            isAtRisk = 'isAtRisk'
             # Phase 1b: User identity and contact fields
             mail = 'mail'
             mailNickname = 'mailNickname'
@@ -980,6 +992,12 @@
             'roleTemplateId'
             'tier'
             'isRoleAssignableGroup'
+
+            # V3.5: Virtual Edge fields (Intune policy gates)
+            'sourcePlatform'
+            'assignmentFilterType'
+            'protectedAppCount'
+            'isExclusion'
         )
         ArrayFields = @(
             'inheritancePath'
@@ -1088,6 +1106,12 @@
             # roleTemplateId already defined above
             tier = 'tier'
             isRoleAssignableGroup = 'isRoleAssignableGroup'
+
+            # V3.5: Virtual Edge fields (Intune policy gates)
+            sourcePlatform = 'sourcePlatform'
+            assignmentFilterType = 'assignmentFilterType'
+            protectedAppCount = 'protectedAppCount'
+            isExclusion = 'isExclusion'
         }
         WriteDeletes = $true
         IncludeDeleteMarkers = $true
@@ -1129,6 +1153,31 @@
             'countriesAndRegions'
             'countryLookupMethod'
             'includeUnknownCountriesAndRegions'
+
+            # V3.5: Intune Policy fields (compliancePolicy, appProtectionPolicy)
+            'platform'
+            'odataType'
+            'version'
+            'assignments'
+            'assignmentCount'
+            # Compliance policy settings
+            'passwordRequired'
+            'passwordMinimumLength'
+            'storageRequireEncryption'
+            'securityBlockJailbrokenDevices'
+            'osMinimumVersion'
+            'osMaximumVersion'
+            # App protection policy settings
+            'protectedApps'
+            'protectedAppCount'
+            'pinRequired'
+            'minimumPinLength'
+            'managedBrowser'
+            'dataBackupBlocked'
+            'deviceComplianceRequired'
+            'saveAsBlocked'
+            'periodOfflineBeforeAccessCheck'
+            'periodOnlineBeforeAccessCheck'
         )
         ArrayFields = @(
             'conditions'
@@ -1138,6 +1187,9 @@
             'effectiveRules'
             'ipRanges'
             'countriesAndRegions'
+            # V3.5: Intune policy arrays
+            'assignments'
+            'protectedApps'
         )
         EmbeddedObjectFields = @(
             'conditions'
@@ -1174,6 +1226,31 @@
             countriesAndRegions = 'countriesAndRegions'
             countryLookupMethod = 'countryLookupMethod'
             includeUnknownCountriesAndRegions = 'includeUnknownCountriesAndRegions'
+
+            # V3.5: Intune Policy fields (compliancePolicy, appProtectionPolicy)
+            platform = 'platform'
+            odataType = 'odataType'
+            version = 'version'
+            assignments = 'assignments'
+            assignmentCount = 'assignmentCount'
+            # Compliance policy settings
+            passwordRequired = 'passwordRequired'
+            passwordMinimumLength = 'passwordMinimumLength'
+            storageRequireEncryption = 'storageRequireEncryption'
+            securityBlockJailbrokenDevices = 'securityBlockJailbrokenDevices'
+            osMinimumVersion = 'osMinimumVersion'
+            osMaximumVersion = 'osMaximumVersion'
+            # App protection policy settings
+            protectedApps = 'protectedApps'
+            protectedAppCount = 'protectedAppCount'
+            pinRequired = 'pinRequired'
+            minimumPinLength = 'minimumPinLength'
+            managedBrowser = 'managedBrowser'
+            dataBackupBlocked = 'dataBackupBlocked'
+            deviceComplianceRequired = 'deviceComplianceRequired'
+            saveAsBlocked = 'saveAsBlocked'
+            periodOfflineBeforeAccessCheck = 'periodOfflineBeforeAccessCheck'
+            periodOnlineBeforeAccessCheck = 'periodOnlineBeforeAccessCheck'
         }
         WriteDeletes = $true
         IncludeDeleteMarkers = $true

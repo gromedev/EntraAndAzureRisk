@@ -17,6 +17,8 @@
     - pim-activation-risks: Roles without MFA activation requirement
 #>
 
+# Azure Functions runtime passes this parameter - used for schedule info but not explicitly referenced
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'Timer', Justification = 'Required by Azure Functions runtime')]
 param($Timer)
 
 #region Import Module
@@ -155,10 +157,10 @@ function ConvertTo-DotFormat {
     return $dot.ToString()
 }
 
-function Get-SnapshotQueries {
+function Get-SnapshotQueryDefinition {
     <#
     .SYNOPSIS
-        Returns predefined Gremlin queries for attack path analysis
+        Returns predefined Gremlin query definitions for attack path analysis
     #>
 
     # Global Administrator role template ID
@@ -230,7 +232,7 @@ try {
     $gremlinConnection = Get-GremlinConnection
 
     # Get snapshot queries
-    $snapshotQueries = Get-SnapshotQueries
+    $snapshotQueries = Get-SnapshotQueryDefinition
 
     # Initialize statistics
     $stats = @{

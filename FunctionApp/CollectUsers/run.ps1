@@ -1,14 +1,23 @@
 <#
 .SYNOPSIS
-    Collects user data with EMBEDDED authentication methods from Microsoft Entra ID
+    Collects user data with EMBEDDED authentication methods and risk data from Microsoft Entra ID
 .DESCRIPTION
-    Combined collector that:
+    V3.5 Unified User Collector:
     - Queries Graph API for users with pagination
     - For each user, queries authentication methods (N+1 pattern)
     - EMBEDS auth method summary directly in user object (denormalized for Power BI)
-    - Streams users.jsonl to Blob Storage (memory-efficient)
+    - EMBEDS Identity Protection risk data (requires P2 license)
+    - Streams principals.jsonl to Blob Storage (memory-efficient)
     - Returns summary statistics for orchestrator
     - Token caching (eliminates redundant IMDS calls)
+
+    Risk Data Fields (from /identityProtection/riskyUsers):
+    - riskLevel: none, low, medium, high, hidden
+    - riskState: atRisk, confirmedCompromised, remediated, dismissed, etc.
+    - riskDetail: reason for risk
+    - isAtRisk: boolean flag for easy filtering
+
+    Permission: IdentityRiskyUser.Read.All (requires Azure AD Premium P2)
 #>
 
 param($ActivityInput)
@@ -92,6 +101,32 @@ try {
 
     Write-Verbose "Configuration: Batch=$batchSize, SkipDisabledForAuth=$skipDisabledForAuthMethods"
 
+    #region Build Risky Users Lookup (Identity Protection - requires P2 license)
+    Write-Verbose "Building risky users lookup from Identity Protection..."
+    $riskyUsersLookup = @{}
+    $riskyUsersCount = 0
+    try {
+        $riskyUri = "https://graph.microsoft.com/v1.0/identityProtection/riskyUsers?`$select=id,riskLevel,riskState,riskDetail,riskLastUpdatedDateTime"
+        while ($riskyUri) {
+            $riskyResponse = Invoke-GraphWithRetry -Uri $riskyUri -AccessToken $graphToken
+            foreach ($ru in $riskyResponse.value) {
+                $riskyUsersLookup[$ru.id] = $ru
+                $riskyUsersCount++
+            }
+            $riskyUri = $riskyResponse.'@odata.nextLink'
+        }
+        Write-Verbose "Loaded $riskyUsersCount risky users into lookup"
+    }
+    catch {
+        if ($_.Exception.Message -match '403|Forbidden|Premium|P2|license') {
+            Write-Warning "Risky Users API requires Azure AD Premium P2 license - risk data will not be embedded"
+        } else {
+            Write-Warning "Failed to retrieve risky users: $($_.Exception.Message) - risk data will not be embedded"
+        }
+        # Continue without risk data - non-critical
+    }
+    #endregion
+
     # Initialize buffers
     $usersJsonL = New-Object System.Text.StringBuilder(2097152)  # 2MB initial (larger for embedded auth)
     $writeThreshold = 5000
@@ -114,6 +149,12 @@ try {
     $usersWithPhoneCount = 0
     $usersWithFido2Count = 0
     $usersWithWindowsHelloCount = 0
+
+    # Risk data counters (embedded in users)
+    $usersAtRiskCount = 0
+    $highRiskCount = 0
+    $mediumRiskCount = 0
+    $lowRiskCount = 0
 
     # Initialize append blob (V3: unified principals.jsonl)
     $principalsBlobName = "$timestamp/$timestamp-principals.jsonl"
@@ -243,7 +284,25 @@ try {
                 }
             }
 
-            # Transform to consistent structure WITH EMBEDDED AUTH METHODS (V3)
+            # --- Look up risk data for this user (embedded) ---
+            $riskData = $riskyUsersLookup[$userId]
+            $riskLevel = if ($riskData) { $riskData.riskLevel } else { "none" }
+            $riskState = if ($riskData) { $riskData.riskState } else { $null }
+            $riskDetail = if ($riskData) { $riskData.riskDetail } else { $null }
+            $riskLastUpdatedDateTime = if ($riskData) { $riskData.riskLastUpdatedDateTime } else { $null }
+            $isAtRisk = ($null -ne $riskData)
+
+            # Track risk statistics
+            if ($isAtRisk) {
+                $usersAtRiskCount++
+                switch ($riskLevel) {
+                    'high' { $highRiskCount++ }
+                    'medium' { $mediumRiskCount++ }
+                    'low' { $lowRiskCount++ }
+                }
+            }
+
+            # Transform to consistent structure WITH EMBEDDED AUTH METHODS + RISK DATA (V3.5)
             $userObj = @{
                 # Core identifiers
                 objectId                         = $userId
@@ -304,6 +363,13 @@ try {
                 hasSoftwareOath                  = $hasSoftwareOath
                 authMethodCount                  = $methodCount
                 authMethodTypes                  = $authMethodTypes
+
+                # EMBEDDED Risk Data (Identity Protection - requires P2 license)
+                riskLevel                        = $riskLevel
+                riskState                        = $riskState
+                riskDetail                       = $riskDetail
+                riskLastUpdatedDateTime          = $riskLastUpdatedDateTime
+                isAtRisk                         = $isAtRisk
 
                 # V3: Temporal fields for historical tracking
                 effectiveFrom                    = $timestampFormatted
@@ -366,12 +432,13 @@ try {
     }
 
     Write-Verbose "Collection complete: $userCount users with embedded auth methods ($authMethodsProcessedCount processed)"
+    Write-Verbose "Risk data: $usersAtRiskCount at-risk users (High: $highRiskCount, Medium: $mediumRiskCount, Low: $lowRiskCount)"
 
     # Cleanup
     $usersJsonL.Clear()
     $usersJsonL = $null
 
-    # Create summary (includes embedded auth methods stats)
+    # Create summary (includes embedded auth methods + risk stats)
     $summary = @{
         id                          = $timestamp
         collectionTimestamp         = $timestampFormatted
@@ -391,6 +458,12 @@ try {
         usersWithPhoneCount         = $usersWithPhoneCount
         usersWithFido2Count         = $usersWithFido2Count
         usersWithWindowsHelloCount  = $usersWithWindowsHelloCount
+        # Risk stats (embedded - requires P2)
+        riskyUsersLoaded            = $riskyUsersCount
+        usersAtRiskCount            = $usersAtRiskCount
+        highRiskCount               = $highRiskCount
+        mediumRiskCount             = $mediumRiskCount
+        lowRiskCount                = $lowRiskCount
         blobPath                    = $principalsBlobName
     }
 
@@ -407,6 +480,8 @@ try {
         UserCount                 = $userCount
         AuthMethodsProcessedCount = $authMethodsProcessedCount
         AuthMethodsErrorCount     = $authMethodsErrorCount
+        RiskyUsersLoaded          = $riskyUsersCount
+        UsersAtRiskCount          = $usersAtRiskCount
         Data                      = @()
         Summary                   = $summary
         Timestamp                 = $timestamp
@@ -414,7 +489,7 @@ try {
     }
 }
 catch {
-    Write-Error "Unexpected error in CollectUsersWithAuthMethods: $_"
+    Write-Error "Unexpected error in CollectUsers: $_"
     return @{
         Success = $false
         Error   = $_.Exception.Message

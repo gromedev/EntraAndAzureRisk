@@ -91,8 +91,7 @@ try {
     #region Phase 1: Graph Permission Abuse (appRoleAssignment edges)
     Write-Verbose "=== Phase 1: Deriving Graph Permission Abuse Edges ==="
 
-    # Query appRoleAssignment edges where resource is Microsoft Graph
-    $graphResourceId = $DangerousPerms.WellKnownResourceIds.MicrosoftGraph
+    # Query appRoleAssignment edges (filter to MS Graph done post-query via resourceId match)
     $query = "SELECT * FROM c WHERE c.edgeType = 'appRoleAssignment' AND c.deleted != true"
 
     try {

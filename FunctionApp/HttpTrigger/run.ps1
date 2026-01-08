@@ -7,6 +7,8 @@ It's the entry point for manually triggering the Entra data collection workflow.
 
 using namespace System.Net
 
+# Azure Functions runtime passes these parameters - not all are used
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'TriggerMetadata', Justification = 'Required by Azure Functions runtime')]
 param($Request, $TriggerMetadata)
 
 #region Function Logic
