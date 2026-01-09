@@ -160,7 +160,9 @@ try {
     $mamEndpoints = @(
         @{ Uri = "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections?`$expand=assignments,apps"; Platform = "iOS" },
         @{ Uri = "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections?`$expand=assignments,apps"; Platform = "Android" },
-        @{ Uri = "https://graph.microsoft.com/beta/deviceAppManagement/windowsInformationProtectionPolicies?`$expand=assignments"; Platform = "Windows" }
+        @{ Uri = "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections?`$expand=assignments,apps"; Platform = "Windows" },
+        @{ Uri = "https://graph.microsoft.com/beta/deviceAppManagement/windowsInformationProtectionPolicies?`$expand=assignments"; Platform = "WindowsInfoProtection" },
+        @{ Uri = "https://graph.microsoft.com/beta/deviceAppManagement/mdmWindowsInformationProtectionPolicies?`$expand=assignments"; Platform = "WindowsMDM" }
     )
 
     foreach ($endpoint in $mamEndpoints) {

@@ -1,16 +1,16 @@
 using namespace System.Net
 
-# V3.5 Dashboard - 6 Unified Containers + Derived Edges
+# V3.5 Dashboard - 5 Unified Containers + Derived Edges
 # 1. principals (users, groups, SPs, devices)
 # 2. resources (applications + Azure resources + role definitions)
 # 3. edges (all relationships + derived edges)
 # 4. policies (CA, Intune compliance, App Protection, Named Locations)
-# 5. events (sign-ins, audits)
-# 6. audit (change tracking)
+# 5. audit (change tracking)
 
 # Azure Functions runtime passes these parameters - not all are used in this function
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'Request', Justification = 'Required by Azure Functions runtime')]
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'TriggerMetadata', Justification = 'Required by Azure Functions runtime')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'eventsIn', Justification = 'Events container binding kept for future use')]
 param(
     $Request,
     $TriggerMetadata,
@@ -183,12 +183,7 @@ try {
     $appProtectionPolicies = @($allPolicies | Where-Object { $_.policyType -eq 'appProtectionPolicy' })
     $namedLocations = @($allPolicies | Where-Object { $_.policyType -eq 'namedLocation' })
 
-    # ========== CONTAINER 5: EVENTS ==========
-    $allEvents = @($eventsIn | Where-Object { $_ })
-    $signIns = @($allEvents | Where-Object { $_.eventType -eq 'signIn' })
-    $auditEvents = @($allEvents | Where-Object { $_.eventType -eq 'audit' })
-
-    # ========== CONTAINER 6: AUDIT ==========
+    # ========== CONTAINER 5: AUDIT (Change Tracking) ==========
     $changes = @($auditIn | Where-Object { $_ })
 
     # Column definitions - priority columns shown first, then ALL other columns discovered dynamically
@@ -206,7 +201,6 @@ try {
     $policyPriority = @('objectId', 'displayName', 'policyType', 'state', 'createdDateTime', 'modifiedDateTime')
     $intunePolicyPriority = @('objectId', 'displayName', 'policyType', 'platform', 'createdDateTime', 'lastModifiedDateTime')
     $namedLocPriority = @('objectId', 'displayName', 'policyType', 'locationType', 'isTrusted', 'createdDateTime')
-    $eventPriority = @('id', 'eventType', 'createdDateTime', 'userPrincipalName', 'appDisplayName', 'ipAddress', 'status')
     $auditPriority = @('objectId', 'entityType', 'changeType', 'displayName', 'changeTimestamp', 'changedFields')
 
     # Dynamically get ALL columns from data, with priority columns first
@@ -223,7 +217,6 @@ try {
     $policyCols = Get-AllColumns $caPolicies $policyPriority
     $intunePolicyCols = Get-AllColumns (@($compliancePolicies + $appProtectionPolicies) | Where-Object { $_ }) $intunePolicyPriority
     $namedLocCols = Get-AllColumns $namedLocations $namedLocPriority
-    $eventCols = Get-AllColumns $allEvents $eventPriority
     $auditCols = Get-AllColumns $changes $auditPriority
 
     $html = @"
@@ -298,7 +291,6 @@ try {
         Resources: <b>$($allResources.Count)</b> |
         Edges: <b>$($allEdges.Count)</b> (Derived: $($derivedEdges.Count)) |
         Policies: <b>$($allPolicies.Count)</b> |
-        Events: <b>$($allEvents.Count)</b> |
         Audit: <b>$($changes.Count)</b> |
         <span style="color:#666">$(Get-Date -Format 'yyyy-MM-dd HH:mm')</span>
     </div>
@@ -441,24 +433,7 @@ try {
         </div>
     </div>
 
-    <!-- CONTAINER 5: EVENTS -->
-    <div class="container" id="events-section">
-        <div class="container-header" onclick="toggleContainer('events-section')">
-            <span class="chevron">&#9660;</span>
-            EVENTS <span class="count">$($allEvents.Count)</span>
-            <span class="desc">sign-ins, audit logs (90 day TTL)</span>
-        </div>
-        <div class="container-body">
-            <div class="tabs">
-                <button class="tab active" onclick="event.stopPropagation(); showTab('events-section', 'si-tab', this)">Sign-Ins ($($signIns.Count))</button>
-                <button class="tab" onclick="event.stopPropagation(); showTab('events-section', 'ae-tab', this)">Audit Events ($($auditEvents.Count))</button>
-            </div>
-            <div id="si-tab" class="tab-content active">$(Build-Table $signIns 'si-tbl' $eventCols 'sign-in events' $allEvents.Count)</div>
-            <div id="ae-tab" class="tab-content">$(Build-Table $auditEvents 'ae-tbl' $eventCols 'audit events' $allEvents.Count)</div>
-        </div>
-    </div>
-
-    <!-- CONTAINER 6: AUDIT -->
+    <!-- CONTAINER 5: AUDIT (Change Tracking) -->
     <div class="container" id="audit-section">
         <div class="container-header" onclick="toggleContainer('audit-section')">
             <span class="chevron">&#9660;</span>

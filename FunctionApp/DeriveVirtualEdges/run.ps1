@@ -32,6 +32,73 @@ catch {
 }
 #endregion
 
+#region Helper Function - Invoke-CosmosDbQuery (must be defined before use)
+function Invoke-CosmosDbQuery {
+    param(
+        [string]$Endpoint,
+        [string]$Key,
+        [string]$DatabaseName,
+        [string]$ContainerName,
+        [string]$Query,
+        [string]$PartitionKey
+    )
+
+    $resourceLink = "dbs/$DatabaseName/colls/$ContainerName"
+    $uri = "$Endpoint$resourceLink/docs"
+
+    $dateString = [DateTime]::UtcNow.ToString("r")
+
+    # Generate auth signature - Cosmos DB REST API format:
+    # StringToSign = verb + "\n" + resourceType + "\n" + resourceLink + "\n" + date + "\n" + ""
+    # For POST /dbs/{db}/colls/{coll}/docs: resourceType = "docs", resourceLink = "dbs/{db}/colls/{coll}"
+    $keyBytes = [Convert]::FromBase64String($Key)
+    $stringToSign = "post`ndocs`n$($resourceLink.ToLower())`n$($dateString.ToLower())`n`n"
+    $hmac = New-Object System.Security.Cryptography.HMACSHA256
+    $hmac.Key = $keyBytes
+    $hashBytes = $hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($stringToSign))
+    $signature = [Convert]::ToBase64String($hashBytes)
+    $authHeader = [Uri]::EscapeDataString("type=master&ver=1.0&sig=$signature")
+
+    $headers = @{
+        "Authorization" = $authHeader
+        "x-ms-date" = $dateString
+        "x-ms-version" = "2018-12-31"
+        "Content-Type" = "application/query+json"
+        "x-ms-documentdb-isquery" = "true"
+        "x-ms-documentdb-query-enablecrosspartition" = "true"
+    }
+
+    if ($PartitionKey) {
+        $headers["x-ms-documentdb-partitionkey"] = "[`"$PartitionKey`"]"
+    }
+
+    $body = @{
+        query = $Query
+    } | ConvertTo-Json
+
+    $results = @()
+    $continuationToken = $null
+
+    do {
+        if ($continuationToken) {
+            $headers["x-ms-continuation"] = $continuationToken
+        }
+
+        try {
+            $response = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body $body
+            $results += $response.Documents
+            $continuationToken = $response.Headers["x-ms-continuation"]
+        }
+        catch {
+            Write-Warning "Cosmos DB query failed: $_"
+            break
+        }
+    } while ($continuationToken)
+
+    return $results
+}
+#endregion
+
 #region Function Logic
 try {
     Write-Verbose "Starting virtual edge derivation from Intune policies"
@@ -345,72 +412,5 @@ catch {
         Error = $errorMsg
         Statistics = $stats
     }
-}
-#endregion
-
-#region Helper Function - Invoke-CosmosDbQuery
-function Invoke-CosmosDbQuery {
-    param(
-        [string]$Endpoint,
-        [string]$Key,
-        [string]$DatabaseName,
-        [string]$ContainerName,
-        [string]$Query,
-        [string]$PartitionKey
-    )
-
-    $resourceLink = "dbs/$DatabaseName/colls/$ContainerName"
-    $uri = "$Endpoint$resourceLink/docs"
-
-    $dateString = [DateTime]::UtcNow.ToString("r")
-
-    # Generate auth signature - Cosmos DB REST API format:
-    # StringToSign = verb + "\n" + resourceType + "\n" + resourceLink + "\n" + date + "\n" + ""
-    # For POST /dbs/{db}/colls/{coll}/docs: resourceType = "docs", resourceLink = "dbs/{db}/colls/{coll}"
-    $keyBytes = [Convert]::FromBase64String($Key)
-    $stringToSign = "post`ndocs`n$($resourceLink.ToLower())`n$($dateString.ToLower())`n`n"
-    $hmac = New-Object System.Security.Cryptography.HMACSHA256
-    $hmac.Key = $keyBytes
-    $hashBytes = $hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($stringToSign))
-    $signature = [Convert]::ToBase64String($hashBytes)
-    $authHeader = [Uri]::EscapeDataString("type=master&ver=1.0&sig=$signature")
-
-    $headers = @{
-        "Authorization" = $authHeader
-        "x-ms-date" = $dateString
-        "x-ms-version" = "2018-12-31"
-        "Content-Type" = "application/query+json"
-        "x-ms-documentdb-isquery" = "true"
-        "x-ms-documentdb-query-enablecrosspartition" = "true"
-    }
-
-    if ($PartitionKey) {
-        $headers["x-ms-documentdb-partitionkey"] = "[`"$PartitionKey`"]"
-    }
-
-    $body = @{
-        query = $Query
-    } | ConvertTo-Json
-
-    $results = @()
-    $continuationToken = $null
-
-    do {
-        if ($continuationToken) {
-            $headers["x-ms-continuation"] = $continuationToken
-        }
-
-        try {
-            $response = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body $body
-            $results += $response.Documents
-            $continuationToken = $response.Headers["x-ms-continuation"]
-        }
-        catch {
-            Write-Warning "Cosmos DB query failed: $_"
-            break
-        }
-    } while ($continuationToken)
-
-    return $results
 }
 #endregion
