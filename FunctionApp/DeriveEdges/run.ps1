@@ -4,7 +4,7 @@
 .DESCRIPTION
     V3.5 Feature: Abuse Edge Derivation
 
-    Reads raw edges from Cosmos DB and derives high-level abuse capabilities:
+    Reads raw edges from Cosmos DB (via input binding) and derives high-level abuse capabilities:
     - appRoleAssignment edges with dangerous Graph permissions → canAddSecretToAnyApp, etc.
     - directoryRole edges with privileged roles → isGlobalAdmin, canAssignAnyRole, etc.
     - appOwner/spOwner edges → canAddSecret (to specific app/SP)
@@ -15,84 +15,7 @@
     This is "the core BloodHound value" - converting raw permissions to attack paths.
 #>
 
-param($ActivityInput)
-
-#region Helper Function - Invoke-CosmosDbQuery (must be defined before use)
-function Invoke-CosmosDbQuery {
-    param(
-        [string]$Endpoint,
-        [string]$Key,
-        [string]$DatabaseName,
-        [string]$ContainerName,
-        [string]$Query,
-        [string]$PartitionKey
-    )
-
-    $resourceLink = "dbs/$DatabaseName/colls/$ContainerName"
-    $uri = "$Endpoint$resourceLink/docs"
-
-    $dateString = [DateTime]::UtcNow.ToString("r")
-
-    # Generate auth signature - Cosmos DB REST API format:
-    # StringToSign = verb + "\n" + resourceType + "\n" + resourceLink + "\n" + date + "\n" + ""
-    # For POST /dbs/{db}/colls/{coll}/docs: resourceType = "docs", resourceLink = "dbs/{db}/colls/{coll}"
-    $keyBytes = [Convert]::FromBase64String($Key)
-    $stringToSign = "post`ndocs`n$($resourceLink.ToLower())`n$($dateString.ToLower())`n`n"
-    $hmac = New-Object System.Security.Cryptography.HMACSHA256
-    $hmac.Key = $keyBytes
-    $hashBytes = $hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($stringToSign))
-    $signature = [Convert]::ToBase64String($hashBytes)
-    $authHeader = [Uri]::EscapeDataString("type=master&ver=1.0&sig=$signature")
-
-    $headers = @{
-        "Authorization" = $authHeader
-        "x-ms-date" = $dateString
-        "x-ms-version" = "2018-12-31"
-        "Content-Type" = "application/query+json"
-        "x-ms-documentdb-isquery" = "true"
-        "x-ms-documentdb-query-enablecrosspartition" = "true"
-    }
-
-    if ($PartitionKey) {
-        $headers["x-ms-documentdb-partitionkey"] = "[`"$PartitionKey`"]"
-    }
-
-    $body = @{
-        query = $Query
-    } | ConvertTo-Json
-
-    $results = @()
-    $continuationToken = $null
-
-    Write-Information "[DERIVE-DEBUG] Cosmos query URI: $uri" -InformationAction Continue
-    Write-Information "[DERIVE-DEBUG] Query: $Query" -InformationAction Continue
-    Write-Information "[DERIVE-DEBUG] PartitionKey: $PartitionKey" -InformationAction Continue
-
-    do {
-        if ($continuationToken) {
-            $headers["x-ms-continuation"] = $continuationToken
-        }
-
-        try {
-            # Use Invoke-WebRequest to capture response headers for pagination
-            $webResponse = Invoke-WebRequest -Uri $uri -Method Post -Headers $headers -Body $body -UseBasicParsing
-            $responseBody = $webResponse.Content | ConvertFrom-Json
-            Write-Information "[DERIVE-DEBUG] Response status: $($webResponse.StatusCode), Documents count: $($responseBody.Documents.Count)" -InformationAction Continue
-            $results += $responseBody.Documents
-
-            # Get continuation token from response headers
-            $continuationToken = $webResponse.Headers["x-ms-continuation"]
-        }
-        catch {
-            Write-Information "[DERIVE-DEBUG] Cosmos DB query FAILED: $($_.Exception.Message)" -InformationAction Continue
-            Write-Warning "Cosmos DB query failed: $_"
-            break
-        }
-    } while ($continuationToken)
-
-    return $results
-}
-#endregion
+param($ActivityInput, $edgesIn)
 
 #region Import Module
 try {
@@ -134,23 +57,8 @@ try {
     }
     $timestampFormatted = $timestamp -replace 'T(\d{2})-(\d{2})-(\d{2})Z', 'T$1:$2:$3Z'
 
-    # Get Cosmos DB connection info
-    $cosmosConnectionString = $env:CosmosDbConnectionString
-    if (-not $cosmosConnectionString) {
-        throw "CosmosDbConnectionString environment variable not set"
-    }
-
-    # Parse connection string
-    $connParts = @{}
-    $cosmosConnectionString.Split(';') | ForEach-Object {
-        if ($_ -match '(.+?)=(.+)') {
-            $connParts[$matches[1]] = $matches[2]
-        }
-    }
-    $cosmosEndpoint = $connParts['AccountEndpoint']
-    $cosmosKey = $connParts['AccountKey']
-    $databaseName = "EntraData"
-    $containerName = "edges"
+    # Log input binding data
+    Write-Information "[DERIVE-DEBUG] edgesIn received: $($edgesIn.Count) edges from input binding" -InformationAction Continue
 
     # Stats tracking
     $stats = @{
@@ -168,30 +76,23 @@ try {
     #region Phase 1: Graph Permission Abuse (appRoleAssignment edges)
     Write-Verbose "=== Phase 1: Deriving Graph Permission Abuse Edges ==="
 
-    # Query appRoleAssignment edges (filter to MS Graph done post-query via resourceId match)
-    $query = "SELECT * FROM c WHERE c.edgeType = 'appRoleAssignment' AND c.deleted != true"
+    # Filter appRoleAssignment edges from input binding
+    $appRoleEdges = @($edgesIn | Where-Object { $_.edgeType -eq 'appRoleAssignment' })
+
+    Write-Information "[DERIVE-DEBUG] Found $($appRoleEdges.Count) appRoleAssignment edges to analyze" -InformationAction Continue
+
+    # DEBUG: Log sample edge structure and first few appRoleIds
+    if ($appRoleEdges.Count -gt 0) {
+        Write-Information "[DERIVE-DEBUG] Sample edge keys: $($appRoleEdges[0].PSObject.Properties.Name -join ', ')" -InformationAction Continue
+        $sampleAppRoleIds = ($appRoleEdges | Select-Object -First 5).appRoleId | Where-Object { $_ }
+        Write-Information "[DERIVE-DEBUG] First 5 appRoleIds: $($sampleAppRoleIds -join ', ')" -InformationAction Continue
+        Write-Information "[DERIVE-DEBUG] DangerousPerms keys count: $($DangerousPerms.GraphPermissions.Keys.Count)" -InformationAction Continue
+        Write-Information "[DERIVE-DEBUG] Looking for: $($DangerousPerms.GraphPermissions.Keys | Select-Object -First 3 | ForEach-Object { $_ })" -InformationAction Continue
+    } else {
+        Write-Information "[DERIVE-DEBUG] No appRoleAssignment edges found in input!" -InformationAction Continue
+    }
 
     try {
-        $appRoleEdges = Invoke-CosmosDbQuery -Endpoint $cosmosEndpoint `
-                                              -Key $cosmosKey `
-                                              -DatabaseName $databaseName `
-                                              -ContainerName $containerName `
-                                              -Query $query `
-                                              -PartitionKey "appRoleAssignment"
-
-        Write-Information "[DERIVE-DEBUG] Found $($appRoleEdges.Count) appRoleAssignment edges to analyze" -InformationAction Continue
-
-        # DEBUG: Log sample edge structure and first few appRoleIds
-        if ($appRoleEdges.Count -gt 0) {
-            Write-Information "[DERIVE-DEBUG] Sample edge keys: $($appRoleEdges[0].PSObject.Properties.Name -join ', ')" -InformationAction Continue
-            $sampleAppRoleIds = ($appRoleEdges | Select-Object -First 5).appRoleId | Where-Object { $_ }
-            Write-Information "[DERIVE-DEBUG] First 5 appRoleIds: $($sampleAppRoleIds -join ', ')" -InformationAction Continue
-            Write-Information "[DERIVE-DEBUG] DangerousPerms keys count: $($DangerousPerms.GraphPermissions.Keys.Count)" -InformationAction Continue
-            Write-Information "[DERIVE-DEBUG] Looking for: $($DangerousPerms.GraphPermissions.Keys | Select-Object -First 3 | ForEach-Object { $_ })" -InformationAction Continue
-        } else {
-            Write-Information "[DERIVE-DEBUG] No appRoleAssignment edges returned from query!" -InformationAction Continue
-        }
-
         $matchCount = 0
         foreach ($edge in $appRoleEdges) {
             $appRoleId = $edge.appRoleId
@@ -247,26 +148,18 @@ try {
     #region Phase 2: Directory Role Abuse
     Write-Verbose "=== Phase 2: Deriving Directory Role Abuse Edges ==="
 
-    $query = "SELECT * FROM c WHERE c.edgeType = 'directoryRole' AND c.deleted != true"
+    # Filter directoryRole edges from input binding
+    $roleEdges = @($edgesIn | Where-Object { $_.edgeType -eq 'directoryRole' })
+
+    Write-Information "[DERIVE-DEBUG] Found $($roleEdges.Count) directoryRole edges to analyze" -InformationAction Continue
+
+    # DEBUG: Log sample role edge structure
+    if ($roleEdges.Count -gt 0) {
+        $sampleRoleTemplateIds = ($roleEdges | Select-Object -First 5).targetRoleTemplateId | Where-Object { $_ }
+        Write-Information "[DERIVE-DEBUG] First 5 targetRoleTemplateIds: $($sampleRoleTemplateIds -join ', ')" -InformationAction Continue
+    }
 
     try {
-        $roleEdges = Invoke-CosmosDbQuery -Endpoint $cosmosEndpoint `
-                                           -Key $cosmosKey `
-                                           -DatabaseName $databaseName `
-                                           -ContainerName $containerName `
-                                           -Query $query `
-                                           -PartitionKey "directoryRole"
-
-        Write-Verbose "Found $($roleEdges.Count) directoryRole edges to analyze"
-
-        # DEBUG: Log sample role edge structure
-        if ($roleEdges.Count -gt 0) {
-            Write-Verbose "DEBUG: Sample role edge keys: $($roleEdges[0].PSObject.Properties.Name -join ', ')"
-            $sampleRoleTemplateIds = ($roleEdges | Select-Object -First 5).targetRoleTemplateId | Where-Object { $_ }
-            Write-Verbose "DEBUG: First 5 targetRoleTemplateIds: $($sampleRoleTemplateIds -join ', ')"
-            Write-Verbose "DEBUG: Looking for dangerous roles like: 62e90394-69f5-4237-9190-012177145e10 (Global Admin)"
-        }
-
         foreach ($edge in $roleEdges) {
             $roleTemplateId = $edge.targetRoleTemplateId
             if (-not $roleTemplateId) { continue }
@@ -320,19 +213,13 @@ try {
     #region Phase 3: Ownership Abuse (App/SP Owners → canAddSecret)
     Write-Verbose "=== Phase 3: Deriving Ownership Abuse Edges ==="
 
-    # Query appOwner and spOwner edges
+    # Filter appOwner and spOwner edges from input binding
     foreach ($ownerType in @('appOwner', 'spOwner')) {
-        $query = "SELECT * FROM c WHERE c.edgeType = '$ownerType' AND c.deleted != true"
+        $ownerEdges = @($edgesIn | Where-Object { $_.edgeType -eq $ownerType })
+
+        Write-Information "[DERIVE-DEBUG] Found $($ownerEdges.Count) $ownerType edges" -InformationAction Continue
 
         try {
-            $ownerEdges = Invoke-CosmosDbQuery -Endpoint $cosmosEndpoint `
-                                                -Key $cosmosKey `
-                                                -DatabaseName $databaseName `
-                                                -ContainerName $containerName `
-                                                -Query $query `
-                                                -PartitionKey $ownerType
-
-            Write-Verbose "Found $($ownerEdges.Count) $ownerType edges"
 
             foreach ($edge in $ownerEdges) {
                 $ownerAbuse = $DangerousPerms.OwnershipAbuse[$ownerType]
@@ -375,17 +262,11 @@ try {
     }
 
     # Group ownership - special handling for role-assignable groups
-    $query = "SELECT * FROM c WHERE c.edgeType = 'groupOwner' AND c.deleted != true"
+    $groupOwnerEdges = @($edgesIn | Where-Object { $_.edgeType -eq 'groupOwner' })
+
+    Write-Information "[DERIVE-DEBUG] Found $($groupOwnerEdges.Count) groupOwner edges" -InformationAction Continue
 
     try {
-        $groupOwnerEdges = Invoke-CosmosDbQuery -Endpoint $cosmosEndpoint `
-                                                 -Key $cosmosKey `
-                                                 -DatabaseName $databaseName `
-                                                 -ContainerName $containerName `
-                                                 -Query $query `
-                                                 -PartitionKey "groupOwner"
-
-        Write-Verbose "Found $($groupOwnerEdges.Count) groupOwner edges"
 
         foreach ($edge in $groupOwnerEdges) {
             $groupOwnerAbuse = $DangerousPerms.OwnershipAbuse.groupOwner
@@ -455,17 +336,12 @@ try {
     #region Phase 4: Azure RBAC Abuse (for cross-cloud attack paths)
     Write-Verbose "=== Phase 4: Deriving Azure RBAC Abuse Edges ==="
 
-    $query = "SELECT * FROM c WHERE c.edgeType = 'azureRbac' AND c.deleted != true"
+    # Filter azureRbac edges from input binding
+    $rbacEdges = @($edgesIn | Where-Object { $_.edgeType -eq 'azureRbac' })
+
+    Write-Information "[DERIVE-DEBUG] Found $($rbacEdges.Count) azureRbac edges" -InformationAction Continue
 
     try {
-        $rbacEdges = Invoke-CosmosDbQuery -Endpoint $cosmosEndpoint `
-                                           -Key $cosmosKey `
-                                           -DatabaseName $databaseName `
-                                           -ContainerName $containerName `
-                                           -Query $query `
-                                           -PartitionKey "azureRbac"
-
-        Write-Verbose "Found $($rbacEdges.Count) azureRbac edges"
 
         foreach ($edge in $rbacEdges) {
             $roleDefId = $edge.targetRoleDefinitionId
@@ -512,18 +388,28 @@ try {
         }
     }
     catch {
-        Write-Warning "Error querying azureRbac edges: $_"
+        Write-Warning "Error processing azureRbac edges: $_"
         $stats.Errors++
     }
     #endregion
 
     $stats.TotalDerived = $abuseEdges.Count
-    Write-Verbose "Derived $($stats.TotalDerived) abuse edges total"
+
+    # Log summary
+    Write-Information "[DERIVE-DEBUG] === SUMMARY ===" -InformationAction Continue
+    Write-Information "[DERIVE-DEBUG] Total edges in input: $($edgesIn.Count)" -InformationAction Continue
+    Write-Information "[DERIVE-DEBUG] GraphPermissionAbuse: $($stats.GraphPermissionAbuse)" -InformationAction Continue
+    Write-Information "[DERIVE-DEBUG] DirectoryRoleAbuse: $($stats.DirectoryRoleAbuse)" -InformationAction Continue
+    Write-Information "[DERIVE-DEBUG] OwnershipAbuse: $($stats.OwnershipAbuse)" -InformationAction Continue
+    Write-Information "[DERIVE-DEBUG] AzureRbacAbuse: $($stats.AzureRbacAbuse)" -InformationAction Continue
+    Write-Information "[DERIVE-DEBUG] TotalDerived: $($stats.TotalDerived)" -InformationAction Continue
 
     # Output to Cosmos DB via output binding
     if ($abuseEdges.Count -gt 0) {
         Push-OutputBinding -Name edgesOut -Value $abuseEdges
-        Write-Verbose "Pushed $($abuseEdges.Count) abuse edges to Cosmos DB"
+        Write-Information "[DERIVE-DEBUG] Pushed $($abuseEdges.Count) abuse edges to Cosmos DB" -InformationAction Continue
+    } else {
+        Write-Information "[DERIVE-DEBUG] No abuse edges to push" -InformationAction Continue
     }
 
     return @{

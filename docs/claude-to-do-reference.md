@@ -592,3 +592,86 @@ Objects from Azure Functions Cosmos DB input bindings are read-only. Using `Add-
 
 **Subscription ID extraction:**
 The `subscriptionId` field wasn't in IndexerConfigs, so Cosmos DB didn't have it. Workaround: Extract from `scope` field which IS indexed: `/subscriptions/{guid}` → `{guid}`
+
+---
+
+## Claude's Session Notes (2026-01-09) - DeriveEdges 401 Fix
+
+### Problem Identified
+DeriveEdges was returning 0 derived edges despite dangerous permissions existing in Cosmos DB.
+
+**Root Cause:** The custom `Invoke-CosmosDbQuery` REST API function was failing with **401 Unauthorized**. App Insights logs showed:
+```
+[DERIVE-DEBUG] Cosmos DB query FAILED: Response status code does not indicate success: 401 (Unauthorized).
+```
+
+The auth signature generation in the custom function was incorrect.
+
+### Solution Applied
+Changed DeriveEdges from using custom REST API calls to using **Cosmos DB input bindings** (same pattern as Dashboard which works correctly).
+
+### Files Modified
+
+**DeriveEdges/function.json:**
+```json
+{
+  "bindings": [
+    { "name": "ActivityInput", "type": "activityTrigger", "direction": "in" },
+    {
+      "name": "edgesIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "edges",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+    },
+    { "name": "edgesOut", "type": "cosmosDB", "direction": "out", ... }
+  ]
+}
+```
+
+**DeriveEdges/run.ps1:**
+- Removed the custom `Invoke-CosmosDbQuery` function (76 lines)
+- Added `$edgesIn` parameter to receive input binding data
+- Changed Phase 1-4 to filter from `$edgesIn` instead of querying:
+  ```powershell
+  # Before (broken):
+  $appRoleEdges = Invoke-CosmosDbQuery -Endpoint ... -Query "SELECT * FROM c WHERE c.edgeType = 'appRoleAssignment'"
+
+  # After (fixed):
+  $appRoleEdges = @($edgesIn | Where-Object { $_.edgeType -eq 'appRoleAssignment' })
+  ```
+- Added summary logging at end
+
+### Why Input Bindings Work
+- Azure Functions runtime handles Cosmos DB authentication via managed identity / connection string
+- Same pattern Dashboard uses successfully
+- No custom auth signature generation needed
+
+### Status: ✅ VERIFIED WORKING
+- Deployed at 15:55 UTC
+- Orchestration `50357921-9433-4a7a-bb61-ee690c2ffa04` completed at ~16:06 UTC
+- **51 abuse edges derived successfully!**
+- Dashboard shows derived edges: `canAddSecret`, `canModifyGroup`, `canAssignAnyRole`, `isGlobalAdmin`
+
+### Orchestration Summary
+```json
+{
+  "TotalAbuseEdges": 51,
+  "TotalDerivedEdges": 51,
+  "AllDerivationsSucceeded": true,
+  "TotalEdgesIndexed": 2384
+}
+```
+
+### Derived Edge Types Confirmed in Dashboard
+| Edge Type | Source | Description |
+|-----------|--------|-------------|
+| `canAddSecret` | appOwner/spOwner | Can add credentials to owned apps/SPs |
+| `canModifyGroup` | groupOwner | Can modify owned groups |
+| `canAssignAnyRole` | Directory role | From privileged roles like Application Administrator |
+| `isGlobalAdmin` | directoryRole | Global Administrator role holders |
+
+### Note on Logging
+The `[DERIVE-DEBUG]` logs did not appear in App Insights despite using `Write-Information -InformationAction Continue`. This may be a Functions runtime issue with activity functions. However, the function clearly executed successfully based on the orchestration output.

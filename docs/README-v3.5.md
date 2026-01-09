@@ -559,6 +559,39 @@ Derived by `DeriveVirtualEdges` from Intune policies:
 }
 ```
 
+### PIM Request Edge Properties - NEW in V3.5
+
+Captures PIM role activation requests including justification:
+
+```json
+{
+  "id": "pimRequest_{requestId}",
+  "objectId": "pimRequest_{requestId}",
+  "edgeType": "pimRequest",
+  "sourceId": "user-guid",
+  "sourceType": "user",
+  "sourceDisplayName": "John Doe",
+  "targetId": "role-definition-guid",
+  "targetType": "directoryRole",
+  "targetDisplayName": "Global Administrator",
+  "action": "SelfActivate",
+  "status": "Provisioned",
+  "justification": "Need to perform admin tasks for Project X",
+  "createdDateTime": "ISO-8601",
+  "scheduleInfo": {
+    "startDateTime": "ISO-8601",
+    "expiration": {
+      "endDateTime": "ISO-8601",
+      "duration": "PT8H",
+      "type": "afterDuration"
+    }
+  },
+  "effectiveFrom": "ISO-8601",
+  "effectiveTo": null,
+  "collectionTimestamp": "ISO-8601"
+}
+```
+
 ---
 
 ## Synthetic Vertices (Role Definitions)
@@ -626,6 +659,35 @@ V3.5 adds role definitions as first-class vertices in the graph, enabling attack
 | `IndexEventsInCosmosDB` | events.jsonl | events | /eventDate |
 
 All indexers write change records to the `audit` container (partitioned by `/auditDate`).
+
+---
+
+## Required Graph API Permissions
+
+The Function App's managed identity requires the following Microsoft Graph API permissions:
+
+| Permission | Purpose | Required For |
+|------------|---------|--------------|
+| `User.Read.All` | Read user properties | CollectUsers |
+| `Group.Read.All` | Read group properties and memberships | CollectEntraGroups, CollectRelationships |
+| `Application.Read.All` | Read app registrations and service principals | CollectAppRegistrations, CollectEntraServicePrincipals |
+| `Directory.Read.All` | Read directory data | All collectors |
+| `Device.Read.All` | Read device properties | CollectDevices |
+| `AuditLog.Read.All` | Read audit and sign-in logs | CollectEvents |
+| `Policy.Read.All` | Read CA and role policies | CollectPolicies |
+| `RoleManagement.Read.All` | Read role assignments and definitions | CollectRelationships, CollectRoleDefinitions |
+| `RoleManagement.Read.Directory` | Read PIM role requests with justification | CollectRelationships (Phase 3b) |
+| `IdentityRiskEvent.Read.All` | Read risk events | CollectEvents |
+| `IdentityRiskyUser.Read.All` | Read risky user data | CollectUsers |
+| `PrivilegedAccess.Read.AzureAD` | Read PIM role eligibility | CollectRelationships |
+| `PrivilegedAccess.Read.AzureADGroup` | Read PIM group eligibility | CollectRelationships |
+| `PrivilegedAccess.Read.AzureResources` | Read PIM Azure resource roles | CollectRelationships |
+| `UserAuthenticationMethod.Read.All` | Read MFA/auth method status | CollectUsers |
+| `DeviceManagementConfiguration.Read.All` | Read Intune compliance policies | CollectIntunePolicies |
+| `DeviceManagementApps.Read.All` | Read App Protection/MAM policies | CollectIntunePolicies |
+| `RoleManagementPolicy.Read.AzureADGroup` | Read PIM group policies | CollectPolicies (Phase 3b) |
+
+> **Note:** After granting new permissions to the managed identity, restart the Function App to refresh the token cache.
 
 ---
 
@@ -806,6 +868,43 @@ WHERE p.principalType = 'user'
   AND p.effectiveTo = null
 ```
 
+#### "Users with P2 licenses" - NEW in V3.5
+```sql
+SELECT p.displayName, p.userPrincipalName, p.assignedLicenseSkus
+FROM principals p
+WHERE p.principalType = 'user'
+  AND p.hasP2License = true
+  AND p.effectiveTo = null
+```
+
+#### "Risky users with risk details" - NEW in V3.5
+```sql
+SELECT p.displayName, p.riskLevel, p.riskState, p.riskDetail, p.riskLastUpdatedDateTime
+FROM principals p
+WHERE p.principalType = 'user'
+  AND p.isAtRisk = true
+  AND p.effectiveTo = null
+ORDER BY p.riskLastUpdatedDateTime DESC
+```
+
+#### "Dynamic vs Assigned groups" - NEW in V3.5
+```sql
+SELECT p.displayName, p.groupTypeCategory, p.memberCountDirect, p.memberCountTotal
+FROM principals p
+WHERE p.principalType = 'group'
+  AND p.effectiveTo = null
+ORDER BY p.groupTypeCategory
+```
+
+#### "PIM activations with justifications" - NEW in V3.5
+```sql
+SELECT e.sourceDisplayName, e.targetDisplayName, e.justification, e.action, e.createdDateTime
+FROM edges e
+WHERE e.edgeType = 'pimRequest'
+  AND e.status = 'Provisioned'
+ORDER BY e.createdDateTime DESC
+```
+
 #### "Principals excluded from MFA policies"
 ```sql
 SELECT e.targetDisplayName, e.sourceDisplayName as policyName
@@ -830,6 +929,23 @@ SELECT r.displayName, r.roleTemplateId
 FROM resources r
 WHERE r.resourceType = 'directoryRoleDefinition'
   AND r.isPrivileged = true
+```
+
+#### "Windows Information Protection policies by mode" - NEW in V3.5
+```sql
+SELECT p.displayName, p.platform, p.wipMode, p.enforcementLevel
+FROM policies p
+WHERE p.policyType = 'appProtectionPolicy'
+  AND p.platform IN ('WindowsInfoProtection', 'WindowsMDM')
+ORDER BY p.wipMode
+```
+
+#### "App Protection policies requiring approval" - NEW in V3.5
+```sql
+SELECT p.displayName, p.isApprovalRequired, p.primaryApprovers, p.requiresMfa, p.requiresJustification
+FROM policies p
+WHERE p.policyType IN ('roleManagement', 'pimGroupPolicy')
+  AND p.isApprovalRequired = true
 ```
 
 ### Gremlin Graph Queries
@@ -875,10 +991,10 @@ g.E().hasLabel('rolePolicyAssignment')
 | Graph Functions | 2 (ProjectGraphToGremlin + GenerateGraphSnapshots) - *V3.6* |
 | Cosmos SQL containers | 6 |
 | Cosmos Gremlin container | 0 *(V3.6: 1)* |
-| Edge types | 32+ (15 Entra + 3 Azure + 5 CA Policy + 1 Role Policy + 6 Abuse + 2 Virtual) |
+| Edge types | 33+ (16 Entra + 3 Azure + 5 CA Policy + 1 Role Policy + 6 Abuse + 2 Virtual) |
 | Resource types | 17 (application, 2 role defs, tenant, MG, sub, RG, + 11 Azure resources) |
 | Principal types | 4 (user, group, servicePrincipal, device) |
-| Policy types | 5 (conditionalAccess, roleManagement, namedLocation, compliancePolicy, appProtectionPolicy) |
+| Policy types | 6 (conditionalAccess, roleManagement, pimGroupPolicy, namedLocation, compliancePolicy, appProtectionPolicy) |
 | Blob files per run | 5 (principals, resources, edges, policies, events) |
 | Snapshot types | 7 attack path patterns |
 | Partition strategy | principalType/resourceType/edgeType for efficient queries |
@@ -903,9 +1019,15 @@ g.E().hasLabel('rolePolicyAssignment')
 11. **Attack path snapshots** - Pre-computed common attack patterns
 12. **DOT format output** - Standard format for graph visualization tools
 13. **Configuration-driven Azure collection** - AzureResourceTypes.psd1 enables adding resources without code changes
-14. **Embedded risk data** - User risk from Identity Protection embedded in user documents, not separate collection
-15. **Abuse edge derivation** - DangerousPermissions.psd1 maps Graph permissions and roles to attack capabilities
-16. **Collector consolidation** - Reduced from 17 to 12 collectors for operational simplicity
+14. **Embedded risk data** - User risk from Identity Protection embedded in user documents with `riskLastUpdatedDateTime`
+15. **Embedded license data** - User license SKUs embedded for easy filtering (hasP2License, hasE5License)
+16. **Abuse edge derivation** - DangerousPermissions.psd1 maps Graph permissions and roles to attack capabilities
+17. **Collector consolidation** - Reduced from 17 to 12 collectors for operational simplicity
+18. **Group type categorization** - `groupTypeCategory` field for human-friendly group classification
+19. **PIM justification capture** - `pimRequest` edge type captures role activation justifications
+20. **PIM policy settings extraction** - Role management policies include approval, MFA, justification requirements
+21. **Windows MAM/WIP support** - Full Windows App Protection including WIP mode detection
+22. **Dashboard enrichment** - Subscription owners derived from Azure RBAC edges for display
 
 ---
 
