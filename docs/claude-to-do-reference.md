@@ -995,14 +995,14 @@ The missing policies analysis (Item 12.b) documented 10+ policy types not curren
 **Required Permission:** `RoleManagement.Read.Directory` (for scoped role collection)
 
 
-
-# useful commands
-STATUS=$(curl -s "https://func-entrariskv35-data-dev-enkqnnv64liny.azurewebsites.net/runtime/webhooks/durabletask/instances/79eec71c-9021-4cb3-97e7-f429de1e38df?taskHub=EntraRiskHub&connection=AzureWebJobsStorage&code=H85CnWqn2Naz4LZfUM9s6r1lhh9SI-67BTpFFIqhstFOAzFu91rYfQ==" | jq -r '.runtimeStatus')
-echo "Status: $STATUS"
-
 # Check regardless of status
 echo ""
 echo "=== Checking dashboard for entity types ==="
 curl -s "https://func-entrariskv35-data-dev-enkqnnv64liny.azurewebsites.net/api/dashboard?code=hyiuethRJ5prx3Ph0BWHoWgYG73wMSccPg13-FIiZ9aCAzFurZERIw==" > /tmp/dashboard4.html
 
 grep -oE '<td>[a-z]+</td><td>(new|modified|deleted)<' /tmp/dashboard4.html | sed 's/<td>//g' | sed 's/<\/td>.*//g' | sort | uniq -c
+
+
+# useful commands
+STATUS=$(curl -s "https://func-entrariskv35-data-dev-enkqnnv64liny.azurewebsites.net/runtime/webhooks/durabletask/instances/79eec71c-9021-4cb3-97e7-f429de1e38df?taskHub=EntraRiskHub&connection=AzureWebJobsStorage&code=H85CnWqn2Naz4LZfUM9s6r1lhh9SI-67BTpFFIqhstFOAzFu91rYfQ==" | jq -r '.runtimeStatus')
+echo "Status: $STATUS"
