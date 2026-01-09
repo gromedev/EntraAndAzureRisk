@@ -8,7 +8,7 @@
 
 ---
 
-## Executive Summary
+## Summary
 
 This request covers the minimum privileges required to deploy and operate an automated security monitoring platform that:
 - Collects Entra ID and Azure configuration data (read-only)

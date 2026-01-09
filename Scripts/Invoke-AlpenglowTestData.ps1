@@ -4,8 +4,6 @@ TO ADD
     - automation account
 #>
 
-
-
 #Requires -Version 7.0
 <#
 .SYNOPSIS
