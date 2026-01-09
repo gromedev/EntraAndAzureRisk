@@ -1,12 +1,13 @@
 <#
 .SYNOPSIS
-    Collects user data with EMBEDDED authentication methods and risk data from Microsoft Entra ID
+    Collects user data with EMBEDDED authentication methods, risk data, and license info from Microsoft Entra ID
 .DESCRIPTION
     V3.5 Unified User Collector:
     - Queries Graph API for users with pagination
     - For each user, queries authentication methods (N+1 pattern)
     - EMBEDS auth method summary directly in user object (denormalized for Power BI)
     - EMBEDS Identity Protection risk data (requires P2 license)
+    - EMBEDS License/SKU data for easy filtering (e.g., "show users with P2")
     - Streams principals.jsonl to Blob Storage (memory-efficient)
     - Returns summary statistics for orchestrator
     - Token caching (eliminates redundant IMDS calls)
@@ -16,6 +17,12 @@
     - riskState: atRisk, confirmedCompromised, remediated, dismissed, etc.
     - riskDetail: reason for risk
     - isAtRisk: boolean flag for easy filtering
+
+    License Data Fields (from user.assignedLicenses + subscribedSkus):
+    - assignedLicenseSkus: array of SKU part numbers (e.g., ["ENTERPRISEPREMIUM", "EMSPREMIUM"])
+    - hasP2License: boolean - user has Azure AD Premium P2 or equivalent
+    - hasE5License: boolean - user has Microsoft 365 E5 or equivalent
+    - licenseCount: number of licenses assigned
 
     Permission: IdentityRiskyUser.Read.All (requires Azure AD Premium P2)
 #>
@@ -136,6 +143,21 @@ try {
     }
     #endregion
 
+    #region Build License SKU Lookup
+    Write-Verbose "Building license SKU lookup..."
+    $skuLookup = @{}
+    try {
+        $skusResponse = Invoke-GraphWithRetry -Uri "https://graph.microsoft.com/v1.0/subscribedSkus" -AccessToken $graphToken
+        foreach ($sku in $skusResponse.value) {
+            $skuLookup[$sku.skuId] = $sku.skuPartNumber
+        }
+        Write-Verbose "Loaded $($skuLookup.Count) license SKUs into lookup"
+    }
+    catch {
+        Write-Warning "Failed to load SKU lookup: $_ - license names will use raw GUIDs"
+    }
+    #endregion
+
     # Initialize buffers
     $usersJsonL = New-Object System.Text.StringBuilder(2097152)  # 2MB initial (larger for embedded auth)
     $writeThreshold = 5000
@@ -165,6 +187,11 @@ try {
     $mediumRiskCount = 0
     $lowRiskCount = 0
 
+    # License counters (embedded in users)
+    $usersWithP2Count = 0
+    $usersWithE5Count = 0
+    $unlicensedCount = 0
+
     # Initialize append blob (V3: unified principals.jsonl)
     $principalsBlobName = "$timestamp/$timestamp-principals.jsonl"
     Write-Verbose "Initializing append blob: $principalsBlobName (with embedded auth methods)"
@@ -186,7 +213,7 @@ try {
     # Query users with field selection
     # Added: lastPasswordChangeDateTime, signInSessionsValidFromDateTime, refreshTokensValidFromDateTime, onPremisesExtensionAttributes
     # Phase 1b: Added mail, mailNickname, proxyAddresses, employeeId, employeeHireDate, employeeType, companyName, mobilePhone, businessPhones, department, jobTitle
-    $selectFields = "userPrincipalName,id,accountEnabled,userType,createdDateTime,signInActivity,displayName,passwordPolicies,usageLocation,externalUserState,externalUserStateChangeDateTime,onPremisesSyncEnabled,onPremisesSamAccountName,onPremisesUserPrincipalName,onPremisesSecurityIdentifier,lastPasswordChangeDateTime,signInSessionsValidFromDateTime,refreshTokensValidFromDateTime,onPremisesExtensionAttributes,mail,mailNickname,proxyAddresses,employeeId,employeeHireDate,employeeType,companyName,mobilePhone,businessPhones,department,jobTitle"
+    $selectFields = "userPrincipalName,id,accountEnabled,userType,createdDateTime,signInActivity,displayName,passwordPolicies,usageLocation,externalUserState,externalUserStateChangeDateTime,onPremisesSyncEnabled,onPremisesSamAccountName,onPremisesUserPrincipalName,onPremisesSecurityIdentifier,lastPasswordChangeDateTime,signInSessionsValidFromDateTime,refreshTokensValidFromDateTime,onPremisesExtensionAttributes,mail,mailNickname,proxyAddresses,employeeId,employeeHireDate,employeeType,companyName,mobilePhone,businessPhones,department,jobTitle,assignedLicenses"
     $nextLink = "https://graph.microsoft.com/v1.0/users?`$select=$selectFields&`$top=$batchSize"
 
     Write-Verbose "Starting batch processing with streaming writes"
@@ -311,7 +338,25 @@ try {
                 }
             }
 
-            # Transform to consistent structure WITH EMBEDDED AUTH METHODS + RISK DATA (V3.5)
+            # --- Map assigned licenses to SKU names (embedded) ---
+            $assignedLicenseSkus = @()
+            foreach ($license in ($user.assignedLicenses ?? @())) {
+                $skuId = $license.skuId
+                $skuName = if ($skuLookup[$skuId]) { $skuLookup[$skuId] } else { $skuId }
+                $assignedLicenseSkus += $skuName
+            }
+
+            # Determine license flags (common high-value license patterns)
+            $hasP2License = ($assignedLicenseSkus | Where-Object { $_ -match 'EMSPREMIUM|AAD_PREMIUM_P2|M365_E5|SPE_E5' }).Count -gt 0
+            $hasE5License = ($assignedLicenseSkus | Where-Object { $_ -match 'SPE_E5|ENTERPRISEPREMIUM|M365_E5' }).Count -gt 0
+            $licenseCount = $assignedLicenseSkus.Count
+
+            # Track license statistics
+            if ($hasP2License) { $usersWithP2Count++ }
+            if ($hasE5License) { $usersWithE5Count++ }
+            if ($licenseCount -eq 0) { $unlicensedCount++ }
+
+            # Transform to consistent structure WITH EMBEDDED AUTH METHODS + RISK DATA + LICENSES (V3.5)
             $userObj = @{
                 # Core identifiers
                 objectId                         = $userId
@@ -380,6 +425,12 @@ try {
                 riskLastUpdatedDateTime          = $riskLastUpdatedDateTime
                 isAtRisk                         = $isAtRisk
 
+                # EMBEDDED License Data (for easy filtering without edge joins)
+                assignedLicenseSkus              = $assignedLicenseSkus
+                hasP2License                     = $hasP2License
+                hasE5License                     = $hasE5License
+                licenseCount                     = $licenseCount
+
                 # V3: Temporal fields for historical tracking
                 effectiveFrom                    = $timestampFormatted
                 effectiveTo                      = $null
@@ -442,6 +493,7 @@ try {
 
     Write-Verbose "Collection complete: $userCount users with embedded auth methods ($authMethodsProcessedCount processed)"
     Write-Verbose "Risk data: $usersAtRiskCount at-risk users (High: $highRiskCount, Medium: $mediumRiskCount, Low: $lowRiskCount)"
+    Write-Verbose "License data: $usersWithP2Count with P2, $usersWithE5Count with E5, $unlicensedCount unlicensed"
 
     # Cleanup
     $usersJsonL.Clear()
@@ -475,6 +527,11 @@ try {
         highRiskCount               = $highRiskCount
         mediumRiskCount             = $mediumRiskCount
         lowRiskCount                = $lowRiskCount
+        # License stats (embedded)
+        usersWithP2LicenseCount     = $usersWithP2Count
+        usersWithE5LicenseCount     = $usersWithE5Count
+        unlicensedUserCount         = $unlicensedCount
+        skuLookupCount              = $skuLookup.Count
         blobPath                    = $principalsBlobName
     }
 
@@ -495,6 +552,9 @@ try {
         RiskDataError             = $riskDataError
         RiskyUsersLoaded          = $riskyUsersCount
         UsersAtRiskCount          = $usersAtRiskCount
+        UsersWithP2LicenseCount   = $usersWithP2Count
+        UsersWithE5LicenseCount   = $usersWithE5Count
+        UnlicensedUserCount       = $unlicensedCount
         Data                      = @()
         Summary                   = $summary
         Timestamp                 = $timestamp

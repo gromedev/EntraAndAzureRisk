@@ -231,6 +231,17 @@ try {
             # Get member counts for this group
             $memberCounts = Get-GroupMemberCount -GroupId $group.id -AccessToken $graphToken
 
+            # Compute friendly group type category
+            $groupTypeCategory = if ($group.groupTypes -contains "Unified") {
+                "Microsoft 365"
+            } elseif ($group.groupTypes -contains "DynamicMembership") {
+                "Dynamic"
+            } elseif ($group.membershipRule) {
+                "Dynamic"  # Has membership rule but groupTypes might not reflect it
+            } else {
+                "Assigned"  # Security groups with manual membership
+            }
+
             # Transform to V3 structure with principalType discriminator
             $groupObj = @{
                 # Core identifiers
@@ -245,6 +256,7 @@ try {
 
                 # Group type and capabilities
                 groupTypes = $group.groupTypes ?? @()
+                groupTypeCategory = $groupTypeCategory  # Friendly name: "Assigned", "Dynamic", "Microsoft 365"
                 mailEnabled = if ($null -ne $group.mailEnabled) { $group.mailEnabled } else { $null }
                 membershipRule = $group.membershipRule ?? $null
                 securityEnabled = if ($null -ne $group.securityEnabled) { $group.securityEnabled } else { $null }

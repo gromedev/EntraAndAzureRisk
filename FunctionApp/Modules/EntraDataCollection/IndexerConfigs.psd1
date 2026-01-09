@@ -674,6 +674,7 @@
             'mailEnabled'
             'mail'
             'groupTypes'
+            'groupTypeCategory'  # Friendly name: "Assigned", "Dynamic", "Microsoft 365"
             'membershipRule'
             'isAssignableToRole'
             'visibility'
@@ -843,6 +844,7 @@
             mailEnabled = 'mailEnabled'
             # mail already defined above in User fields
             groupTypes = 'groupTypes'
+            groupTypeCategory = 'groupTypeCategory'  # Friendly name: "Assigned", "Dynamic", "Microsoft 365"
             membershipRule = 'membershipRule'
             isAssignableToRole = 'isAssignableToRole'
             visibility = 'visibility'

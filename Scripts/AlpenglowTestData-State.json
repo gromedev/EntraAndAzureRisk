@@ -1,52 +1,60 @@
 {
-  "memberships": [
+  "azureResources": [
     {
-      "memberId": "aee28442-6579-4693-be9e-870411998731",
-      "groupId": "438e5625-f4d2-41a2-9e2d-76ad7f6b04dd"
+      "type": "resourceGroup",
+      "id": "/subscriptions/4e5adb24-09e8-4a01-adbb-c6cee339f639/resourceGroups/rg-alpenglow-test",
+      "name": "rg-alpenglow-test"
     },
     {
-      "memberId": "acb22cce-4a94-4741-ad6d-92a9aa2f4dc8",
-      "groupId": "6c734aaf-daae-4973-ac4c-8398cba8244a"
+      "type": "managedIdentity",
+      "resourceGroup": "rg-alpenglow-test",
+      "id": "/subscriptions/4e5adb24-09e8-4a01-adbb-c6cee339f639/resourcegroups/rg-alpenglow-test/providers/Microsoft.ManagedIdentity/userAssignedIdentities/Alpenglow-Test-identity-8583",
+      "name": "Alpenglow-Test-identity-8583",
+      "principalId": "3f0f77cc-6edc-4c3e-a85f-b7d9168795ce"
     },
     {
-      "memberId": "fb9d1bef-9c94-47d2-9e52-06949b1c253b",
-      "groupId": "6e15aabe-28a2-4cee-b235-94106deaff85"
+      "type": "storageAccount",
+      "id": "/subscriptions/4e5adb24-09e8-4a01-adbb-c6cee339f639/resourceGroups/rg-alpenglow-test/providers/Microsoft.Storage/storageAccounts/stalpenglowtest8583",
+      "name": "stalpenglowtest8583",
+      "resourceGroup": "rg-alpenglow-test"
     },
     {
-      "memberId": "5150093b-ff55-49c7-90af-b2a8aae0ebfc",
-      "groupId": "65d3edca-1ac7-4bc8-a1e5-be6533d6aefb"
+      "type": "appServicePlan",
+      "id": "/subscriptions/4e5adb24-09e8-4a01-adbb-c6cee339f639/resourceGroups/rg-alpenglow-test/providers/Microsoft.Web/serverfarms/asp-Alpenglow-Test-8583",
+      "name": "asp-Alpenglow-Test-8583",
+      "resourceGroup": "rg-alpenglow-test"
     },
     {
-      "memberId": "65719ba1-f669-41d2-b478-7adb3ffd0f38",
-      "groupId": "65d3edca-1ac7-4bc8-a1e5-be6533d6aefb"
+      "type": "webApp",
+      "id": "/subscriptions/4e5adb24-09e8-4a01-adbb-c6cee339f639/resourceGroups/rg-alpenglow-test/providers/Microsoft.Web/sites/webalpenglowtest8583",
+      "name": "webalpenglowtest8583",
+      "resourceGroup": "rg-alpenglow-test"
     },
     {
-      "memberId": "f95c6b91-6cc6-41c0-8ef2-b5f06417a1c7",
-      "groupId": "438e5625-f4d2-41a2-9e2d-76ad7f6b04dd"
+      "type": "functionApp",
+      "id": "/subscriptions/4e5adb24-09e8-4a01-adbb-c6cee339f639/resourceGroups/rg-alpenglow-test/providers/Microsoft.Web/sites/funcalpenglowtest8583",
+      "name": "funcalpenglowtest8583",
+      "resourceGroup": "rg-alpenglow-test"
+    },
+    {
+      "type": "logicApp",
+      "id": "/subscriptions/4e5adb24-09e8-4a01-adbb-c6cee339f639/resourceGroups/rg-alpenglow-test/providers/Microsoft.Logic/workflows/logic-Alpenglow-Test-8583",
+      "name": "logic-Alpenglow-Test-8583",
+      "resourceGroup": "rg-alpenglow-test"
+    },
+    {
+      "type": "containerRegistry",
+      "id": "/subscriptions/4e5adb24-09e8-4a01-adbb-c6cee339f639/resourceGroups/rg-alpenglow-test/providers/Microsoft.ContainerRegistry/registries/acralpenglowtest8583",
+      "name": "acralpenglowtest8583",
+      "resourceGroup": "rg-alpenglow-test"
     }
   ],
-  "groupOwnerships": [
+  "directRoleAssignments": [
     {
-      "ownerId": "65719ba1-f669-41d2-b478-7adb3ffd0f38",
-      "groupId": "db5b4947-12e6-49a9-851d-d5c2f7bad5c1"
-    },
-    {
-      "ownerId": "bc6ff818-af9e-4d7b-85b4-5afdc451e74e",
-      "groupId": "6c734aaf-daae-4973-ac4c-8398cba8244a"
-    },
-    {
-      "ownerId": "7e5c4094-827d-4c1d-a301-2cdb6ff1b1ca",
-      "groupId": "65d3edca-1ac7-4bc8-a1e5-be6533d6aefb"
-    }
-  ],
-  "namedLocations": [
-    {
-      "id": "0f032db5-3a98-4a0f-95f5-246f291b41f5",
-      "displayName": "Alpenglow-Test-Location-c234df78"
-    },
-    {
-      "id": "01c03dcb-d6c4-48a0-9eb5-1764d6b666db",
-      "displayName": "Alpenglow-Test-Location-70eb843f"
+      "roleName": "GroupsAdmin",
+      "id": "UafX_Qu2SkSYTAJlL-j6HKGbcWVp9tJBtHh62z_9Dzg-1",
+      "roleId": "fdd7a751-b60b-444a-984c-02652fe8fa1c",
+      "principalId": "65719ba1-f669-41d2-b478-7adb3ffd0f38"
     }
   ],
   "apps": [
@@ -69,47 +77,6 @@
       "displayName": "Alpenglow-Test-App-App3-5445f4c4"
     }
   ],
-  "caPolicies": [
-    {
-      "targetGroupId": "db5b4947-12e6-49a9-851d-d5c2f7bad5c1",
-      "id": "af9dec5c-ce78-4adc-9a0c-a6f2500b4922",
-      "displayName": "Alpenglow-Test-CAPolicy-47193329"
-    },
-    {
-      "targetGroupId": "db5b4947-12e6-49a9-851d-d5c2f7bad5c1",
-      "id": "65e30276-a736-4639-b8c2-ca67d317cdae",
-      "displayName": "Alpenglow-Test-CAPolicy-04c5970e"
-    }
-  ],
-  "appOwnerships": [
-    {
-      "ownerId": "5150093b-ff55-49c7-90af-b2a8aae0ebfc",
-      "appId": "7236db84-2029-472a-8075-e3cefb045a6b"
-    },
-    {
-      "ownerId": "acb22cce-4a94-4741-ad6d-92a9aa2f4dc8",
-      "appId": "cd2e7a45-4e36-4586-bb1d-f5efaf22ddb2"
-    },
-    {
-      "ownerId": "f95c6b91-6cc6-41c0-8ef2-b5f06417a1c7",
-      "appId": "7236db84-2029-472a-8075-e3cefb045a6b"
-    }
-  ],
-  "credentials": [
-    {
-      "spId": "ca76a45e-e1e8-44de-a3fd-ee2f4fc2f3cb",
-      "keyId": "7e55c7b9-3131-48fd-92ac-44a897f80194"
-    },
-    {
-      "spId": "b40b46d9-eff7-4206-91db-4ce7e37677ab",
-      "keyId": "23459945-b8a6-48df-83d7-d889357de1b7"
-    },
-    {
-      "spId": "237e8206-991f-480c-9318-036ff0544774",
-      "keyId": "0205593b-d255-4e72-adfc-136297f176d1"
-    }
-  ],
-  "compliancePolicies": [],
   "appProtectionPolicies": [
     [
       null,
@@ -119,26 +86,26 @@
       }
     ]
   ],
-  "directRoleAssignments": [
+  "groupOwnerships": [
     {
-      "roleName": "GroupsAdmin",
-      "id": "UafX_Qu2SkSYTAJlL-j6HKGbcWVp9tJBtHh62z_9Dzg-1",
-      "roleId": "fdd7a751-b60b-444a-984c-02652fe8fa1c",
-      "principalId": "65719ba1-f669-41d2-b478-7adb3ffd0f38"
-    }
-  ],
-  "spOwnerships": [
-    {
-      "spId": "237e8206-991f-480c-9318-036ff0544774",
-      "ownerId": "7e5c4094-827d-4c1d-a301-2cdb6ff1b1ca"
+      "ownerId": "65719ba1-f669-41d2-b478-7adb3ffd0f38",
+      "groupId": "db5b4947-12e6-49a9-851d-d5c2f7bad5c1"
     },
     {
-      "spId": "ca76a45e-e1e8-44de-a3fd-ee2f4fc2f3cb",
-      "ownerId": "aee28442-6579-4693-be9e-870411998731"
+      "ownerId": "bc6ff818-af9e-4d7b-85b4-5afdc451e74e",
+      "groupId": "6c734aaf-daae-4973-ac4c-8398cba8244a"
     },
     {
-      "spId": "b40b46d9-eff7-4206-91db-4ce7e37677ab",
-      "ownerId": "fb9d1bef-9c94-47d2-9e52-06949b1c253b"
+      "ownerId": "7e5c4094-827d-4c1d-a301-2cdb6ff1b1ca",
+      "groupId": "65d3edca-1ac7-4bc8-a1e5-be6533d6aefb"
+    },
+    {
+      "ownerId": "acb22cce-4a94-4741-ad6d-92a9aa2f4dc8",
+      "groupId": "438e5625-f4d2-41a2-9e2d-76ad7f6b04dd"
+    },
+    {
+      "ownerId": "fb9d1bef-9c94-47d2-9e52-06949b1c253b",
+      "groupId": "6e15aabe-28a2-4cee-b235-94106deaff85"
     }
   ],
   "users": [
@@ -193,54 +160,97 @@
       "displayName": "Alpenglow-Test-User-U10-36d42a71"
     }
   ],
-  "azureResources": [
+  "compliancePolicies": [],
+  "credentials": [
     {
-      "type": "resourceGroup",
-      "id": "/subscriptions/4e5adb24-09e8-4a01-adbb-c6cee339f639/resourceGroups/rg-alpenglow-test",
-      "name": "rg-alpenglow-test"
+      "spId": "237e8206-991f-480c-9318-036ff0544774",
+      "keyId": "d62568f2-e5d6-4901-9f4f-08118db89493"
     },
     {
-      "type": "managedIdentity",
-      "resourceGroup": "rg-alpenglow-test",
-      "id": "/subscriptions/4e5adb24-09e8-4a01-adbb-c6cee339f639/resourcegroups/rg-alpenglow-test/providers/Microsoft.ManagedIdentity/userAssignedIdentities/Alpenglow-Test-identity-8583",
-      "name": "Alpenglow-Test-identity-8583",
-      "principalId": "3f0f77cc-6edc-4c3e-a85f-b7d9168795ce"
+      "spId": "ca76a45e-e1e8-44de-a3fd-ee2f4fc2f3cb",
+      "keyId": "0277e546-ce08-4024-a69a-896f8885cb1b"
     },
     {
-      "type": "storageAccount",
-      "id": "/subscriptions/4e5adb24-09e8-4a01-adbb-c6cee339f639/resourceGroups/rg-alpenglow-test/providers/Microsoft.Storage/storageAccounts/stalpenglowtest8583",
-      "name": "stalpenglowtest8583",
-      "resourceGroup": "rg-alpenglow-test"
+      "spId": "b40b46d9-eff7-4206-91db-4ce7e37677ab",
+      "keyId": "37a17cc4-af10-4673-af2a-4e65ae065374"
+    }
+  ],
+  "namedLocations": [
+    {
+      "id": "0f032db5-3a98-4a0f-95f5-246f291b41f5",
+      "displayName": "Alpenglow-Test-Location-c234df78"
     },
     {
-      "type": "appServicePlan",
-      "id": "/subscriptions/4e5adb24-09e8-4a01-adbb-c6cee339f639/resourceGroups/rg-alpenglow-test/providers/Microsoft.Web/serverfarms/asp-Alpenglow-Test-8583",
-      "name": "asp-Alpenglow-Test-8583",
-      "resourceGroup": "rg-alpenglow-test"
+      "id": "01c03dcb-d6c4-48a0-9eb5-1764d6b666db",
+      "displayName": "Alpenglow-Test-Location-70eb843f"
+    }
+  ],
+  "memberships": [
+    {
+      "memberId": "acb22cce-4a94-4741-ad6d-92a9aa2f4dc8",
+      "groupId": "6c734aaf-daae-4973-ac4c-8398cba8244a"
     },
     {
-      "type": "webApp",
-      "id": "/subscriptions/4e5adb24-09e8-4a01-adbb-c6cee339f639/resourceGroups/rg-alpenglow-test/providers/Microsoft.Web/sites/webalpenglowtest8583",
-      "name": "webalpenglowtest8583",
-      "resourceGroup": "rg-alpenglow-test"
+      "memberId": "fb9d1bef-9c94-47d2-9e52-06949b1c253b",
+      "groupId": "6e15aabe-28a2-4cee-b235-94106deaff85"
     },
     {
-      "type": "functionApp",
-      "id": "/subscriptions/4e5adb24-09e8-4a01-adbb-c6cee339f639/resourceGroups/rg-alpenglow-test/providers/Microsoft.Web/sites/funcalpenglowtest8583",
-      "name": "funcalpenglowtest8583",
-      "resourceGroup": "rg-alpenglow-test"
+      "memberId": "5150093b-ff55-49c7-90af-b2a8aae0ebfc",
+      "groupId": "65d3edca-1ac7-4bc8-a1e5-be6533d6aefb"
     },
     {
-      "type": "logicApp",
-      "id": "/subscriptions/4e5adb24-09e8-4a01-adbb-c6cee339f639/resourceGroups/rg-alpenglow-test/providers/Microsoft.Logic/workflows/logic-Alpenglow-Test-8583",
-      "name": "logic-Alpenglow-Test-8583",
-      "resourceGroup": "rg-alpenglow-test"
+      "memberId": "f95c6b91-6cc6-41c0-8ef2-b5f06417a1c7",
+      "groupId": "438e5625-f4d2-41a2-9e2d-76ad7f6b04dd"
     },
     {
-      "type": "containerRegistry",
-      "id": "/subscriptions/4e5adb24-09e8-4a01-adbb-c6cee339f639/resourceGroups/rg-alpenglow-test/providers/Microsoft.ContainerRegistry/registries/acralpenglowtest8583",
-      "name": "acralpenglowtest8583",
-      "resourceGroup": "rg-alpenglow-test"
+      "memberId": "3f1a9d88-8715-4baf-be0d-6837a03cccf3",
+      "groupId": "6e15aabe-28a2-4cee-b235-94106deaff85"
+    },
+    {
+      "memberId": "bc6ff818-af9e-4d7b-85b4-5afdc451e74e",
+      "groupId": "db5b4947-12e6-49a9-851d-d5c2f7bad5c1"
+    },
+    {
+      "memberId": "7e5c4094-827d-4c1d-a301-2cdb6ff1b1ca",
+      "groupId": "db5b4947-12e6-49a9-851d-d5c2f7bad5c1"
+    },
+    {
+      "memberId": "10e5fb65-5ba6-466b-8836-e7ed6bb2bbaf",
+      "groupId": "65d3edca-1ac7-4bc8-a1e5-be6533d6aefb"
+    }
+  ],
+  "caPolicies": [
+    {
+      "targetGroupId": "db5b4947-12e6-49a9-851d-d5c2f7bad5c1",
+      "id": "af9dec5c-ce78-4adc-9a0c-a6f2500b4922",
+      "displayName": "Alpenglow-Test-CAPolicy-47193329"
+    },
+    {
+      "targetGroupId": "db5b4947-12e6-49a9-851d-d5c2f7bad5c1",
+      "id": "65e30276-a736-4639-b8c2-ca67d317cdae",
+      "displayName": "Alpenglow-Test-CAPolicy-04c5970e"
+    }
+  ],
+  "spOwnerships": [
+    {
+      "spId": "237e8206-991f-480c-9318-036ff0544774",
+      "ownerId": "7e5c4094-827d-4c1d-a301-2cdb6ff1b1ca"
+    },
+    {
+      "spId": "ca76a45e-e1e8-44de-a3fd-ee2f4fc2f3cb",
+      "ownerId": "aee28442-6579-4693-be9e-870411998731"
+    },
+    {
+      "spId": "b40b46d9-eff7-4206-91db-4ce7e37677ab",
+      "ownerId": "fb9d1bef-9c94-47d2-9e52-06949b1c253b"
+    },
+    {
+      "spId": "ca76a45e-e1e8-44de-a3fd-ee2f4fc2f3cb",
+      "ownerId": "3f1a9d88-8715-4baf-be0d-6837a03cccf3"
+    },
+    {
+      "spId": "237e8206-991f-480c-9318-036ff0544774",
+      "ownerId": "bc6ff818-af9e-4d7b-85b4-5afdc451e74e"
     }
   ],
   "groups": [
@@ -293,6 +303,28 @@
       "roleAssignable": true,
       "id": "69d0376b-b095-484e-8c31-5911b17a5b34",
       "displayName": "Alpenglow-Test-Group-RoleAssign-fd206e40"
+    }
+  ],
+  "appOwnerships": [
+    {
+      "ownerId": "5150093b-ff55-49c7-90af-b2a8aae0ebfc",
+      "appId": "7236db84-2029-472a-8075-e3cefb045a6b"
+    },
+    {
+      "ownerId": "acb22cce-4a94-4741-ad6d-92a9aa2f4dc8",
+      "appId": "cd2e7a45-4e36-4586-bb1d-f5efaf22ddb2"
+    },
+    {
+      "ownerId": "f95c6b91-6cc6-41c0-8ef2-b5f06417a1c7",
+      "appId": "7236db84-2029-472a-8075-e3cefb045a6b"
+    },
+    {
+      "ownerId": "f95c6b91-6cc6-41c0-8ef2-b5f06417a1c7",
+      "appId": "cd2e7a45-4e36-4586-bb1d-f5efaf22ddb2"
+    },
+    {
+      "appId": "07439a1b-a3e0-4097-8a30-ad9167a7a802",
+      "ownerId": "7e5c4094-827d-4c1d-a301-2cdb6ff1b1ca"
     }
   ]
 }

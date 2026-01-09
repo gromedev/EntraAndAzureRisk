@@ -1631,6 +1631,9 @@ function Invoke-DeltaIndexingWithBinding {
         # V3: Snapshots container removed - snapshot data now tracked via audit container
         Write-Verbose "Indexing complete for $($config.EntityNamePlural)"
 
+        # DEBUG: Log delta detection statistics
+        Write-Host "DEBUG-DELTA-STATS[$EntityType]: Total=$($result.Statistics.Total), New=$($result.Statistics.New), Modified=$($result.Statistics.Modified), Deleted=$($result.Statistics.Deleted), Unchanged=$($result.Statistics.Unchanged), ChangeLogEntries=$($result.ChangeDocuments.Count)"
+
         # Return standardized statistics with entity-specific property names
         $entityPlural = $config.EntityNamePlural
         return @{
