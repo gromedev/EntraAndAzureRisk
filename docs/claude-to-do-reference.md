@@ -76,11 +76,26 @@ But I believe you have so far only implemented the License Data components
 for the "riskLevel" property, we should add the date. E.g. "thomas@gromedev01.onmicrosoft.com" has a riskState of "dismissed" but i have no idea when the user was tagged as risky or when it was dismissed
 
 6)
-6.a) Delta changes show new and modified. 
+6.a) Delta changes show new and modified.
 Does it also show deleted?
 
-7) 
+**VERIFIED 2026-01-09:** Yes, deleted objects ARE shown in the audit tab. The changeType values found:
+- 277 `deleted` entries
+- 238 `modified` entries
+- 262 `new` entries
+
+7)
 In the dashboard, what does the "lastModified" column actually show? Does it show the last time the principal was modified? If so, I am not sure if it is working when I compare to the Audit tab
+
+**INVESTIGATED 2026-01-09:**
+- The `lastModified` column currently shows `collectionTimestamp` - when we last collected/indexed the entity
+- Microsoft Graph API doesn't provide a `modifiedDateTime` field for most principal types (users, groups, SPs)
+- The Audit tab shows `changeTimestamp` - when we detected a change via delta detection
+- **These are different concepts:**
+  - `lastModified` = when we last touched the record (always updates on each collection)
+  - `changeTimestamp` (audit) = when we detected an actual change in the entity
+
+**POTENTIAL IMPROVEMENT:** Only update `lastModified` when a change is actually detected, otherwise preserve the previous value. This would make `lastModified` match the audit's `changeTimestamp` for modified entities.
 
 
 8)
@@ -675,3 +690,319 @@ Changed DeriveEdges from using custom REST API calls to using **Cosmos DB input 
 
 ### Note on Logging
 The `[DERIVE-DEBUG]` logs did not appear in App Insights despite using `Write-Information -InformationAction Continue`. This may be a Functions runtime issue with activity functions. However, the function clearly executed successfully based on the orchestration output.
+
+---
+
+## Claude's Session Notes (2026-01-09) - Item 12.b: Missing Policies Analysis
+
+### Task: Compile List of Missing Policies
+
+After researching Microsoft Graph API documentation and the current collectors, here is a comprehensive analysis of what policies exist vs. what we currently collect.
+
+### Currently Collected Policies ✅
+
+| Policy Type | Collector | API Endpoint | policyType Value |
+|-------------|-----------|--------------|------------------|
+| **Conditional Access** | CollectPolicies | `/identity/conditionalAccess/policies` | `conditionalAccess` |
+| **Named Locations** | CollectPolicies | `/identity/conditionalAccess/namedLocations` | `namedLocation` |
+| **Role Management (PIM)** | CollectPolicies | `/policies/roleManagementPolicies?$filter=scopeType eq 'DirectoryRole'` | `roleManagement` |
+| **Role Management Assignments** | CollectPolicies | `/policies/roleManagementPolicyAssignments` | `roleManagementAssignment` |
+| **PIM Group Policies** | CollectPolicies | `/policies/roleManagementPolicies?$filter=scopeType eq 'Group'` | `pimGroupPolicy` |
+| **Compliance Policies** | CollectIntunePolicies | `/deviceManagement/deviceCompliancePolicies` | `compliancePolicy` |
+| **App Protection (iOS MAM)** | CollectIntunePolicies | `/deviceAppManagement/iosManagedAppProtections` | `appProtectionPolicy` |
+| **App Protection (Android MAM)** | CollectIntunePolicies | `/deviceAppManagement/androidManagedAppProtections` | `appProtectionPolicy` |
+| **App Protection (Windows MAM)** | CollectIntunePolicies | `/deviceAppManagement/windowsManagedAppProtections` | `appProtectionPolicy` |
+| **Windows Information Protection** | CollectIntunePolicies | `/deviceAppManagement/windowsInformationProtectionPolicies` | `appProtectionPolicy` |
+| **Windows WIP (MDM)** | CollectIntunePolicies | `/deviceAppManagement/mdmWindowsInformationProtectionPolicies` | `appProtectionPolicy` |
+
+### Missing Policies - High Priority 🔴
+
+These policies are security-critical and should be added:
+
+#### 1. Authentication Methods Policies
+**API:** `GET /policies/authenticationMethodsPolicy`
+**Permission:** `Policy.Read.All`
+**Why Important:** Controls which authentication methods (SMS, FIDO2, Microsoft Authenticator, etc.) are enabled tenant-wide. Critical for MFA security assessment.
+
+**Sub-resources:**
+- `/policies/authenticationMethodsPolicy/authenticationMethodConfigurations` - Per-method configuration
+- `/policies/authenticationStrengthPolicies` - Authentication strength definitions for CA
+
+#### 2. Security Defaults
+**API:** `GET /policies/identitySecurityDefaultsEnforcementPolicy`
+**Permission:** `Policy.Read.All`
+**Why Important:** Shows if tenant uses security defaults (baseline MFA for all users). Critical for understanding overall security posture.
+
+#### 3. Device Configuration Policies (Settings Catalog)
+**API:** `GET /deviceManagement/configurationPolicies`
+**Permission:** `DeviceManagementConfiguration.Read.All`
+**Why Important:** The new unified endpoint for all device configuration including:
+- Endpoint Security policies (Antivirus, Firewall, EDR, ASR)
+- Administrative Templates
+- Security Baselines
+- Feature Updates
+
+**Note:** As of March 2025, this replaces `deviceManagement/templates` and `deviceManagement/intents`.
+
+#### 4. Authorization Policies
+**API:** `GET /policies/authorizationPolicy`
+**Permission:** `Policy.Read.All`
+**Why Important:** Controls guest access, user consent, and default permissions. Includes:
+- `allowInvitesFrom` - Who can invite guests
+- `guestUserRoleId` - Guest permissions level
+- `defaultUserRolePermissions` - What regular users can do
+
+#### 5. Cross-Tenant Access Policies
+**API:** `GET /policies/crossTenantAccessPolicy`
+**Permission:** `Policy.Read.All`
+**Why Important:** Controls B2B collaboration and trust settings with external tenants.
+
+### Missing Policies - Medium Priority 🟡
+
+#### 6. Permission Grant Policies
+**API:** `GET /policies/permissionGrantPolicies`
+**Permission:** `Policy.Read.All`
+**Why Important:** Controls which OAuth permissions users can grant to apps.
+
+#### 7. Token Lifetime Policies
+**API:** `GET /policies/tokenLifetimePolicies`
+**Permission:** `Policy.Read.All`
+**Why Important:** Custom token lifetime settings that may extend session durations.
+
+#### 8. Claims Mapping Policies
+**API:** `GET /policies/claimsMappingPolicies`
+**Permission:** `Policy.Read.All`
+**Why Important:** Custom claims in SAML tokens could indicate SSO misconfiguration.
+
+#### 9. Home Realm Discovery Policies
+**API:** `GET /policies/homeRealmDiscoveryPolicies`
+**Permission:** `Policy.Read.All`
+**Why Important:** Federation settings that control authentication flow.
+
+#### 10. Admin Consent Request Policies
+**API:** `GET /policies/adminConsentRequestPolicy`
+**Permission:** `Policy.Read.All`
+**Why Important:** Shows how app consent requests are handled.
+
+### Missing Policies - Lower Priority (User Mentioned) 🟠
+
+#### 11. Microsoft 365 Apps Policies (Office Cloud Policy Service)
+**Note:** The user specifically mentioned this. However, Microsoft 365 Apps policies are managed via the Office Cloud Policy Service (OCPS), which has limited Graph API support. Configuration is primarily through:
+- Microsoft 365 Apps admin center
+- Group Policy (for hybrid)
+- Intune Configuration profiles
+
+**Workaround:** The device configuration policies (`/deviceManagement/configurationPolicies`) can include Office settings when deployed via Intune.
+
+### Not Available via Graph API ❌
+
+These policies cannot be collected via Microsoft Graph:
+
+1. **Data Loss Prevention (DLP) Policy Management** - Can read DLP alerts but cannot read policy definitions
+2. **Exchange Transport Rules** - Requires Exchange PowerShell
+3. **SharePoint Sharing Policies** - Limited via Graph (`/admin/sharepoint/settings` has partial coverage)
+4. **Microsoft Defender Policies** - Some via `securityBaselineTemplate`, but limited
+
+### Recommended Implementation Order
+
+1. **Phase 1 (Security Critical):**
+   - Authentication Methods Policy + Authentication Strength
+   - Security Defaults
+   - Authorization Policy
+
+2. **Phase 2 (Configuration):**
+   - Device Configuration Policies (Settings Catalog)
+   - Cross-Tenant Access Policy
+
+3. **Phase 3 (Governance):**
+   - Permission Grant Policies
+   - Admin Consent Request Policy
+   - Token Lifetime Policies
+
+### Required Permissions Summary
+
+| New Permission | Policies |
+|----------------|----------|
+| `Policy.Read.All` | Auth methods, security defaults, authorization, cross-tenant, permission grant, token lifetime, claims mapping, HRD, admin consent |
+| `DeviceManagementConfiguration.Read.All` | Device configuration (settings catalog) - **Already granted** |
+
+### References
+
+- [Microsoft Graph Authentication Methods Policy API](https://learn.microsoft.com/en-us/graph/api/resources/authenticationmethodspolicies-overview)
+- [Microsoft Graph Security API Overview](https://learn.microsoft.com/en-us/graph/api/resources/security-api-overview)
+- [Device Management Configuration Policy](https://learn.microsoft.com/en-us/graph/api/resources/intune-deviceconfigv2-devicemanagementconfigurationpolicy)
+- [Updates to Beta APIs for Windows Endpoint Security](https://techcommunity.microsoft.com/blog/intunecustomersuccess/updates-to-beta-apis-for-windows-endpoint-security-and-administrative-templates/4357002)
+
+---
+
+## Claude's Session Notes (2026-01-09) - Item 13: Human-Friendly GUID Names
+
+### Task: Add Human-Friendly Names for GUIDs in Dashboard/Data
+
+### Analysis
+
+After analyzing the data, most GUIDs already have human-friendly names:
+
+| Edge Type | GUID Field | Human Name Field | Status |
+|-----------|------------|------------------|--------|
+| `appRoleAssignment` | `appRoleId` | `appRoleDisplayName` + `appRoleValue` | ✅ Already has names |
+| `directoryRole` | `targetRoleTemplateId` | `targetDisplayName` | ✅ Already has names |
+| `license` | `targetSkuId` | `targetDisplayName` + `targetSkuPartNumber` | ✅ Already has names |
+| **`azureRbac`** | `targetRoleDefinitionId` | `targetRoleDefinitionName` | ❌ **Had GUID, now fixed** |
+
+### Problem Found
+
+Azure RBAC edges showed GUIDs instead of role names:
+```json
+"targetRoleDefinitionName": "8e3af657-a8ff-443c-a75c-2fe8c4bcb635"  // Should be "Owner"
+"targetRoleDefinitionName": "ba92f5b4-2d11-453d-a403-e96b0029c9fe"  // Should be "Storage Blob Data Contributor"
+```
+
+### Fix Applied
+
+**File:** [FunctionApp/CollectRelationships/run.ps1](FunctionApp/CollectRelationships/run.ps1)
+
+1. **Added Azure Role Definition Lookup** (lines 696-714):
+   - Before processing RBAC assignments, build a lookup table from the first subscription's role definitions
+   - Maps role GUID → human-friendly name (e.g., `"8e3af657-a8ff-443c-a75c-2fe8c4bcb635"` → `"Owner"`)
+
+2. **Updated Edge Creation** (lines 745-752, 763):
+   - Extract role GUID from the full role definition ID path
+   - Look up human-friendly name in the lookup table
+   - Fall back to GUID if role not found (handles custom roles from other subscriptions)
+
+### Code Changes
+
+```powershell
+# Build Azure Role Definition lookup (GUID -> human-friendly name)
+$azureRoleLookup = @{}
+if ($subscriptions.Count -gt 0) {
+    try {
+        $firstSub = $subscriptions[0]
+        $roleDefsUri = "https://management.azure.com/subscriptions/$($firstSub.subscriptionId)/providers/Microsoft.Authorization/roleDefinitions?api-version=2022-04-01"
+        $roleHeaders = @{ 'Authorization' = "Bearer $azureToken"; 'Content-Type' = 'application/json' }
+        $roleDefsResponse = Invoke-RestMethod -Uri $roleDefsUri -Method GET -Headers $roleHeaders -ErrorAction Stop
+        foreach ($roleDef in $roleDefsResponse.value) {
+            $azureRoleLookup[$roleDef.name] = $roleDef.properties.roleName ?? $roleDef.name
+        }
+        Write-Verbose "Built Azure role lookup: $($azureRoleLookup.Count) role definitions"
+    }
+    catch {
+        Write-Warning "Failed to build Azure role lookup: $_ - role names will show as GUIDs"
+    }
+}
+
+# In edge creation:
+$roleGuid = ($roleDefId -split '/')[-1]
+$roleDisplayName = if ($azureRoleLookup.ContainsKey($roleGuid)) {
+    $azureRoleLookup[$roleGuid]
+} else {
+    $roleGuid
+}
+targetRoleDefinitionName = $roleDisplayName
+```
+
+### Result
+
+After re-collection, Azure RBAC edges will show:
+```json
+"targetRoleDefinitionName": "Owner"
+"targetRoleDefinitionName": "Storage Blob Data Contributor"
+```
+
+### Status: ✅ Code Fix Applied
+
+**Note:** Requires re-deployment and re-collection to see the updated data. Existing data in Cosmos DB will still show GUIDs until the next collection run.
+
+---
+
+## Future Work: Missing Policies Implementation
+
+The missing policies analysis (Item 12.b) documented 10+ policy types not currently collected. When ready to implement:
+
+1. **Review the analysis** in "Item 12.b: Missing Policies Analysis" section above
+2. **Start with Phase 1 (Security Critical):**
+   - Authentication Methods Policy + Authentication Strength
+   - Security Defaults
+   - Authorization Policy
+3. **Add `Policy.Read.All` permission** to the managed identity
+4. **Follow existing collector patterns** in CollectPolicies/run.ps1
+
+---
+
+## Future Work: Dashboard & Data Quality Tasks
+
+### Audit Tab Issues
+- [ ] **Rename tab** - Should be renamed to "Historical Changes" or similar (more descriptive)
+- [ ] **Entity types broken** - Currently only shows policies? Investigate what's missing
+- [ ] **General audit** - What else could be broken in the audit functionality?
+
+### Events Tab / Audit Log
+- [ ] **Events container** - Uses `/eventDate` partition key
+- [ ] **Audit log collection** - Be very selective about what audit events to collect
+- [ ] **Storage concern** - Without filtering, the container could grow to massive size (1,000,000GB+)
+- [ ] **Purpose** - "Enables historical trend analysis, audit correlation, and attack path discovery"
+- [ ] **Define scope** - Document exactly which audit events are needed and why
+
+### Temporal Fields Clarity
+- [ ] **effectiveFrom/effectiveTo** - These fields exist on all entities for historical queries
+- [ ] **Dashboard improvement** - Make temporal fields clearer/more prominent in the dashboard UI
+- [ ] **Documentation** - Document how to use temporal fields for historical analysis
+
+### JSONL Optimization
+- [ ] **Null handling investigation** - In cases of null values:
+  - Does the JSONL include empty properties (e.g., `"field": null`)?
+  - Or are null fields omitted entirely?
+- [ ] **File size optimization** - If null properties are included, consider omitting them to reduce file size
+- [ ] **Measure impact** - Quantify potential storage savings
+
+> **⚠️ DO NOT IMPLEMENT YET:** Before optimizing null handling, we need to first investigate potential bugs that cause null values to be displayed in the dashboard due to errors in the coding logic. Null values appearing may indicate actual collection/indexing issues rather than just storage inefficiency. Fix the root cause bugs first, then optimize.
+
+---
+
+## Priority Task List (2026-01-09)
+
+| Priority | Task | Status |
+|----------|------|--------|
+| **HIGH** | Missing Policies Phase 1 (Auth Methods, Security Defaults, Authorization) | ✅ Done |
+| **HIGH** | Verify lastModified column behavior in dashboard | ✅ Done |
+| **HIGH** | Verify deleted objects appear in delta/audit | ✅ Done |
+| **MEDIUM** | Administrative Units collection enhancement | ✅ Done |
+| **MEDIUM** | Audit tab rename + entity types fix | ✅ Done |
+| **MEDIUM** | Missing Policies Phase 2-3 | ⬜ Not Started |
+
+### Administrative Units Enhancement (2026-01-09)
+**What was done:**
+1. Enhanced `CollectAdministrativeUnits/run.ps1` to collect:
+   - Scoped role members (who has delegated admin rights to the AU)
+   - Member counts by type (users, groups, devices)
+2. Added `auScopedRole` edge type for delegated admin assignments
+3. Updated `IndexerConfigs.psd1` with new fields
+4. Updated `Dashboard/run.ps1` with new column priority
+
+**New fields on Administrative Units:**
+- `memberCountTotal` - Total members in the AU
+- `userMemberCount` - Number of user members
+- `groupMemberCount` - Number of group members
+- `deviceMemberCount` - Number of device members
+- `scopedRoleCount` - Number of delegated admin role assignments
+
+**New edge type: `auScopedRole`**
+- Captures who has admin privileges scoped to an Administrative Unit
+- Fields: `sourceId`, `targetId`, `roleId`, `roleName`
+- Example: User X has "User Administrator" role scoped to AU Y
+
+**Required Permission:** `RoleManagement.Read.Directory` (for scoped role collection)
+
+
+
+# useful commands
+STATUS=$(curl -s "https://func-entrariskv35-data-dev-enkqnnv64liny.azurewebsites.net/runtime/webhooks/durabletask/instances/79eec71c-9021-4cb3-97e7-f429de1e38df?taskHub=EntraRiskHub&connection=AzureWebJobsStorage&code=H85CnWqn2Naz4LZfUM9s6r1lhh9SI-67BTpFFIqhstFOAzFu91rYfQ==" | jq -r '.runtimeStatus')
+echo "Status: $STATUS"
+
+# Check regardless of status
+echo ""
+echo "=== Checking dashboard for entity types ==="
+curl -s "https://func-entrariskv35-data-dev-enkqnnv64liny.azurewebsites.net/api/dashboard?code=hyiuethRJ5prx3Ph0BWHoWgYG73wMSccPg13-FIiZ9aCAzFurZERIw==" > /tmp/dashboard4.html
+
+grep -oE '<td>[a-z]+</td><td>(new|modified|deleted)<' /tmp/dashboard4.html | sed 's/<td>//g' | sed 's/<\/td>.*//g' | sort | uniq -c

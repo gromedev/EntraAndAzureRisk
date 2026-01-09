@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Collects Administrative Units and their memberships
+    Collects Administrative Units, their memberships, and scoped role assignments
 .DESCRIPTION
     Administrative Units (AUs) are organizational containers used to delegate
     admin permissions for a subset of users, groups, and devices.
@@ -8,12 +8,13 @@
     APIs:
     - /v1.0/directory/administrativeUnits - List all AUs
     - /v1.0/directory/administrativeUnits/{id}/members - AU members
+    - /v1.0/directory/administrativeUnits/{id}/scopedRoleMembers - Delegated role assignments
 
     Output:
     - principals.jsonl (principalType = "administrativeUnit")
-    - edges.jsonl (edgeType = "auMember")
+    - edges.jsonl (edgeType = "auMember", "auScopedRole")
 
-    Permission: AdministrativeUnit.Read.All
+    Permission: AdministrativeUnit.Read.All, RoleManagement.Read.Directory
 #>
 
 param($ActivityInput)
@@ -58,7 +59,27 @@ try {
     $stats = @{
         TotalAUs = 0
         TotalMembers = 0
+        TotalScopedRoles = 0
+        UserMemberCount = 0
+        GroupMemberCount = 0
+        DeviceMemberCount = 0
         MembersPerAU = @{}
+        ScopedRolesPerAU = @{}
+    }
+
+    # Build directory role template lookup for human-friendly names
+    $roleTemplateLookup = @{}
+    try {
+        Write-Verbose "Building directory role template lookup..."
+        $rolesUri = "https://graph.microsoft.com/v1.0/directoryRoleTemplates"
+        $rolesResponse = Invoke-GraphWithRetry -Uri $rolesUri -AccessToken $graphToken
+        foreach ($role in $rolesResponse.value) {
+            $roleTemplateLookup[$role.id] = $role.displayName
+        }
+        Write-Verbose "Loaded $($roleTemplateLookup.Count) role templates"
+    }
+    catch {
+        Write-Warning "Failed to load role template lookup: $_ - scoped role names may show as GUIDs"
     }
 
     # Initialize blobs
@@ -103,24 +124,13 @@ try {
         if ($aus.Count -eq 0) { break }
 
         foreach ($au in $aus) {
-            $auObj = @{
-                objectId = $au.id
-                principalType = "administrativeUnit"
-                displayName = $au.displayName ?? ""
-                description = $au.description ?? ""
-                membershipType = $au.membershipType ?? "Assigned"
-                membershipRule = $au.membershipRule ?? $null
-                membershipRuleProcessingState = $au.membershipRuleProcessingState ?? $null
-                isMemberManagementRestricted = $au.isMemberManagementRestricted ?? $false
-                visibility = $au.visibility ?? $null
-                deleted = $false
-                collectionTimestamp = $timestampFormatted
-            }
+            # Track member counts per AU
+            $auUserCount = 0
+            $auGroupCount = 0
+            $auDeviceCount = 0
+            $auScopedRoleCount = 0
 
-            [void]$principalsJsonL.AppendLine(($auObj | ConvertTo-Json -Compress -Depth 10))
-            $stats.TotalAUs++
-
-            # Collect AU members
+            # Collect AU members first to get counts
             $membersNextLink = "https://graph.microsoft.com/v1.0/directory/administrativeUnits/$($au.id)/members"
             $memberCount = 0
 
@@ -140,9 +150,9 @@ try {
                 foreach ($member in $members) {
                     $odataType = $member.'@odata.type' -replace '#microsoft.graph.', ''
                     $memberType = switch ($odataType) {
-                        'user' { 'user' }
-                        'group' { 'group' }
-                        'device' { 'device' }
+                        'user' { $auUserCount++; $stats.UserMemberCount++; 'user' }
+                        'group' { $auGroupCount++; $stats.GroupMemberCount++; 'group' }
+                        'device' { $auDeviceCount++; $stats.DeviceMemberCount++; 'device' }
                         default { $odataType }
                     }
 
@@ -172,6 +182,82 @@ try {
             }
 
             $stats.MembersPerAU[$au.displayName] = $memberCount
+
+            # Collect scoped role members (delegated admin assignments)
+            $scopedRolesNextLink = "https://graph.microsoft.com/v1.0/directory/administrativeUnits/$($au.id)/scopedRoleMembers"
+            $scopedRoles = @()
+
+            while ($scopedRolesNextLink) {
+                try {
+                    $scopedResponse = Invoke-GraphWithRetry -Uri $scopedRolesNextLink -AccessToken $graphToken
+                    $scopedRoles += $scopedResponse.value
+                    $scopedRolesNextLink = $scopedResponse.'@odata.nextLink'
+                }
+                catch {
+                    if ($_.Exception.Message -match '403|Forbidden|permission') {
+                        Write-Warning "Scoped role members requires RoleManagement.Read.Directory permission - skipping"
+                    } else {
+                        Write-Warning "Failed to get scoped role members for AU $($au.displayName): $_"
+                    }
+                    break
+                }
+
+                if (-not $scopedResponse.value -or $scopedResponse.value.Count -eq 0) { break }
+            }
+
+            # Create edges for scoped role assignments
+            foreach ($scopedRole in $scopedRoles) {
+                $roleId = $scopedRole.roleId
+                $roleName = if ($roleTemplateLookup.ContainsKey($roleId)) { $roleTemplateLookup[$roleId] } else { $roleId }
+                $principalId = $scopedRole.roleMemberInfo.id
+                $principalDisplayName = $scopedRole.roleMemberInfo.displayName ?? ""
+
+                $scopedEdgeObj = @{
+                    objectId = "$($principalId)_$($au.id)_$($roleId)_auScopedRole"
+                    edgeType = "auScopedRole"
+                    sourceId = $principalId
+                    sourceType = "user"  # Scoped role assignments are typically to users
+                    sourceDisplayName = $principalDisplayName
+                    targetId = $au.id
+                    targetType = "administrativeUnit"
+                    targetDisplayName = $au.displayName ?? ""
+                    roleId = $roleId
+                    roleName = $roleName
+                    deleted = $false
+                    collectionTimestamp = $timestampFormatted
+                }
+
+                [void]$edgesJsonL.AppendLine(($scopedEdgeObj | ConvertTo-Json -Compress -Depth 10))
+                $auScopedRoleCount++
+                $stats.TotalScopedRoles++
+            }
+
+            $stats.ScopedRolesPerAU[$au.displayName] = $auScopedRoleCount
+
+            # Build the AU object with member counts
+            $auObj = @{
+                objectId = $au.id
+                principalType = "administrativeUnit"
+                displayName = $au.displayName ?? ""
+                description = $au.description ?? ""
+                membershipType = $au.membershipType ?? "Assigned"
+                membershipRule = $au.membershipRule ?? $null
+                membershipRuleProcessingState = $au.membershipRuleProcessingState ?? $null
+                isMemberManagementRestricted = $au.isMemberManagementRestricted ?? $false
+                visibility = $au.visibility ?? $null
+                # Member counts
+                memberCountTotal = $memberCount
+                userMemberCount = $auUserCount
+                groupMemberCount = $auGroupCount
+                deviceMemberCount = $auDeviceCount
+                # Scoped role count
+                scopedRoleCount = $auScopedRoleCount
+                deleted = $false
+                collectionTimestamp = $timestampFormatted
+            }
+
+            [void]$principalsJsonL.AppendLine(($auObj | ConvertTo-Json -Compress -Depth 10))
+            $stats.TotalAUs++
         }
     }
 
@@ -206,12 +292,16 @@ try {
         }
     }
 
-    Write-Verbose "Administrative Units collection complete: $($stats.TotalAUs) AUs, $($stats.TotalMembers) memberships"
+    Write-Verbose "Administrative Units collection complete: $($stats.TotalAUs) AUs, $($stats.TotalMembers) memberships, $($stats.TotalScopedRoles) scoped roles"
 
     return @{
         Success = $true
         AUCount = $stats.TotalAUs
         MembershipCount = $stats.TotalMembers
+        ScopedRoleCount = $stats.TotalScopedRoles
+        UserMemberCount = $stats.UserMemberCount
+        GroupMemberCount = $stats.GroupMemberCount
+        DeviceMemberCount = $stats.DeviceMemberCount
         Statistics = $stats
         BlobName = $principalsBlobName
         EdgesBlobName = $edgesBlobName

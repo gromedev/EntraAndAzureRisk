@@ -234,6 +234,10 @@ try {
     $compliancePolicies = @($allPolicies | Where-Object { $_.policyType -eq 'compliancePolicy' })
     $appProtectionPolicies = @($allPolicies | Where-Object { $_.policyType -eq 'appProtectionPolicy' })
     $namedLocations = @($allPolicies | Where-Object { $_.policyType -eq 'namedLocation' })
+    # V3.5 Phase 1: Security policies (Auth Methods, Security Defaults, Authorization)
+    $authMethodsPolicies = @($allPolicies | Where-Object { $_.policyType -eq 'authenticationMethodsPolicy' })
+    $securityDefaultsPolicies = @($allPolicies | Where-Object { $_.policyType -eq 'securityDefaults' })
+    $authorizationPolicies = @($allPolicies | Where-Object { $_.policyType -eq 'authorizationPolicy' })
 
     # ========== CONTAINER 5: AUDIT (Change Tracking) ==========
     $changes = @($auditIn | Where-Object { $_ })
@@ -244,16 +248,22 @@ try {
     $groupPriority = @('objectId', 'displayName', 'securityEnabled', 'groupTypes', 'groupTypeCategory', 'memberCountDirect', 'memberCountIndirect', 'memberCountTotal', 'userMemberCount', 'groupMemberCount', 'servicePrincipalMemberCount', 'deviceMemberCount', 'nestingDepth', 'isAssignableToRole', 'mail', 'visibility', 'createdDateTime', 'onPremisesSyncEnabled')
     $spPriority = @('objectId', 'displayName', 'appId', 'servicePrincipalType', 'accountEnabled', 'secretCount', 'certificateCount', 'createdDateTime', 'appOwnerOrganizationId')
     $devicePriority = @('objectId', 'displayName', 'deviceId', 'operatingSystem', 'operatingSystemVersion', 'isCompliant', 'isManaged', 'trustType', 'registrationDateTime', 'approximateLastSignInDateTime')
-    $adminUnitPriority = @('objectId', 'displayName', 'description', 'membershipType', 'membershipRule', 'isMemberManagementRestricted', 'visibility')
+    $adminUnitPriority = @('objectId', 'displayName', 'description', 'membershipType', 'memberCountTotal', 'userMemberCount', 'groupMemberCount', 'deviceMemberCount', 'scopedRoleCount', 'membershipRule', 'isMemberManagementRestricted', 'visibility')
     $appPriority = @('objectId', 'displayName', 'appId', 'signInAudience', 'secretCount', 'certificateCount', 'createdDateTime', 'publisherDomain')
     $azureResPriority = @('objectId', 'displayName', 'resourceType', 'owners', 'location', 'subscriptionId', 'resourceGroup', 'kind', 'sku')
     $roleDefPriority = @('objectId', 'displayName', 'resourceType', 'isBuiltIn', 'isPrivileged', 'description')
     $edgePriority = @('id', 'sourceId', 'sourceDisplayName', 'edgeType', 'targetId', 'targetDisplayName', 'effectiveFrom', 'effectiveTo')
     $derivedEdgePriority = @('id', 'sourceId', 'sourceDisplayName', 'edgeType', 'targetId', 'targetDisplayName', 'derivedFrom', 'severity', 'capability')
+    # Azure RBAC-specific columns with role name prominently displayed
+    $azureRbacPriority = @('sourceDisplayName', 'sourceType', 'targetRoleDefinitionName', 'scope', 'scopeType', 'subscriptionName', 'resourceGroup', 'sourceId', 'targetRoleDefinitionId')
     $policyPriority = @('objectId', 'displayName', 'policyType', 'state', 'createdDateTime', 'modifiedDateTime')
     $intunePolicyPriority = @('objectId', 'displayName', 'policyType', 'platform', 'createdDateTime', 'lastModifiedDateTime')
     $namedLocPriority = @('objectId', 'displayName', 'policyType', 'locationType', 'isTrusted', 'createdDateTime')
-    $auditPriority = @('objectId', 'entityType', 'changeType', 'displayName', 'changeTimestamp', 'changedFields')
+    # V3.5 Phase 1: Security policy column priorities
+    $authMethodsPriority = @('objectId', 'displayName', 'policyType', 'methodConfigurationCount', 'microsoftAuthenticatorEnabled', 'fido2Enabled', 'smsEnabled', 'temporaryAccessPassEnabled', 'policyMigrationState', 'lastModifiedDateTime')
+    $securityDefaultsPriority = @('objectId', 'displayName', 'policyType', 'isEnabled', 'description')
+    $authorizationPriority = @('objectId', 'displayName', 'policyType', 'guestUserRoleName', 'allowInvitesFrom', 'usersCanCreateApps', 'usersCanCreateGroups', 'usersCanCreateTenants', 'blockMsolPowerShell')
+    $auditPriority = @('objectId', 'entityType', 'changeType', 'displayName', 'changeTimestamp', 'auditDate', 'changedFields', 'delta')
 
     # Dynamically get ALL columns from data, with priority columns first
     $userCols = Get-AllColumns $users $userPriority
@@ -269,9 +279,14 @@ try {
     $roleDefCols = Get-AllColumns (@($directoryRoleDefs + $azureRoleDefs) | Where-Object { $_ }) $roleDefPriority
     $edgeCols = Get-AllColumns $allEdges $edgePriority
     $derivedEdgeCols = Get-AllColumns $derivedEdges $derivedEdgePriority
+    $azureRbacCols = Get-AllColumns $azureRbac $azureRbacPriority
     $policyCols = Get-AllColumns $caPolicies $policyPriority
     $intunePolicyCols = Get-AllColumns (@($compliancePolicies + $appProtectionPolicies) | Where-Object { $_ }) $intunePolicyPriority
     $namedLocCols = Get-AllColumns $namedLocations $namedLocPriority
+    # V3.5 Phase 1: Security policy columns
+    $authMethodsCols = Get-AllColumns $authMethodsPolicies $authMethodsPriority
+    $securityDefaultsCols = Get-AllColumns $securityDefaultsPolicies $securityDefaultsPriority
+    $authorizationCols = Get-AllColumns $authorizationPolicies $authorizationPriority
     $auditCols = Get-AllColumns $changes $auditPriority
 
     $html = @"
@@ -451,7 +466,7 @@ try {
             <div id="dr-tab" class="tab-content">$(Build-Table $directoryRoles 'dr-tbl' $edgeCols 'directory role assignments' $allEdges.Count)</div>
             <div id="pimr-tab" class="tab-content">$(Build-Table $pimRoles 'pimr-tbl' $edgeCols 'PIM role assignments' $allEdges.Count)</div>
             <div id="pimg-tab" class="tab-content">$(Build-Table $pimGroups 'pimg-tbl' $edgeCols 'PIM group assignments' $allEdges.Count)</div>
-            <div id="rbac-tab" class="tab-content">$(Build-Table $azureRbac 'rbac-tbl' $edgeCols 'Azure RBAC assignments' $allEdges.Count)</div>
+            <div id="rbac-tab" class="tab-content">$(Build-Table $azureRbac 'rbac-tbl' $azureRbacCols 'Azure RBAC assignments' $allEdges.Count)</div>
             <div id="ar-tab" class="tab-content">$(Build-Table $appRoles 'ar-tbl' $edgeCols 'app role assignments' $allEdges.Count)</div>
             <div id="own-tab" class="tab-content">$(Build-Table $owners 'own-tbl' $edgeCols 'ownership edges' $allEdges.Count)</div>
             <div id="lic-tab" class="tab-content">$(Build-Table $licenses 'lic-tbl' $edgeCols 'license assignments' $allEdges.Count)</div>
@@ -470,7 +485,7 @@ try {
         <div class="container-header" onclick="toggleContainer('policies-section')">
             <span class="chevron">&#9660;</span>
             POLICIES <span class="count">$($allPolicies.Count)</span>
-            <span class="desc">CA, Intune compliance, app protection, named locations</span>
+            <span class="desc">CA, Intune, security policies, named locations</span>
         </div>
         <div class="container-body">
             <div class="tabs">
@@ -479,27 +494,33 @@ try {
                 <button class="tab" onclick="event.stopPropagation(); showTab('policies-section', 'compliance-tab', this)">Compliance ($($compliancePolicies.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('policies-section', 'appprot-tab', this)">App Protection ($($appProtectionPolicies.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('policies-section', 'namedloc-tab', this)">Named Locations ($($namedLocations.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('policies-section', 'authmethods-tab', this)">Auth Methods ($($authMethodsPolicies.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('policies-section', 'secdefaults-tab', this)">Security Defaults ($($securityDefaultsPolicies.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('policies-section', 'authz-tab', this)">Authorization ($($authorizationPolicies.Count))</button>
             </div>
             <div id="ca-tab" class="tab-content active">$(Build-Table $caPolicies 'ca-tbl' $policyCols 'CA policies' $allPolicies.Count)</div>
             <div id="rp-tab" class="tab-content">$(Build-Table $rolePolicies 'rp-tbl' $policyCols 'role policies' $allPolicies.Count)</div>
             <div id="compliance-tab" class="tab-content">$(Build-Table $compliancePolicies 'compliance-tbl' $intunePolicyCols 'compliance policies' $allPolicies.Count)</div>
             <div id="appprot-tab" class="tab-content">$(Build-Table $appProtectionPolicies 'appprot-tbl' $intunePolicyCols 'app protection policies' $allPolicies.Count)</div>
             <div id="namedloc-tab" class="tab-content">$(Build-Table $namedLocations 'namedloc-tbl' $namedLocCols 'named locations' $allPolicies.Count)</div>
+            <div id="authmethods-tab" class="tab-content">$(Build-Table $authMethodsPolicies 'authmethods-tbl' $authMethodsCols 'authentication methods policy' $allPolicies.Count)</div>
+            <div id="secdefaults-tab" class="tab-content">$(Build-Table $securityDefaultsPolicies 'secdefaults-tbl' $securityDefaultsCols 'security defaults policy' $allPolicies.Count)</div>
+            <div id="authz-tab" class="tab-content">$(Build-Table $authorizationPolicies 'authz-tbl' $authorizationCols 'authorization policy' $allPolicies.Count)</div>
         </div>
     </div>
 
-    <!-- CONTAINER 5: AUDIT (Change Tracking) -->
+    <!-- CONTAINER 5: HISTORICAL CHANGES (Delta Tracking) -->
     <div class="container" id="audit-section">
         <div class="container-header" onclick="toggleContainer('audit-section')">
             <span class="chevron">&#9660;</span>
-            AUDIT <span class="count">$($changes.Count)</span>
-            <span class="desc">change tracking (permanent)</span>
+            HISTORICAL CHANGES <span class="count">$($changes.Count)</span>
+            <span class="desc">delta tracking - new, modified, deleted entities</span>
         </div>
         <div class="container-body">
             <div class="tabs">
-                <button class="tab active" onclick="event.stopPropagation(); showTab('audit-section', 'changes-tab', this)">Changes ($($changes.Count))</button>
+                <button class="tab active" onclick="event.stopPropagation(); showTab('audit-section', 'changes-tab', this)">All Changes ($($changes.Count))</button>
             </div>
-            <div id="changes-tab" class="tab-content active">$(Build-Table $changes 'changes-tbl' $auditCols 'changes' $changes.Count)</div>
+            <div id="changes-tab" class="tab-content active">$(Build-Table $changes 'changes-tbl' $auditCols 'historical changes' $changes.Count)</div>
         </div>
     </div>
 

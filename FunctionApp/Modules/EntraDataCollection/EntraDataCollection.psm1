@@ -1353,6 +1353,7 @@ function Invoke-DeltaIndexing {
                 principalType = $currentEntity.principalType
                 changeType = 'new'
                 changeTimestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+                auditDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
                 changeDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
                 snapshotId = $Timestamp
             }
@@ -1410,6 +1411,7 @@ function Invoke-DeltaIndexing {
                     principalType = $currentEntity.principalType
                     changeType = 'modified'
                     changeTimestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+                    auditDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
                     changeDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
                     snapshotId = $Timestamp
                     changedFields = @($delta.Keys)
@@ -1440,6 +1442,7 @@ function Invoke-DeltaIndexing {
                     principalType = $existingEntities[$objectId].principalType
                     changeType = 'deleted'
                     changeTimestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+                    auditDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
                     changeDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
                     snapshotId = $Timestamp
                 }

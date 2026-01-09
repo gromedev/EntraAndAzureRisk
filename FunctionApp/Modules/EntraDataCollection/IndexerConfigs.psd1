@@ -271,6 +271,13 @@
             'membershipRuleProcessingState'
             'isMemberManagementRestricted'
             'visibility'
+            # V3.5: Member counts
+            'memberCountTotal'
+            'userMemberCount'
+            'groupMemberCount'
+            'deviceMemberCount'
+            # V3.5: Scoped role count (delegated admins)
+            'scopedRoleCount'
             'deleted'
         )
         ArrayFields = @()
@@ -282,6 +289,13 @@
             membershipRuleProcessingState = 'membershipRuleProcessingState'
             isMemberManagementRestricted = 'isMemberManagementRestricted'
             visibility = 'visibility'
+            # V3.5: Member counts
+            memberCountTotal = 'memberCountTotal'
+            userMemberCount = 'userMemberCount'
+            groupMemberCount = 'groupMemberCount'
+            deviceMemberCount = 'deviceMemberCount'
+            # V3.5: Scoped role count (delegated admins)
+            scopedRoleCount = 'scopedRoleCount'
             collectionTimestamp = 'collectionTimestamp'
         }
         WriteDeletes = $true
@@ -1045,6 +1059,10 @@
             'subscriptionId'
             'subscriptionName'
             'resourceGroup'
+
+            # V3.5: Administrative Unit scoped role edge fields
+            'roleId'
+            # 'roleName' already defined in Abuse Edge fields above
         )
         ArrayFields = @(
             'inheritancePath'
@@ -1164,6 +1182,10 @@
             subscriptionId = 'subscriptionId'
             subscriptionName = 'subscriptionName'
             resourceGroup = 'resourceGroup'
+
+            # V3.5: Administrative Unit scoped role edge fields
+            roleId = 'roleId'
+            # roleName already defined in Abuse Edge fields above
         }
         WriteDeletes = $true
         IncludeDeleteMarkers = $true
@@ -1230,6 +1252,40 @@
             'saveAsBlocked'
             'periodOfflineBeforeAccessCheck'
             'periodOnlineBeforeAccessCheck'
+
+            # V3.5 Phase 1: Authentication Methods Policy
+            'policyVersion'
+            'policyMigrationState'
+            'reconfirmationInDays'
+            'registrationEnforcement'
+            'reportSuspiciousActivitySettings'
+            'systemCredentialPreferences'
+            'authenticationMethodConfigurations'
+            'methodConfigurationCount'
+            'microsoftAuthenticatorEnabled'
+            'fido2Enabled'
+            'smsEnabled'
+            'emailEnabled'
+            'temporaryAccessPassEnabled'
+            'softwareOathEnabled'
+            'voiceEnabled'
+
+            # V3.5 Phase 1: Security Defaults Policy
+            'isEnabled'
+
+            # V3.5 Phase 1: Authorization Policy
+            'allowInvitesFrom'
+            'guestUserRoleId'
+            'guestUserRoleName'
+            'allowedToSignUpEmailBasedSubscriptions'
+            'allowedToUseSSPR'
+            'allowEmailVerifiedUsersToJoinOrganization'
+            'blockMsolPowerShell'
+            'defaultUserRolePermissions'
+            'usersCanCreateApps'
+            'usersCanCreateGroups'
+            'usersCanCreateTenants'
+            'usersCanReadOtherUsers'
         )
         ArrayFields = @(
             'conditions'
@@ -1242,6 +1298,9 @@
             # V3.5: Intune policy arrays
             'assignments'
             'protectedApps'
+            # V3.5 Phase 1: Authentication Methods Policy arrays
+            'authenticationMethodConfigurations'
+            'permissionGrantPoliciesAssigned'
         )
         EmbeddedObjectFields = @(
             'conditions'
@@ -1303,6 +1362,40 @@
             saveAsBlocked = 'saveAsBlocked'
             periodOfflineBeforeAccessCheck = 'periodOfflineBeforeAccessCheck'
             periodOnlineBeforeAccessCheck = 'periodOnlineBeforeAccessCheck'
+
+            # V3.5 Phase 1: Authentication Methods Policy fields
+            policyVersion = 'policyVersion'
+            policyMigrationState = 'policyMigrationState'
+            reconfirmationInDays = 'reconfirmationInDays'
+            registrationEnforcement = 'registrationEnforcement'
+            reportSuspiciousActivitySettings = 'reportSuspiciousActivitySettings'
+            systemCredentialPreferences = 'systemCredentialPreferences'
+            authenticationMethodConfigurations = 'authenticationMethodConfigurations'
+            methodConfigurationCount = 'methodConfigurationCount'
+            microsoftAuthenticatorEnabled = 'microsoftAuthenticatorEnabled'
+            fido2Enabled = 'fido2Enabled'
+            smsEnabled = 'smsEnabled'
+            emailEnabled = 'emailEnabled'
+            temporaryAccessPassEnabled = 'temporaryAccessPassEnabled'
+            softwareOathEnabled = 'softwareOathEnabled'
+            voiceEnabled = 'voiceEnabled'
+
+            # V3.5 Phase 1: Security Defaults Policy fields
+            isEnabled = 'isEnabled'
+
+            # V3.5 Phase 1: Authorization Policy fields
+            allowInvitesFrom = 'allowInvitesFrom'
+            guestUserRoleId = 'guestUserRoleId'
+            guestUserRoleName = 'guestUserRoleName'
+            allowedToSignUpEmailBasedSubscriptions = 'allowedToSignUpEmailBasedSubscriptions'
+            allowedToUseSSPR = 'allowedToUseSSPR'
+            allowEmailVerifiedUsersToJoinOrganization = 'allowEmailVerifiedUsersToJoinOrganization'
+            blockMsolPowerShell = 'blockMsolPowerShell'
+            defaultUserRolePermissions = 'defaultUserRolePermissions'
+            usersCanCreateApps = 'usersCanCreateApps'
+            usersCanCreateGroups = 'usersCanCreateGroups'
+            usersCanCreateTenants = 'usersCanCreateTenants'
+            usersCanReadOtherUsers = 'usersCanReadOtherUsers'
         }
         WriteDeletes = $true
         IncludeDeleteMarkers = $true

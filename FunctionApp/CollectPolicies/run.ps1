@@ -1,15 +1,22 @@
 <#
 .SYNOPSIS
-    Combined collector for ALL policy types: CA policies, role management policies, and named locations
+    Combined collector for ALL policy types: CA policies, role management policies, security policies, and named locations
 .DESCRIPTION
     Consolidates policy collections into a single activity function:
     1. Conditional Access policies (policyType = "conditionalAccess")
     2. Role management policies (policyType = "roleManagement")
     3. Role management policy assignments (policyType = "roleManagementAssignment")
+    3b. PIM Group policies (policyType = "pimGroupPolicy")
     4. Named locations for CA (policyType = "namedLocation") - IP ranges, country locations
+    5. Authentication Methods Policy (policyType = "authenticationMethodsPolicy") - tenant-wide auth methods
+    6. Security Defaults Policy (policyType = "securityDefaults") - baseline MFA settings
+    7. Authorization Policy (policyType = "authorizationPolicy") - guest/user permissions
 
     All output goes to a single policies.jsonl file with policyType discriminator.
     This enables unified indexing to the 'policies' container.
+
+    Permissions Required:
+    - Policy.Read.All (for most policies)
 #>
 
 param($ActivityInput)
@@ -95,6 +102,10 @@ try {
         RoleManagementAssignments = @{ Success = $false; Count = 0 }
         PimGroupPolicies = @{ Success = $false; Count = 0 }
         NamedLocations = @{ Success = $false; Count = 0 }
+        # Phase 1 Security Policies (new)
+        AuthenticationMethods = @{ Success = $false; Count = 0 }
+        SecurityDefaults = @{ Success = $false; Count = 0 }
+        Authorization = @{ Success = $false; Count = 0 }
     }
 
     # Initialize unified blob
@@ -586,6 +597,222 @@ try {
     }
     #endregion
 
+    # Periodic flush before Phase 5
+    if ($policiesJsonL.Length -ge $writeThreshold) {
+        try {
+            Add-BlobContent -StorageAccountName $storageAccountName `
+                           -ContainerName $containerName `
+                           -BlobName $policiesBlobName `
+                           -Content $policiesJsonL.ToString() `
+                           -AccessToken $storageToken
+            Write-Verbose "Flushed $($policiesJsonL.Length) characters after named locations"
+            $policiesJsonL.Clear()
+        }
+        catch {
+            Write-Error "Blob flush failed: $_"
+        }
+    }
+
+    #region 5. Collect Authentication Methods Policy (tenant-wide auth methods configuration)
+    Write-Verbose "=== Phase 5: Collecting Authentication Methods Policy ==="
+
+    $authMethodsCount = 0
+
+    try {
+        # Get the tenant-wide authentication methods policy
+        $authMethodsUri = "https://graph.microsoft.com/v1.0/policies/authenticationMethodsPolicy"
+
+        try {
+            $authMethodsPolicy = Invoke-GraphWithRetry -Uri $authMethodsUri -AccessToken $graphToken
+
+            # Extract authentication method configurations
+            $methodConfigs = @()
+            foreach ($config in $authMethodsPolicy.authenticationMethodConfigurations) {
+                $methodConfigs += @{
+                    method = $config.'@odata.type' -replace '#microsoft.graph.', '' -replace 'AuthenticationMethodConfiguration', ''
+                    id = $config.id ?? $null
+                    state = $config.state ?? 'disabled'
+                    includeTargets = $config.includeTargets ?? @()
+                    excludeTargets = $config.excludeTargets ?? @()
+                }
+            }
+
+            $policyObj = @{
+                id = $authMethodsPolicy.id ?? "authenticationMethodsPolicy"
+                objectId = $authMethodsPolicy.id ?? "authenticationMethodsPolicy"
+                policyType = "authenticationMethodsPolicy"
+                displayName = $authMethodsPolicy.displayName ?? "Authentication Methods Policy"
+                description = $authMethodsPolicy.description ?? ""
+                policyVersion = $authMethodsPolicy.policyVersion ?? ""
+                policyMigrationState = $authMethodsPolicy.policyMigrationState ?? ""
+                reconfirmationInDays = $authMethodsPolicy.reconfirmationInDays ?? $null
+                registrationEnforcement = $authMethodsPolicy.registrationEnforcement ?? @{}
+                reportSuspiciousActivitySettings = $authMethodsPolicy.reportSuspiciousActivitySettings ?? @{}
+                systemCredentialPreferences = $authMethodsPolicy.systemCredentialPreferences ?? @{}
+                lastModifiedDateTime = $authMethodsPolicy.lastModifiedDateTime ?? $null
+                # Extracted method configurations for easier querying
+                authenticationMethodConfigurations = $methodConfigs
+                methodConfigurationCount = $methodConfigs.Count
+                # Individual method states for dashboard filtering
+                microsoftAuthenticatorEnabled = ($methodConfigs | Where-Object { $_.method -eq 'microsoftAuthenticator' -and $_.state -eq 'enabled' }).Count -gt 0
+                fido2Enabled = ($methodConfigs | Where-Object { $_.method -eq 'fido2' -and $_.state -eq 'enabled' }).Count -gt 0
+                smsEnabled = ($methodConfigs | Where-Object { $_.method -eq 'sms' -and $_.state -eq 'enabled' }).Count -gt 0
+                emailEnabled = ($methodConfigs | Where-Object { $_.method -eq 'email' -and $_.state -eq 'enabled' }).Count -gt 0
+                temporaryAccessPassEnabled = ($methodConfigs | Where-Object { $_.method -eq 'temporaryAccessPass' -and $_.state -eq 'enabled' }).Count -gt 0
+                softwareOathEnabled = ($methodConfigs | Where-Object { $_.method -eq 'softwareOath' -and $_.state -eq 'enabled' }).Count -gt 0
+                voiceEnabled = ($methodConfigs | Where-Object { $_.method -eq 'voice' -and $_.state -eq 'enabled' }).Count -gt 0
+                collectionTimestamp = $timestampFormatted
+            }
+
+            [void]$policiesJsonL.AppendLine(($policyObj | ConvertTo-Json -Compress -Depth 10))
+            $authMethodsCount++
+
+            $results.AuthenticationMethods = @{
+                Success = $true
+                Count = $authMethodsCount
+                MethodConfigurationCount = $methodConfigs.Count
+            }
+            Write-Verbose "Authentication Methods Policy complete: $authMethodsCount policy with $($methodConfigs.Count) method configurations"
+        }
+        catch {
+            if ($_.Exception.Message -match '403|Forbidden|permission') {
+                Write-Warning "Authentication Methods Policy requires Policy.Read.All permission - skipping"
+            } else {
+                Write-Warning "Failed to retrieve authentication methods policy: $_"
+            }
+            $results.AuthenticationMethods.Error = $_.Exception.Message
+        }
+    }
+    catch {
+        Write-Warning "Authentication Methods Policy collection failed: $_"
+        $results.AuthenticationMethods.Error = $_.Exception.Message
+    }
+    #endregion
+
+    #region 6. Collect Security Defaults Policy (baseline MFA)
+    Write-Verbose "=== Phase 6: Collecting Security Defaults Policy ==="
+
+    $securityDefaultsCount = 0
+
+    try {
+        $securityDefaultsUri = "https://graph.microsoft.com/v1.0/policies/identitySecurityDefaultsEnforcementPolicy"
+
+        try {
+            $securityDefaultsPolicy = Invoke-GraphWithRetry -Uri $securityDefaultsUri -AccessToken $graphToken
+
+            $policyObj = @{
+                id = $securityDefaultsPolicy.id ?? "securityDefaults"
+                objectId = $securityDefaultsPolicy.id ?? "securityDefaults"
+                policyType = "securityDefaults"
+                displayName = $securityDefaultsPolicy.displayName ?? "Security Defaults"
+                description = $securityDefaultsPolicy.description ?? ""
+                # Key field: whether security defaults are enabled
+                isEnabled = $securityDefaultsPolicy.isEnabled ?? $false
+                collectionTimestamp = $timestampFormatted
+            }
+
+            [void]$policiesJsonL.AppendLine(($policyObj | ConvertTo-Json -Compress -Depth 10))
+            $securityDefaultsCount++
+
+            $results.SecurityDefaults = @{
+                Success = $true
+                Count = $securityDefaultsCount
+                IsEnabled = $securityDefaultsPolicy.isEnabled ?? $false
+            }
+            Write-Verbose "Security Defaults Policy complete: isEnabled=$($securityDefaultsPolicy.isEnabled)"
+        }
+        catch {
+            if ($_.Exception.Message -match '403|Forbidden|permission') {
+                Write-Warning "Security Defaults Policy requires Policy.Read.All permission - skipping"
+            } else {
+                Write-Warning "Failed to retrieve security defaults policy: $_"
+            }
+            $results.SecurityDefaults.Error = $_.Exception.Message
+        }
+    }
+    catch {
+        Write-Warning "Security Defaults Policy collection failed: $_"
+        $results.SecurityDefaults.Error = $_.Exception.Message
+    }
+    #endregion
+
+    #region 7. Collect Authorization Policy (guest/user permissions)
+    Write-Verbose "=== Phase 7: Collecting Authorization Policy ==="
+
+    $authorizationCount = 0
+
+    try {
+        $authorizationUri = "https://graph.microsoft.com/v1.0/policies/authorizationPolicy"
+
+        try {
+            $authorizationPolicy = Invoke-GraphWithRetry -Uri $authorizationUri -AccessToken $graphToken
+
+            # Map guest user role GUIDs to human-readable names
+            $guestRoleMap = @{
+                'a0b1b346-4d3e-4e8b-98f8-753987be4970' = 'Guest User'           # Restricted
+                '10dae51f-b6af-4016-8d66-8c2a99b929b3' = 'Member'                # Same as members
+                '2af84b1e-32c8-42b7-82bc-daa82404023b' = 'Restricted Guest User' # Most restricted
+            }
+            $guestRoleId = $authorizationPolicy.guestUserRoleId ?? ''
+            $guestRoleName = if ($guestRoleMap[$guestRoleId]) { $guestRoleMap[$guestRoleId] } else { $guestRoleId }
+
+            $policyObj = @{
+                id = $authorizationPolicy.id ?? "authorizationPolicy"
+                objectId = $authorizationPolicy.id ?? "authorizationPolicy"
+                policyType = "authorizationPolicy"
+                displayName = $authorizationPolicy.displayName ?? "Authorization Policy"
+                description = $authorizationPolicy.description ?? ""
+                # Guest access settings
+                allowInvitesFrom = $authorizationPolicy.allowInvitesFrom ?? ""
+                guestUserRoleId = $guestRoleId
+                guestUserRoleName = $guestRoleName
+                allowedToSignUpEmailBasedSubscriptions = $authorizationPolicy.allowedToSignUpEmailBasedSubscriptions ?? $null
+                allowedToUseSSPR = $authorizationPolicy.allowedToUseSSPR ?? $null
+                allowEmailVerifiedUsersToJoinOrganization = $authorizationPolicy.allowEmailVerifiedUsersToJoinOrganization ?? $null
+                blockMsolPowerShell = $authorizationPolicy.blockMsolPowerShell ?? $null
+                # Default user permissions
+                defaultUserRolePermissions = @{
+                    allowedToCreateApps = $authorizationPolicy.defaultUserRolePermissions.allowedToCreateApps ?? $null
+                    allowedToCreateSecurityGroups = $authorizationPolicy.defaultUserRolePermissions.allowedToCreateSecurityGroups ?? $null
+                    allowedToCreateTenants = $authorizationPolicy.defaultUserRolePermissions.allowedToCreateTenants ?? $null
+                    allowedToReadBitlockerKeysForOwnedDevice = $authorizationPolicy.defaultUserRolePermissions.allowedToReadBitlockerKeysForOwnedDevice ?? $null
+                    allowedToReadOtherUsers = $authorizationPolicy.defaultUserRolePermissions.allowedToReadOtherUsers ?? $null
+                    permissionGrantPoliciesAssigned = $authorizationPolicy.defaultUserRolePermissions.permissionGrantPoliciesAssigned ?? @()
+                }
+                # Flattened fields for dashboard filtering
+                usersCanCreateApps = $authorizationPolicy.defaultUserRolePermissions.allowedToCreateApps ?? $null
+                usersCanCreateGroups = $authorizationPolicy.defaultUserRolePermissions.allowedToCreateSecurityGroups ?? $null
+                usersCanCreateTenants = $authorizationPolicy.defaultUserRolePermissions.allowedToCreateTenants ?? $null
+                usersCanReadOtherUsers = $authorizationPolicy.defaultUserRolePermissions.allowedToReadOtherUsers ?? $null
+                collectionTimestamp = $timestampFormatted
+            }
+
+            [void]$policiesJsonL.AppendLine(($policyObj | ConvertTo-Json -Compress -Depth 10))
+            $authorizationCount++
+
+            $results.Authorization = @{
+                Success = $true
+                Count = $authorizationCount
+                GuestRole = $guestRoleName
+                AllowInvitesFrom = $authorizationPolicy.allowInvitesFrom ?? ''
+            }
+            Write-Verbose "Authorization Policy complete: guestRole=$guestRoleName, allowInvitesFrom=$($authorizationPolicy.allowInvitesFrom)"
+        }
+        catch {
+            if ($_.Exception.Message -match '403|Forbidden|permission') {
+                Write-Warning "Authorization Policy requires Policy.Read.All permission - skipping"
+            } else {
+                Write-Warning "Failed to retrieve authorization policy: $_"
+            }
+            $results.Authorization.Error = $_.Exception.Message
+        }
+    }
+    catch {
+        Write-Warning "Authorization Policy collection failed: $_"
+        $results.Authorization.Error = $_.Exception.Message
+    }
+    #endregion
+
     #region Final Flush
     if ($policiesJsonL.Length -gt 0) {
         try {
@@ -612,9 +839,12 @@ try {
     [System.GC]::WaitForPendingFinalizers()
 
     # Determine overall success
-    $overallSuccess = $results.ConditionalAccess.Success -or $results.RoleManagementPolicies.Success -or $results.RoleManagementAssignments.Success -or $results.NamedLocations.Success
+    $overallSuccess = $results.ConditionalAccess.Success -or $results.RoleManagementPolicies.Success -or $results.RoleManagementAssignments.Success -or $results.NamedLocations.Success -or $results.AuthenticationMethods.Success -or $results.SecurityDefaults.Success -or $results.Authorization.Success
     $pimGroupCount = if ($results.PimGroupPolicies) { $results.PimGroupPolicies.Count } else { 0 }
-    $totalCount = $results.ConditionalAccess.Count + $results.RoleManagementPolicies.Count + $results.RoleManagementAssignments.Count + $results.NamedLocations.Count + $pimGroupCount
+    $authMethodsCount = if ($results.AuthenticationMethods) { $results.AuthenticationMethods.Count } else { 0 }
+    $securityDefaultsCount = if ($results.SecurityDefaults) { $results.SecurityDefaults.Count } else { 0 }
+    $authorizationCount = if ($results.Authorization) { $results.Authorization.Count } else { 0 }
+    $totalCount = $results.ConditionalAccess.Count + $results.RoleManagementPolicies.Count + $results.RoleManagementAssignments.Count + $results.NamedLocations.Count + $pimGroupCount + $authMethodsCount + $securityDefaultsCount + $authorizationCount
 
     Write-Verbose "Combined policies collection complete: $totalCount total policies"
 
@@ -630,6 +860,10 @@ try {
         RoleManagementAssignmentCount = $results.RoleManagementAssignments.Count
         PimGroupPolicyCount = $pimGroupCount
         NamedLocationCount = $results.NamedLocations.Count
+        # Phase 1 Security Policies
+        AuthenticationMethodsPolicyCount = $authMethodsCount
+        SecurityDefaultsPolicyCount = $securityDefaultsCount
+        AuthorizationPolicyCount = $authorizationCount
 
         # Detailed results
         Results = $results
@@ -652,6 +886,13 @@ try {
                 total = $results.NamedLocations.Count
                 ipLocations = $results.NamedLocations.IpLocationCount
                 countryLocations = $results.NamedLocations.CountryLocationCount
+            }
+            securityPolicies = @{
+                authenticationMethods = $authMethodsCount
+                securityDefaults = $securityDefaultsCount
+                authorization = $authorizationCount
+                securityDefaultsEnabled = $results.SecurityDefaults.IsEnabled
+                guestUserRole = $results.Authorization.GuestRole
             }
         }
     }

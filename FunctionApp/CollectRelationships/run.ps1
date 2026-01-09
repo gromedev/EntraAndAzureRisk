@@ -693,6 +693,26 @@ try {
 
     Write-Verbose "Found $($subscriptions.Count) Azure subscriptions"
 
+    # Build Azure Role Definition lookup (GUID -> human-friendly name)
+    # This resolves targetRoleDefinitionName from GUIDs to names like "Owner", "Contributor", etc.
+    $azureRoleLookup = @{}
+    if ($subscriptions.Count -gt 0) {
+        try {
+            $firstSub = $subscriptions[0]
+            $roleDefsUri = "https://management.azure.com/subscriptions/$($firstSub.subscriptionId)/providers/Microsoft.Authorization/roleDefinitions?api-version=2022-04-01"
+            $roleHeaders = @{ 'Authorization' = "Bearer $azureToken"; 'Content-Type' = 'application/json' }
+            $roleDefsResponse = Invoke-RestMethod -Uri $roleDefsUri -Method GET -Headers $roleHeaders -ErrorAction Stop
+            foreach ($roleDef in $roleDefsResponse.value) {
+                # Map role GUID to display name (e.g., "8e3af657-a8ff-443c-a75c-2fe8c4bcb635" -> "Owner")
+                $azureRoleLookup[$roleDef.name] = $roleDef.properties.roleName ?? $roleDef.name
+            }
+            Write-Verbose "Built Azure role lookup: $($azureRoleLookup.Count) role definitions"
+        }
+        catch {
+            Write-Warning "Failed to build Azure role lookup: $_ - role names will show as GUIDs"
+        }
+    }
+
     foreach ($sub in $subscriptions) {
         try {
             $uri = "https://management.azure.com$($sub.id)/providers/Microsoft.Authorization/roleAssignments?api-version=2022-04-01"
@@ -722,6 +742,14 @@ try {
 
                 $principalId = $assignment.properties.principalId ?? ""
                 $roleDefId = $assignment.properties.roleDefinitionId ?? ""
+                # Extract GUID from full role definition ID path
+                $roleGuid = ($roleDefId -split '/')[-1]
+                # Look up human-friendly name, fall back to GUID if not found
+                $roleDisplayName = if ($azureRoleLookup.ContainsKey($roleGuid)) {
+                    $azureRoleLookup[$roleGuid]
+                } else {
+                    $roleGuid
+                }
 
                 $relationship = @{
                     id = "${principalId}_${scope}_azureRbac"
@@ -732,7 +760,7 @@ try {
                     targetId = $roleDefId
                     targetType = "azureRole"
                     targetRoleDefinitionId = $roleDefId
-                    targetRoleDefinitionName = ($roleDefId -split '/')[-1]
+                    targetRoleDefinitionName = $roleDisplayName
                     subscriptionId = $sub.subscriptionId
                     subscriptionName = $sub.displayName ?? ""
                     scope = $scope
