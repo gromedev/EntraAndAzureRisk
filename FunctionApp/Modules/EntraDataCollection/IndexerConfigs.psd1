@@ -81,10 +81,13 @@
             'deleted'
             # Member statistics
             'memberCountDirect'
+            'memberCountIndirect'
+            'memberCountTotal'
             'userMemberCount'
             'groupMemberCount'
             'servicePrincipalMemberCount'
             'deviceMemberCount'
+            'nestingDepth'
         )
         ArrayFields = @('groupTypes')
         DocumentFields = @{
@@ -104,10 +107,13 @@
             mail = 'mail'
             # Member statistics
             memberCountDirect = 'memberCountDirect'
+            memberCountIndirect = 'memberCountIndirect'
+            memberCountTotal = 'memberCountTotal'
             userMemberCount = 'userMemberCount'
             groupMemberCount = 'groupMemberCount'
             servicePrincipalMemberCount = 'servicePrincipalMemberCount'
             deviceMemberCount = 'deviceMemberCount'
+            nestingDepth = 'nestingDepth'
             collectionTimestamp = 'collectionTimestamp'
         }
         WriteDeletes = $true
@@ -248,6 +254,40 @@
         IncludeDeleteMarkers = $true
         RawOutBinding = 'devicesRawOut'
         ChangesOutBinding = 'deviceChangesOut'
+    }
+
+    # ============================================
+    # ADMINISTRATIVE UNITS
+    # ============================================
+    administrativeUnits = @{
+        EntityType = 'administrativeUnits'
+        EntityNameSingular = 'administrativeUnit'
+        EntityNamePlural = 'AdministrativeUnits'
+        CompareFields = @(
+            'displayName'
+            'description'
+            'membershipType'
+            'membershipRule'
+            'membershipRuleProcessingState'
+            'isMemberManagementRestricted'
+            'visibility'
+            'deleted'
+        )
+        ArrayFields = @()
+        DocumentFields = @{
+            displayName = 'displayName'
+            description = 'description'
+            membershipType = 'membershipType'
+            membershipRule = 'membershipRule'
+            membershipRuleProcessingState = 'membershipRuleProcessingState'
+            isMemberManagementRestricted = 'isMemberManagementRestricted'
+            visibility = 'visibility'
+            collectionTimestamp = 'collectionTimestamp'
+        }
+        WriteDeletes = $true
+        IncludeDeleteMarkers = $true
+        RawOutBinding = 'adminUnitsRawOut'
+        ChangesOutBinding = 'adminUnitChangesOut'
     }
 
     # ============================================

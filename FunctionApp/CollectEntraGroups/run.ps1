@@ -135,14 +135,17 @@ try {
 
         $counts = @{
             memberCountDirect = 0
+            memberCountIndirect = 0  # Transitive - calculated from transitiveMembers minus direct
+            memberCountTotal = 0     # Total transitive members
             userMemberCount = 0
             groupMemberCount = 0
             servicePrincipalMemberCount = 0
             deviceMemberCount = 0
+            nestingDepth = 0         # Max depth of nested groups
         }
 
         try {
-            # Get members with minimal fields (just need @odata.type for counting)
+            # Get direct members with minimal fields
             $membersUri = "https://graph.microsoft.com/v1.0/groups/$GroupId/members?`$select=id&`$top=999"
 
             while ($membersUri) {
@@ -158,6 +161,37 @@ try {
                     }
                 }
                 $membersUri = $response.'@odata.nextLink'
+            }
+
+            # If group has nested groups, get transitive member count
+            if ($counts.groupMemberCount -gt 0) {
+                try {
+                    # Use $count to get total transitive members efficiently
+                    $transitiveUri = "https://graph.microsoft.com/v1.0/groups/$GroupId/transitiveMembers/`$count"
+                    $headers = @{
+                        'Authorization' = "Bearer $AccessToken"
+                        'ConsistencyLevel' = 'eventual'
+                    }
+                    $transitiveCount = Invoke-RestMethod -Uri $transitiveUri -Headers $headers -Method Get
+                    $counts.memberCountTotal = [int]$transitiveCount
+                    $counts.memberCountIndirect = [Math]::Max(0, $counts.memberCountTotal - $counts.memberCountDirect)
+
+                    # Calculate nesting depth (estimate based on ratio)
+                    if ($counts.memberCountIndirect -gt 0) {
+                        # Simple heuristic: if indirect > direct, likely nested 2+ levels
+                        $counts.nestingDepth = if ($counts.memberCountIndirect -gt ($counts.memberCountDirect * 2)) { 3 }
+                                               elseif ($counts.memberCountIndirect -gt $counts.memberCountDirect) { 2 }
+                                               else { 1 }
+                    }
+                }
+                catch {
+                    Write-Verbose "Could not get transitive count for group $GroupId`: $_"
+                    # Fall back to direct count
+                    $counts.memberCountTotal = $counts.memberCountDirect
+                }
+            } else {
+                # No nested groups, total = direct
+                $counts.memberCountTotal = $counts.memberCountDirect
             }
         }
         catch {
@@ -238,10 +272,13 @@ try {
 
                 # Member statistics
                 memberCountDirect = $memberCounts.memberCountDirect
+                memberCountIndirect = $memberCounts.memberCountIndirect
+                memberCountTotal = $memberCounts.memberCountTotal
                 userMemberCount = $memberCounts.userMemberCount
                 groupMemberCount = $memberCounts.groupMemberCount
                 servicePrincipalMemberCount = $memberCounts.servicePrincipalMemberCount
                 deviceMemberCount = $memberCounts.deviceMemberCount
+                nestingDepth = $memberCounts.nestingDepth
 
                 # V3: Temporal fields for historical tracking
                 effectiveFrom = $timestampFormatted

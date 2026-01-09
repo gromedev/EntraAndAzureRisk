@@ -340,6 +340,21 @@ try {
         }
     }
 
+    # Index Administrative Units (principals)
+    if ($adminUnitsResult.Success -and $adminUnitsResult.BlobName) {
+        $adminUnitsIndexInput = @{ Timestamp = $timestamp; BlobName = $adminUnitsResult.BlobName; PrincipalType = 'administrativeUnit' }
+        $adminUnitsIndexResult = Invoke-DurableActivity -FunctionName 'IndexPrincipalsInCosmosDB' -Input $adminUnitsIndexInput
+        if ($adminUnitsIndexResult.Success) {
+            Write-Verbose "Administrative Units indexing complete: $($adminUnitsIndexResult.TotalPrincipals) total, $($adminUnitsIndexResult.NewPrincipals) new"
+            $principalsIndexResult.TotalPrincipals += $adminUnitsIndexResult.TotalPrincipals
+            $principalsIndexResult.NewPrincipals += $adminUnitsIndexResult.NewPrincipals
+            $principalsIndexResult.ModifiedPrincipals += $adminUnitsIndexResult.ModifiedPrincipals
+            $principalsIndexResult.CosmosWriteCount += $adminUnitsIndexResult.CosmosWriteCount
+        } else {
+            Write-Warning "Administrative Units indexing failed: $($adminUnitsIndexResult.Error)"
+        }
+    }
+
     $principalsIndexResult.Success = $true
 
     # Index Resources (unified: applications + Azure resources + role definitions)
@@ -446,6 +461,21 @@ try {
             $edgesIndexResult.CosmosWriteCount += $indexResult.CosmosWriteCount
         } else {
             Write-Warning "Azure Resources edges indexing failed: $($indexResult.Error)"
+        }
+    }
+
+    # Index Administrative Units edges (AU memberships)
+    if ($adminUnitsResult.Success -and $adminUnitsResult.EdgesBlobName) {
+        $indexInput = @{ Timestamp = $timestamp; BlobName = $adminUnitsResult.EdgesBlobName }
+        $indexResult = Invoke-DurableActivity -FunctionName 'IndexEdgesInCosmosDB' -Input $indexInput
+        if ($indexResult.Success) {
+            Write-Verbose "Administrative Units edges indexing complete: $($indexResult.TotalEdges) total"
+            $edgesIndexResult.TotalEdges += $indexResult.TotalEdges
+            $edgesIndexResult.NewEdges += $indexResult.NewEdges
+            $edgesIndexResult.ModifiedEdges += $indexResult.ModifiedEdges
+            $edgesIndexResult.CosmosWriteCount += $indexResult.CosmosWriteCount
+        } else {
+            Write-Warning "Administrative Units edges indexing failed: $($indexResult.Error)"
         }
     }
 
@@ -562,6 +592,13 @@ try {
                 Count = $devicesResult.DeviceCount ?? 0
                 BlobPath = $devicesResult.PrincipalsBlobName
             }
+            AdminUnits = @{
+                Success = $adminUnitsResult.Success
+                AUCount = $adminUnitsResult.AUCount ?? 0
+                MembershipCount = $adminUnitsResult.MembershipCount ?? 0
+                BlobPath = $adminUnitsResult.BlobName
+                EdgesBlobPath = $adminUnitsResult.EdgesBlobName
+            }
 
             # Resources
             Applications = @{
@@ -620,9 +657,9 @@ try {
 
             # Derived Edges
             AbuseEdges = @{
-                Success = $abuseEdgesResult.Success
-                Count = $abuseEdgesResult.DerivedEdgeCount ?? 0
-                Statistics = $abuseEdgesResult.Statistics
+                Success = $derivedEdgesResult.Success
+                Count = $derivedEdgesResult.DerivedEdgeCount ?? 0
+                Statistics = $derivedEdgesResult.Statistics
             }
             VirtualEdges = @{
                 Success = $virtualEdgesResult.Success
@@ -673,11 +710,14 @@ try {
             TotalGroups = $groupsResult.GroupCount ?? 0
             TotalServicePrincipals = $servicePrincipalsResult.ServicePrincipalCount ?? 0
             TotalDevices = $devicesResult.DeviceCount ?? 0
+            TotalAdminUnits = $adminUnitsResult.AUCount ?? 0
+            TotalAUMemberships = $adminUnitsResult.MembershipCount ?? 0
             TotalPrincipals = (
                 ($usersResult.UserCount ?? 0) +
                 ($groupsResult.GroupCount ?? 0) +
                 ($servicePrincipalsResult.ServicePrincipalCount ?? 0) +
-                ($devicesResult.DeviceCount ?? 0)
+                ($devicesResult.DeviceCount ?? 0) +
+                ($adminUnitsResult.AUCount ?? 0)
             )
 
             # Resource counts
@@ -702,10 +742,10 @@ try {
 
             # Edge counts
             TotalEdges = $edgesResult.EdgeCount ?? 0
-            TotalAbuseEdges = $abuseEdgesResult.DerivedEdgeCount ?? 0
+            TotalAbuseEdges = $derivedEdgesResult.DerivedEdgeCount ?? 0
             TotalVirtualEdges = $virtualEdgesResult.DerivedEdgeCount ?? 0
             TotalDerivedEdges = (
-                ($abuseEdgesResult.DerivedEdgeCount ?? 0) +
+                ($derivedEdgesResult.DerivedEdgeCount ?? 0) +
                 ($virtualEdgesResult.DerivedEdgeCount ?? 0)
             )
             TotalEvents = $eventsResult.EventCount ?? 0
@@ -754,7 +794,7 @@ try {
                 $eventsIndexResult.Success
             )
             AllDerivationsSucceeded = (
-                $abuseEdgesResult.Success -and
+                $derivedEdgesResult.Success -and
                 $virtualEdgesResult.Success
             )
         }

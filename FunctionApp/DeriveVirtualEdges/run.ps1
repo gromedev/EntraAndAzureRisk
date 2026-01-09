@@ -364,12 +364,14 @@ function Invoke-CosmosDbQuery {
 
     $dateString = [DateTime]::UtcNow.ToString("r")
 
-    # Generate auth signature
+    # Generate auth signature - Cosmos DB REST API format:
+    # StringToSign = verb + "\n" + resourceType + "\n" + resourceLink + "\n" + date + "\n" + ""
+    # For POST /dbs/{db}/colls/{coll}/docs: resourceType = "docs", resourceLink = "dbs/{db}/colls/{coll}"
     $keyBytes = [Convert]::FromBase64String($Key)
-    $stringToSign = "post`n$($resourceLink.ToLower())/docs`n$dateString`n"
+    $stringToSign = "post`ndocs`n$($resourceLink.ToLower())`n$($dateString.ToLower())`n`n"
     $hmac = New-Object System.Security.Cryptography.HMACSHA256
     $hmac.Key = $keyBytes
-    $hashBytes = $hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($stringToSign.ToLower()))
+    $hashBytes = $hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($stringToSign))
     $signature = [Convert]::ToBase64String($hashBytes)
     $authHeader = [Uri]::EscapeDataString("type=master&ver=1.0&sig=$signature")
 

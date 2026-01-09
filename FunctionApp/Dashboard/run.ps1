@@ -194,7 +194,7 @@ try {
     # Column definitions - priority columns shown first, then ALL other columns discovered dynamically
     # V3.5: Dynamic column discovery ensures all collected properties are visible
     $userPriority = @('objectId', 'displayName', 'userPrincipalName', 'accountEnabled', 'userType', 'perUserMfaState', 'authMethodCount', 'riskLevel', 'riskState', 'isAtRisk', 'mail', 'jobTitle', 'department', 'createdDateTime', 'lastPasswordChangeDateTime', 'onPremisesSyncEnabled')
-    $groupPriority = @('objectId', 'displayName', 'securityEnabled', 'groupTypes', 'memberCountDirect', 'isAssignableToRole', 'mail', 'visibility', 'createdDateTime', 'onPremisesSyncEnabled')
+    $groupPriority = @('objectId', 'displayName', 'securityEnabled', 'groupTypes', 'memberCountDirect', 'memberCountIndirect', 'memberCountTotal', 'nestingDepth', 'groupMemberCount', 'isAssignableToRole', 'mail', 'visibility', 'createdDateTime', 'onPremisesSyncEnabled')
     $spPriority = @('objectId', 'displayName', 'appId', 'servicePrincipalType', 'accountEnabled', 'secretCount', 'certificateCount', 'createdDateTime', 'appOwnerOrganizationId')
     $devicePriority = @('objectId', 'displayName', 'deviceId', 'operatingSystem', 'operatingSystemVersion', 'isCompliant', 'isManaged', 'trustType', 'registrationDateTime', 'approximateLastSignInDateTime')
     $adminUnitPriority = @('objectId', 'displayName', 'description', 'membershipType', 'membershipRule', 'isMemberManagementRestricted', 'visibility')

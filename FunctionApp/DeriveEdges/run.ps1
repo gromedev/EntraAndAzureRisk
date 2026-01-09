@@ -33,12 +33,14 @@ function Invoke-CosmosDbQuery {
 
     $dateString = [DateTime]::UtcNow.ToString("r")
 
-    # Generate auth signature
+    # Generate auth signature - Cosmos DB REST API format:
+    # StringToSign = verb + "\n" + resourceType + "\n" + resourceLink + "\n" + date + "\n" + ""
+    # For POST /dbs/{db}/colls/{coll}/docs: resourceType = "docs", resourceLink = "dbs/{db}/colls/{coll}"
     $keyBytes = [Convert]::FromBase64String($Key)
-    $stringToSign = "post`n$($resourceLink.ToLower())/docs`n$dateString`n"
+    $stringToSign = "post`ndocs`n$($resourceLink.ToLower())`n$($dateString.ToLower())`n`n"
     $hmac = New-Object System.Security.Cryptography.HMACSHA256
     $hmac.Key = $keyBytes
-    $hashBytes = $hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($stringToSign.ToLower()))
+    $hashBytes = $hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($stringToSign))
     $signature = [Convert]::ToBase64String($hashBytes)
     $authHeader = [Uri]::EscapeDataString("type=master&ver=1.0&sig=$signature")
 
@@ -171,14 +173,31 @@ try {
                                               -Query $query `
                                               -PartitionKey "appRoleAssignment"
 
-        Write-Verbose "Found $($appRoleEdges.Count) appRoleAssignment edges to analyze"
+        Write-Information "[DERIVE-DEBUG] Found $($appRoleEdges.Count) appRoleAssignment edges to analyze" -InformationAction Continue
 
+        # DEBUG: Log sample edge structure and first few appRoleIds
+        if ($appRoleEdges.Count -gt 0) {
+            Write-Information "[DERIVE-DEBUG] Sample edge keys: $($appRoleEdges[0].PSObject.Properties.Name -join ', ')" -InformationAction Continue
+            $sampleAppRoleIds = ($appRoleEdges | Select-Object -First 5).appRoleId | Where-Object { $_ }
+            Write-Information "[DERIVE-DEBUG] First 5 appRoleIds: $($sampleAppRoleIds -join ', ')" -InformationAction Continue
+            Write-Information "[DERIVE-DEBUG] DangerousPerms keys count: $($DangerousPerms.GraphPermissions.Keys.Count)" -InformationAction Continue
+            Write-Information "[DERIVE-DEBUG] Looking for: $($DangerousPerms.GraphPermissions.Keys | Select-Object -First 3 | ForEach-Object { $_ })" -InformationAction Continue
+        } else {
+            Write-Information "[DERIVE-DEBUG] No appRoleAssignment edges returned from query!" -InformationAction Continue
+        }
+
+        $matchCount = 0
         foreach ($edge in $appRoleEdges) {
             $appRoleId = $edge.appRoleId
             if (-not $appRoleId) { continue }
 
             # Check if this is a dangerous Graph permission
-            if ($DangerousPerms.GraphPermissions.ContainsKey($appRoleId)) {
+            $isMatch = $DangerousPerms.GraphPermissions.ContainsKey($appRoleId)
+            if ($matchCount -lt 5) {
+                Write-Information "[DERIVE-DEBUG] Checking appRoleId '$appRoleId' - Match: $isMatch" -InformationAction Continue
+            }
+            if ($isMatch) {
+                $matchCount++
                 $permInfo = $DangerousPerms.GraphPermissions[$appRoleId]
 
                 # Create derived abuse edge
@@ -233,6 +252,14 @@ try {
                                            -PartitionKey "directoryRole"
 
         Write-Verbose "Found $($roleEdges.Count) directoryRole edges to analyze"
+
+        # DEBUG: Log sample role edge structure
+        if ($roleEdges.Count -gt 0) {
+            Write-Verbose "DEBUG: Sample role edge keys: $($roleEdges[0].PSObject.Properties.Name -join ', ')"
+            $sampleRoleTemplateIds = ($roleEdges | Select-Object -First 5).targetRoleTemplateId | Where-Object { $_ }
+            Write-Verbose "DEBUG: First 5 targetRoleTemplateIds: $($sampleRoleTemplateIds -join ', ')"
+            Write-Verbose "DEBUG: Looking for dangerous roles like: 62e90394-69f5-4237-9190-012177145e10 (Global Admin)"
+        }
 
         foreach ($edge in $roleEdges) {
             $roleTemplateId = $edge.targetRoleTemplateId
@@ -422,7 +449,7 @@ try {
     #region Phase 4: Azure RBAC Abuse (for cross-cloud attack paths)
     Write-Verbose "=== Phase 4: Deriving Azure RBAC Abuse Edges ==="
 
-    $query = "SELECT * FROM c WHERE c.edgeType = 'azureRoleAssignment' AND c.deleted != true"
+    $query = "SELECT * FROM c WHERE c.edgeType = 'azureRbac' AND c.deleted != true"
 
     try {
         $rbacEdges = Invoke-CosmosDbQuery -Endpoint $cosmosEndpoint `
@@ -430,9 +457,9 @@ try {
                                            -DatabaseName $databaseName `
                                            -ContainerName $containerName `
                                            -Query $query `
-                                           -PartitionKey "azureRoleAssignment"
+                                           -PartitionKey "azureRbac"
 
-        Write-Verbose "Found $($rbacEdges.Count) azureRoleAssignment edges"
+        Write-Verbose "Found $($rbacEdges.Count) azureRbac edges"
 
         foreach ($edge in $rbacEdges) {
             $roleDefId = $edge.targetRoleDefinitionId
@@ -479,7 +506,7 @@ try {
         }
     }
     catch {
-        Write-Warning "Error querying azureRoleAssignment edges: $_"
+        Write-Warning "Error querying azureRbac edges: $_"
         $stats.Errors++
     }
     #endregion
