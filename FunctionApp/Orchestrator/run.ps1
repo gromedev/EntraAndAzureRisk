@@ -97,6 +97,12 @@ try {
         -Input $collectionInput `
         -NoWait
 
+    # Administrative Units (output to principals.jsonl + edges.jsonl)
+    $adminUnitsTask = Invoke-DurableActivity `
+        -FunctionName 'CollectAdministrativeUnits' `
+        -Input $collectionInput `
+        -NoWait
+
     # Resource Collectors (4) - output to resources.jsonl
     $applicationsTask = Invoke-DurableActivity `
         -FunctionName 'CollectAppRegistrations' `
@@ -149,13 +155,14 @@ try {
     #endregion
 
     #region Wait for All Collections
-    Write-Verbose "Waiting for all 12 collectors to complete..."
+    Write-Verbose "Waiting for all 13 collectors to complete..."
 
     $allResults = Wait-ActivityFunction -Task @(
         $usersTask,
         $groupsTask,
         $servicePrincipalsTask,
         $devicesTask,
+        $adminUnitsTask,
         $applicationsTask,
         $azureHierarchyTask,
         $azureResourcesTask,
@@ -166,19 +173,20 @@ try {
         $edgesTask
     )
 
-    # Unpack results (12 collectors)
+    # Unpack results (13 collectors)
     $usersResult = $allResults[0]
     $groupsResult = $allResults[1]
     $servicePrincipalsResult = $allResults[2]
     $devicesResult = $allResults[3]
-    $applicationsResult = $allResults[4]
-    $azureHierarchyResult = $allResults[5]
-    $azureResourcesResult = $allResults[6]
-    $roleDefinitionsResult = $allResults[7]
-    $policiesResult = $allResults[8]
-    $intunePoliciesResult = $allResults[9]
-    $eventsResult = $allResults[10]
-    $edgesResult = $allResults[11]
+    $adminUnitsResult = $allResults[4]
+    $applicationsResult = $allResults[5]
+    $azureHierarchyResult = $allResults[6]
+    $azureResourcesResult = $allResults[7]
+    $roleDefinitionsResult = $allResults[8]
+    $policiesResult = $allResults[9]
+    $intunePoliciesResult = $allResults[10]
+    $eventsResult = $allResults[11]
+    $edgesResult = $allResults[12]
     #endregion
 
     #region Validate Collection Results
@@ -201,6 +209,12 @@ try {
     if (-not $devicesResult.Success) {
         Write-Warning "Devices collection failed: $($devicesResult.Error)"
         $devicesResult = @{ Success = $false; DeviceCount = 0; PrincipalsBlobName = $null }
+    }
+
+    # Administrative Units (non-critical - requires AdministrativeUnit.Read.All)
+    if (-not $adminUnitsResult.Success) {
+        Write-Warning "Administrative Units collection failed: $($adminUnitsResult.Error)"
+        $adminUnitsResult = @{ Success = $false; AUCount = 0; MembershipCount = 0; BlobName = $null }
     }
 
     # Resource collections are non-critical
