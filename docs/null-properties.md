@@ -1,915 +1,989 @@
-Users (59 rows):
-  businessPhones
-  riskState
-  riskDetail
-  riskLastUpdatedDateTime
-  externalUserState
-  externalUserStateChangeDateTime
-  mail
-  proxyAddresses
-  lastSignInDateTime
-  jobTitle
-  department
-  perUserMfaState
-  authMethodTypes
-  usageLocation
-
+Principals
+Users (60 rows):
+hasP2License
+hasE5License
+licenseCount
+assignedLicenseSkus
+onPremisesSyncEnabled
+businessPhones
+riskState
+riskLastUpdatedDateTime
+riskDetail
+externalUserState
+externalUserStateChangeDateTime
+mail
+proxyAddresses
+lastSignInDateTime
+jobTitle
+department
+perUserMfaState
+authMethodTypes
+usageLocation
 Groups (41 rows):
-  resourceProvisioningOptions
-  resourceBehaviorOptions
-  mail
-  membershipRule
-  visibility
-  groupTypes
-  isAssignableToRole
-  description
-
-Service Principals (313 rows):
-  addIns
-  resourceSpecificApplicationPermissions
-  homepage
-  passwordCredentials
-  keyCredentials
-  logoutUrl
-  replyUrls
-  oauth2PermissionScopes
-  tags
-  appOwnerOrganizationId
-  appDisplayName
-  signInAudience
-
-Applications (13 rows): [NO NULL COLUMNS]
-
+memberCountIndirect
+memberCountTotal
+nestingDepth
+onPremisesSyncEnabled
+resourceProvisioningOptions
+resourceBehaviorOptions
+mail
+membershipRule
+visibility
+groupTypes
+isAssignableToRole
+description
+Service Principals (314 rows):
+createdDateTime
+addIns
+resourceSpecificApplicationPermissions
+homepage
+passwordCredentials
+keyCredentials
+logoutUrl
+replyUrls
+oauth2PermissionScopes
+tags
+appOwnerOrganizationId
+appDisplayName
+signInAudience
+Applications (14 rows):
+appId
+signInAudience
+secretCount
+certificateCount
+createdDateTime
+publisherDomain
 Devices (2 rows):
-  manufacturer
-  model
-  systemLabels
-
-================================================================================
-Resources
-================================================================================
-
-Tenants (1 rows):
-  location
-  subscriptionId
-  kind
-  sku
-  authorizationSource
-  clientCertEnabled
-  defaultHostName
-  enablePurgeProtection
-  enableRbacAuthorization
-  enableSoftDelete
-  httpsOnly
-  managedBy
-  managedByTenants
-  name
-  osType
-  provisioningState
-  publicNetworkAccess
-  resourceGroupId
-  resourceGroupName
-  securityComplianceNotificationMails
-  softDeleteRetentionInDays
-  state
-  tags
-  vaultUri
-  vmSize
-
-Subscriptions (1 rows):
-  location
-  kind
-  sku
-  clientCertEnabled
-  defaultDomain
-  defaultHostName
-  enablePurgeProtection
-  enableRbacAuthorization
-  enableSoftDelete
-  httpsOnly
-  managedBy
-  managedByTenants
-  name
-  osType
-  provisioningState
-  publicNetworkAccess
-  resourceGroupId
-  resourceGroupName
-  securityComplianceNotificationMails
-  softDeleteRetentionInDays
-  technicalNotificationMails
-  tenantType
-  vaultUri
-  verifiedDomains
-  vmSize
-
-Resource Groups (9 rows):
-  kind
-  sku
-  authorizationSource
-  clientCertEnabled
-  defaultDomain
-  defaultHostName
-  enablePurgeProtection
-  enableRbacAuthorization
-  enableSoftDelete
-  httpsOnly
-  managedByTenants
-  osType
-  publicNetworkAccess
-  resourceGroupId
-  resourceGroupName
-  securityComplianceNotificationMails
-  softDeleteRetentionInDays
-  state
-  technicalNotificationMails
-  tenantId
-  tenantType
-  vaultUri
-  verifiedDomains
-  vmSize
-  managedBy
-
-Virtual Machines (1 rows):
-  kind
-  sku
-  authorizationSource
-  clientCertEnabled
-  defaultDomain
-  defaultHostName
-  enablePurgeProtection
-  enableRbacAuthorization
-  enableSoftDelete
-  httpsOnly
-  managedBy
-  managedByTenants
-  publicNetworkAccess
-  securityComplianceNotificationMails
-  softDeleteRetentionInDays
-  state
-  technicalNotificationMails
-  tenantType
-  vaultUri
-  verifiedDomains
-
-Key Vaults (4 rows):
-  kind
-  sku
-  authorizationSource
-  clientCertEnabled
-  defaultDomain
-  defaultHostName
-  httpsOnly
-  managedBy
-  managedByTenants
-  osType
-  provisioningState
-  securityComplianceNotificationMails
-  state
-  technicalNotificationMails
-  tenantType
-  verifiedDomains
-  vmSize
-
-Storage Accounts (5 rows):
-  authorizationSource
-  clientCertEnabled
-  defaultDomain
-  defaultHostName
-  enablePurgeProtection
-  enableRbacAuthorization
-  enableSoftDelete
-  httpsOnly
-  managedBy
-  managedByTenants
-  osType
-  provisioningState
-  publicNetworkAccess
-  securityComplianceNotificationMails
-  softDeleteRetentionInDays
-  state
-  technicalNotificationMails
-  tenantType
-  vaultUri
-  verifiedDomains
-  vmSize
-
-Container Registries (1 rows):
-  kind
-  authorizationSource
-  clientCertEnabled
-  defaultDomain
-  defaultHostName
-  enablePurgeProtection
-  enableRbacAuthorization
-  enableSoftDelete
-  httpsOnly
-  managedBy
-  managedByTenants
-  osType
-  provisioningState
-  securityComplianceNotificationMails
-  softDeleteRetentionInDays
-  state
-  technicalNotificationMails
-  tenantType
-  vaultUri
-  verifiedDomains
-  vmSize
-
-Function Apps (5 rows):
-  sku
-  authorizationSource
-  defaultDomain
-  enablePurgeProtection
-  enableRbacAuthorization
-  enableSoftDelete
-  managedBy
-  managedByTenants
-  osType
-  provisioningState
-  publicNetworkAccess
-  securityComplianceNotificationMails
-  softDeleteRetentionInDays
-  technicalNotificationMails
-  tenantType
-  vaultUri
-  verifiedDomains
-  vmSize
-
-Logic Apps (2 rows):
-  kind
-  sku
-  authorizationSource
-  clientCertEnabled
-  defaultDomain
-  defaultHostName
-  enablePurgeProtection
-  enableRbacAuthorization
-  enableSoftDelete
-  httpsOnly
-  managedBy
-  managedByTenants
-  osType
-  provisioningState
-  publicNetworkAccess
-  securityComplianceNotificationMails
-  softDeleteRetentionInDays
-  technicalNotificationMails
-  tenantType
-  vaultUri
-  verifiedDomains
-  vmSize
-
-Web Apps (2 rows):
-  sku
-  authorizationSource
-  defaultDomain
-  enablePurgeProtection
-  enableRbacAuthorization
-  enableSoftDelete
-  managedBy
-  managedByTenants
-  osType
-  provisioningState
-  publicNetworkAccess
-  securityComplianceNotificationMails
-  softDeleteRetentionInDays
-  technicalNotificationMails
-  tenantType
-  vaultUri
-  verifiedDomains
-  vmSize
-
+isCompliant
+isManaged
+manufacturer
+model
+systemLabels
 Administrative Units (1 rows):
-  description
-
-Automation Accounts (5 rows):
-  appRoleDisplayName
-  appRoleId
-  assignmentSource
-  assignmentType
-  blocksAccess
-  clientAppTypes
-  consentType
-  eligibleAssignmentMaxDurationDays
-  hasLocationCondition
-  hasRiskCondition
-  inheritanceDepth
-  inheritancePath
-  maxActivationDurationHours
-  membershipType
-  memberType
-  permanentAssignmentAllowed
-  policyState
-  requiresAppProtection
-  requiresApproval
-  requiresApprovedApp
-  requiresCompliantDevice
-  requiresHybridAzureADJoin
-  requiresJustification
-  requiresMfa
-  requiresMfaOnActivation
-  requiresTicketInfo
-  scheduleInfo
-  scope
-  scopeDisplayName
-  scopeType
-  sourceAccountEnabled
-  sourceUserType
-  status
-  targetAccountEnabled
-  targetAppDisplayName
-  targetAppId
-  targetIsAssignableToRole
-  targetIsBuiltIn
-  targetIsPrivileged
-  targetMailEnabled
-  targetPublisherDomain
-  targetRoleDefinitionId
-  targetRoleDefinitionName
-  targetRoleTemplateId
-  targetSecurityEnabled
-  targetServicePrincipalType
-  targetSignInAudience
-  targetSkuId
-  targetSkuPartNumber
-  targetVisibility
-  sourceUserPrincipalName
-
+description
+membershipType
+membershipRule
+isMemberManagementRestricted
+visibility
+Resources
+Tenants (1 rows):
+owners
+location
+subscriptionId
+resourceGroup
+kind
+sku
+authorizationSource
+clientCertEnabled
+defaultHostName
+enablePurgeProtection
+enableRbacAuthorization
+enableSoftDelete
+httpsOnly
+managedBy
+managedByTenants
+name
+osType
+provisioningState
+publicNetworkAccess
+resourceGroupId
+resourceGroupName
+securityComplianceNotificationMails
+softDeleteRetentionInDays
+state
+tags
+vaultUri
+vmSize
+Subscriptions (1 rows):
+owners
+managedByTenants
+Resource Groups (9 rows):
+owners
+resourceGroup
+kind
+sku
+authorizationSource
+clientCertEnabled
+defaultDomain
+defaultHostName
+enablePurgeProtection
+enableRbacAuthorization
+enableSoftDelete
+httpsOnly
+managedByTenants
+osType
+publicNetworkAccess
+resourceGroupId
+resourceGroupName
+securityComplianceNotificationMails
+softDeleteRetentionInDays
+state
+technicalNotificationMails
+tenantId
+tenantType
+vaultUri
+verifiedDomains
+vmSize
+managedBy
+Virtual Machines (1 rows):
+owners
+resourceGroup
+kind
+sku
+authorizationSource
+clientCertEnabled
+defaultDomain
+defaultHostName
+enablePurgeProtection
+enableRbacAuthorization
+enableSoftDelete
+httpsOnly
+managedBy
+managedByTenants
+publicNetworkAccess
+securityComplianceNotificationMails
+softDeleteRetentionInDays
+state
+technicalNotificationMails
+tenantType
+vaultUri
+verifiedDomains
+Key Vaults (4 rows):
+owners
+resourceGroup
+kind
+sku
+authorizationSource
+clientCertEnabled
+defaultDomain
+defaultHostName
+httpsOnly
+managedBy
+managedByTenants
+osType
+provisioningState
+securityComplianceNotificationMails
+state
+technicalNotificationMails
+tenantType
+verifiedDomains
+vmSize
+Storage Accounts (5 rows):
+owners
+resourceGroup
+authorizationSource
+clientCertEnabled
+defaultDomain
+defaultHostName
+enablePurgeProtection
+enableRbacAuthorization
+enableSoftDelete
+httpsOnly
+managedBy
+managedByTenants
+osType
+provisioningState
+publicNetworkAccess
+securityComplianceNotificationMails
+softDeleteRetentionInDays
+state
+technicalNotificationMails
+tenantType
+vaultUri
+verifiedDomains
+vmSize
+Container Registries (1 rows):
+owners
+resourceGroup
+kind
+authorizationSource
+clientCertEnabled
+defaultDomain
+defaultHostName
+enablePurgeProtection
+enableRbacAuthorization
+enableSoftDelete
+httpsOnly
+managedBy
+managedByTenants
+osType
+provisioningState
+securityComplianceNotificationMails
+softDeleteRetentionInDays
+state
+technicalNotificationMails
+tenantType
+vaultUri
+verifiedDomains
+vmSize
+Function Apps (5 rows):
+owners
+resourceGroup
+sku
+authorizationSource
+defaultDomain
+enablePurgeProtection
+enableRbacAuthorization
+enableSoftDelete
+managedBy
+managedByTenants
+osType
+provisioningState
+publicNetworkAccess
+securityComplianceNotificationMails
+softDeleteRetentionInDays
+technicalNotificationMails
+tenantType
+vaultUri
+verifiedDomains
+vmSize
+Logic Apps (2 rows):
+owners
+resourceGroup
+kind
+sku
+authorizationSource
+clientCertEnabled
+defaultDomain
+defaultHostName
+enablePurgeProtection
+enableRbacAuthorization
+enableSoftDelete
+httpsOnly
+managedBy
+managedByTenants
+osType
+provisioningState
+publicNetworkAccess
+securityComplianceNotificationMails
+softDeleteRetentionInDays
+technicalNotificationMails
+tenantType
+vaultUri
+verifiedDomains
+vmSize
+Web Apps (2 rows):
+owners
+resourceGroup
+sku
+authorizationSource
+defaultDomain
+enablePurgeProtection
+enableRbacAuthorization
+enableSoftDelete
+managedBy
+managedByTenants
+osType
+provisioningState
+publicNetworkAccess
+securityComplianceNotificationMails
+softDeleteRetentionInDays
+technicalNotificationMails
+tenantType
+vaultUri
+verifiedDomains
+vmSize
 Managed Identities (6 rows):
-  targetDisplayName
-  appRoleDisplayName
-  appRoleId
-  assignmentSource
-  assignmentType
-  blocksAccess
-  clientAppTypes
-  consentType
-  eligibleAssignmentMaxDurationDays
-  hasLocationCondition
-  hasRiskCondition
-  inheritanceDepth
-  inheritancePath
-  maxActivationDurationHours
-  membershipType
-  memberType
-  permanentAssignmentAllowed
-  policyState
-  requiresAppProtection
-  requiresApproval
-  requiresApprovedApp
-  requiresCompliantDevice
-  requiresHybridAzureADJoin
-  requiresJustification
-  requiresMfa
-  requiresMfaOnActivation
-  requiresTicketInfo
-  scheduleInfo
-  scope
-  scopeDisplayName
-  scopeType
-  sourceAccountEnabled
-  sourceUserPrincipalName
-  sourceUserType
-  status
-  targetAccountEnabled
-  targetAppDisplayName
-  targetAppId
-  targetIsAssignableToRole
-  targetIsBuiltIn
-  targetIsPrivileged
-  targetMailEnabled
-  targetPublisherDomain
-  targetRoleDefinitionId
-  targetRoleDefinitionName
-  targetRoleTemplateId
-  targetSecurityEnabled
-  targetServicePrincipalType
-  targetSignInAudience
-  targetSkuId
-  targetSkuPartNumber
-  targetVisibility
-
-================================================================================
+targetDisplayName
+effectiveTo
+appRoleDisplayName
+appRoleId
+assignmentSource
+assignmentType
+blocksAccess
+clientAppTypes
+consentType
+eligibleAssignmentMaxDurationDays
+hasLocationCondition
+hasRiskCondition
+inheritanceDepth
+inheritancePath
+locationUsageType
+maxActivationDurationHours
+membershipType
+memberType
+permanentAssignmentAllowed
+policyState
+requiresAppProtection
+requiresApproval
+requiresApprovedApp
+requiresCompliantDevice
+requiresHybridAzureADJoin
+requiresJustification
+requiresMfa
+requiresMfaOnActivation
+requiresTicketInfo
+resourceGroup
+scheduleInfo
+scope
+scopeDisplayName
+scopeType
+sourceAccountEnabled
+sourceUserPrincipalName
+sourceUserType
+status
+subscriptionId
+subscriptionName
+targetAccountEnabled
+targetAppDisplayName
+targetAppId
+targetIsAssignableToRole
+targetIsBuiltIn
+targetIsPrivileged
+targetMailEnabled
+targetPublisherDomain
+targetRoleDefinitionId
+targetRoleDefinitionName
+targetRoleTemplateId
+targetSecurityEnabled
+targetServicePrincipalType
+targetSignInAudience
+targetSkuId
+targetSkuPartNumber
+targetVisibility
+Automation Accounts (5 rows):
+effectiveTo
+appRoleDisplayName
+appRoleId
+assignmentSource
+assignmentType
+blocksAccess
+clientAppTypes
+consentType
+eligibleAssignmentMaxDurationDays
+hasLocationCondition
+hasRiskCondition
+inheritanceDepth
+inheritancePath
+locationUsageType
+maxActivationDurationHours
+membershipType
+memberType
+permanentAssignmentAllowed
+policyState
+requiresAppProtection
+requiresApproval
+requiresApprovedApp
+requiresCompliantDevice
+requiresHybridAzureADJoin
+requiresJustification
+requiresMfa
+requiresMfaOnActivation
+requiresTicketInfo
+resourceGroup
+scheduleInfo
+scope
+scopeDisplayName
+scopeType
+sourceAccountEnabled
+sourceUserType
+status
+subscriptionId
+subscriptionName
+targetAccountEnabled
+targetAppDisplayName
+targetAppId
+targetIsAssignableToRole
+targetIsBuiltIn
+targetIsPrivileged
+targetMailEnabled
+targetPublisherDomain
+targetRoleDefinitionId
+targetRoleDefinitionName
+targetRoleTemplateId
+targetSecurityEnabled
+targetServicePrincipalType
+targetSignInAudience
+targetSkuId
+targetSkuPartNumber
+targetVisibility
+sourceUserPrincipalName
 Edges
-================================================================================
-
-Group Memberships (168 rows):
-  appRoleDisplayName
-  appRoleId
-  assignmentSource
-  assignmentType
-  blocksAccess
-  clientAppTypes
-  consentType
-  eligibleAssignmentMaxDurationDays
-  hasLocationCondition
-  hasRiskCondition
-  maxActivationDurationHours
-  memberType
-  permanentAssignmentAllowed
-  policyState
-  requiresAppProtection
-  requiresApproval
-  requiresApprovedApp
-  requiresCompliantDevice
-  requiresHybridAzureADJoin
-  requiresJustification
-  requiresMfa
-  requiresMfaOnActivation
-  requiresTicketInfo
-  scheduleInfo
-  scope
-  scopeDisplayName
-  scopeType
-  status
-  targetAccountEnabled
-  targetAppDisplayName
-  targetAppId
-  targetIsBuiltIn
-  targetIsPrivileged
-  targetPublisherDomain
-  targetRoleDefinitionId
-  targetRoleDefinitionName
-  targetRoleTemplateId
-  targetServicePrincipalType
-  targetSignInAudience
-  targetSkuId
-  targetSkuPartNumber
-  inheritancePath
-  targetIsAssignableToRole
-  targetVisibility
-  sourceUserPrincipalName
-  sourceUserType
-  sourceAccountEnabled
-
-Directory Roles (9 rows):
-  sourceDisplayName
-  appRoleDisplayName
-  appRoleId
-  assignmentSource
-  assignmentType
-  blocksAccess
-  clientAppTypes
-  consentType
-  eligibleAssignmentMaxDurationDays
-  hasLocationCondition
-  hasRiskCondition
-  inheritanceDepth
-  inheritancePath
-  maxActivationDurationHours
-  membershipType
-  memberType
-  permanentAssignmentAllowed
-  policyState
-  requiresAppProtection
-  requiresApproval
-  requiresApprovedApp
-  requiresCompliantDevice
-  requiresHybridAzureADJoin
-  requiresJustification
-  requiresMfa
-  requiresMfaOnActivation
-  requiresTicketInfo
-  scheduleInfo
-  scope
-  scopeDisplayName
-  scopeType
-  sourceAccountEnabled
-  sourceType
-  sourceUserPrincipalName
-  sourceUserType
-  status
-  targetAccountEnabled
-  targetAppDisplayName
-  targetAppId
-  targetIsAssignableToRole
-  targetMailEnabled
-  targetPublisherDomain
-  targetRoleDefinitionId
-  targetRoleDefinitionName
-  targetSecurityEnabled
-  targetServicePrincipalType
-  targetSignInAudience
-  targetSkuId
-  targetSkuPartNumber
-  targetVisibility
-
-PIM Roles (13 rows):
-  sourceDisplayName
-  appRoleDisplayName
-  appRoleId
-  assignmentSource
-  blocksAccess
-  clientAppTypes
-  consentType
-  eligibleAssignmentMaxDurationDays
-  hasLocationCondition
-  hasRiskCondition
-  inheritanceDepth
-  inheritancePath
-  maxActivationDurationHours
-  membershipType
-  permanentAssignmentAllowed
-  policyState
-  requiresAppProtection
-  requiresApproval
-  requiresApprovedApp
-  requiresCompliantDevice
-  requiresHybridAzureADJoin
-  requiresJustification
-  requiresMfa
-  requiresMfaOnActivation
-  requiresTicketInfo
-  scope
-  scopeDisplayName
-  scopeType
-  sourceAccountEnabled
-  sourceType
-  sourceUserPrincipalName
-  sourceUserType
-  targetAccountEnabled
-  targetAppDisplayName
-  targetAppId
-  targetIsAssignableToRole
-  targetIsBuiltIn
-  targetMailEnabled
-  targetPublisherDomain
-  targetRoleDefinitionId
-  targetRoleDefinitionName
-  targetSecurityEnabled
-  targetServicePrincipalType
-  targetSignInAudience
-  targetSkuId
-  targetSkuPartNumber
-  targetVisibility
-
+Group Memberships (173 rows):
+effectiveTo
+appRoleDisplayName
+appRoleId
+assignmentSource
+assignmentType
+blocksAccess
+clientAppTypes
+consentType
+eligibleAssignmentMaxDurationDays
+hasLocationCondition
+hasRiskCondition
+locationUsageType
+maxActivationDurationHours
+memberType
+permanentAssignmentAllowed
+policyState
+requiresAppProtection
+requiresApproval
+requiresApprovedApp
+requiresCompliantDevice
+requiresHybridAzureADJoin
+requiresJustification
+requiresMfa
+requiresMfaOnActivation
+requiresTicketInfo
+resourceGroup
+scheduleInfo
+scope
+scopeDisplayName
+scopeType
+status
+subscriptionId
+subscriptionName
+targetAccountEnabled
+targetAppDisplayName
+targetAppId
+targetIsBuiltIn
+targetIsPrivileged
+targetPublisherDomain
+targetRoleDefinitionId
+targetRoleDefinitionName
+targetRoleTemplateId
+targetServicePrincipalType
+targetSignInAudience
+targetSkuId
+targetSkuPartNumber
+inheritancePath
+targetIsAssignableToRole
+targetVisibility
+sourceUserPrincipalName
+sourceUserType
+sourceAccountEnabled
+Directory Roles (13 rows):
+sourceDisplayName
+effectiveTo
+appRoleDisplayName
+appRoleId
+assignmentSource
+assignmentType
+blocksAccess
+clientAppTypes
+consentType
+eligibleAssignmentMaxDurationDays
+hasLocationCondition
+hasRiskCondition
+inheritanceDepth
+inheritancePath
+locationUsageType
+maxActivationDurationHours
+membershipType
+memberType
+permanentAssignmentAllowed
+policyState
+requiresAppProtection
+requiresApproval
+requiresApprovedApp
+requiresCompliantDevice
+requiresHybridAzureADJoin
+requiresJustification
+requiresMfa
+requiresMfaOnActivation
+requiresTicketInfo
+resourceGroup
+scheduleInfo
+scope
+scopeDisplayName
+scopeType
+sourceAccountEnabled
+sourceType
+sourceUserPrincipalName
+sourceUserType
+status
+subscriptionId
+subscriptionName
+targetAccountEnabled
+targetAppDisplayName
+targetAppId
+targetIsAssignableToRole
+targetMailEnabled
+targetPublisherDomain
+targetRoleDefinitionId
+targetRoleDefinitionName
+targetSecurityEnabled
+targetServicePrincipalType
+targetSignInAudience
+targetSkuId
+targetSkuPartNumber
+targetVisibility
+PIM Roles (20 rows):
+sourceDisplayName
+effectiveTo
+appRoleDisplayName
+appRoleId
+assignmentSource
+blocksAccess
+clientAppTypes
+consentType
+eligibleAssignmentMaxDurationDays
+hasLocationCondition
+hasRiskCondition
+inheritanceDepth
+inheritancePath
+locationUsageType
+maxActivationDurationHours
+membershipType
+permanentAssignmentAllowed
+policyState
+requiresAppProtection
+requiresApproval
+requiresApprovedApp
+requiresCompliantDevice
+requiresHybridAzureADJoin
+requiresJustification
+requiresMfa
+requiresMfaOnActivation
+requiresTicketInfo
+resourceGroup
+scope
+scopeDisplayName
+scopeType
+sourceAccountEnabled
+sourceType
+sourceUserPrincipalName
+sourceUserType
+subscriptionId
+subscriptionName
+targetAccountEnabled
+targetAppDisplayName
+targetAppId
+targetIsAssignableToRole
+targetIsBuiltIn
+targetMailEnabled
+targetPublisherDomain
+targetRoleDefinitionId
+targetRoleDefinitionName
+targetSecurityEnabled
+targetServicePrincipalType
+targetSignInAudience
+targetSkuId
+targetSkuPartNumber
+targetVisibility
 PIM Groups (11 rows):
-  appRoleDisplayName
-  appRoleId
-  assignmentSource
-  blocksAccess
-  clientAppTypes
-  consentType
-  eligibleAssignmentMaxDurationDays
-  hasLocationCondition
-  hasRiskCondition
-  inheritanceDepth
-  inheritancePath
-  maxActivationDurationHours
-  membershipType
-  permanentAssignmentAllowed
-  policyState
-  requiresAppProtection
-  requiresApproval
-  requiresApprovedApp
-  requiresCompliantDevice
-  requiresHybridAzureADJoin
-  requiresJustification
-  requiresMfa
-  requiresMfaOnActivation
-  requiresTicketInfo
-  scope
-  scopeDisplayName
-  scopeType
-  sourceAccountEnabled
-  sourceUserPrincipalName
-  sourceUserType
-  targetAccountEnabled
-  targetAppDisplayName
-  targetAppId
-  targetIsBuiltIn
-  targetIsPrivileged
-  targetMailEnabled
-  targetPublisherDomain
-  targetRoleDefinitionId
-  targetRoleDefinitionName
-  targetRoleTemplateId
-  targetSecurityEnabled
-  targetServicePrincipalType
-  targetSignInAudience
-  targetSkuId
-  targetSkuPartNumber
-  targetVisibility
-
+effectiveTo
+appRoleDisplayName
+appRoleId
+assignmentSource
+blocksAccess
+clientAppTypes
+consentType
+eligibleAssignmentMaxDurationDays
+hasLocationCondition
+hasRiskCondition
+inheritanceDepth
+inheritancePath
+locationUsageType
+maxActivationDurationHours
+membershipType
+permanentAssignmentAllowed
+policyState
+requiresAppProtection
+requiresApproval
+requiresApprovedApp
+requiresCompliantDevice
+requiresHybridAzureADJoin
+requiresJustification
+requiresMfa
+requiresMfaOnActivation
+requiresTicketInfo
+resourceGroup
+scope
+scopeDisplayName
+scopeType
+sourceAccountEnabled
+sourceUserPrincipalName
+sourceUserType
+subscriptionId
+subscriptionName
+targetAccountEnabled
+targetAppDisplayName
+targetAppId
+targetIsBuiltIn
+targetIsPrivileged
+targetMailEnabled
+targetPublisherDomain
+targetRoleDefinitionId
+targetRoleDefinitionName
+targetRoleTemplateId
+targetSecurityEnabled
+targetServicePrincipalType
+targetSignInAudience
+targetSkuId
+targetSkuPartNumber
+targetVisibility
 Azure RBAC (34 rows):
-  sourceDisplayName
-  targetDisplayName
-  appRoleDisplayName
-  appRoleId
-  assignmentSource
-  assignmentType
-  blocksAccess
-  clientAppTypes
-  consentType
-  eligibleAssignmentMaxDurationDays
-  hasLocationCondition
-  hasRiskCondition
-  inheritanceDepth
-  inheritancePath
-  maxActivationDurationHours
-  membershipType
-  memberType
-  permanentAssignmentAllowed
-  policyState
-  requiresAppProtection
-  requiresApproval
-  requiresApprovedApp
-  requiresCompliantDevice
-  requiresHybridAzureADJoin
-  requiresJustification
-  requiresMfa
-  requiresMfaOnActivation
-  requiresTicketInfo
-  scheduleInfo
-  sourceAccountEnabled
-  sourceUserPrincipalName
-  sourceUserType
-  status
-  targetAccountEnabled
-  targetAppDisplayName
-  targetAppId
-  targetIsAssignableToRole
-  targetIsBuiltIn
-  targetIsPrivileged
-  targetMailEnabled
-  targetPublisherDomain
-  targetRoleTemplateId
-  targetSecurityEnabled
-  targetServicePrincipalType
-  targetSignInAudience
-  targetSkuId
-  targetSkuPartNumber
-  targetVisibility
-
-App Roles (59 rows):
-  assignmentSource
-  assignmentType
-  blocksAccess
-  clientAppTypes
-  consentType
-  eligibleAssignmentMaxDurationDays
-  hasLocationCondition
-  hasRiskCondition
-  inheritanceDepth
-  inheritancePath
-  maxActivationDurationHours
-  membershipType
-  memberType
-  permanentAssignmentAllowed
-  policyState
-  requiresAppProtection
-  requiresApproval
-  requiresApprovedApp
-  requiresCompliantDevice
-  requiresHybridAzureADJoin
-  requiresJustification
-  requiresMfa
-  requiresMfaOnActivation
-  requiresTicketInfo
-  scheduleInfo
-  scope
-  scopeDisplayName
-  scopeType
-  sourceAccountEnabled
-  sourceUserPrincipalName
-  sourceUserType
-  status
-  targetAccountEnabled
-  targetAppDisplayName
-  targetIsAssignableToRole
-  targetIsBuiltIn
-  targetIsPrivileged
-  targetMailEnabled
-  targetPublisherDomain
-  targetRoleDefinitionId
-  targetRoleDefinitionName
-  targetRoleTemplateId
-  targetSecurityEnabled
-  targetServicePrincipalType
-  targetSignInAudience
-  targetSkuId
-  targetSkuPartNumber
-  targetVisibility
-  appRoleDisplayName
-
-Ownership (21 rows):
-  appRoleDisplayName
-  appRoleId
-  assignmentSource
-  assignmentType
-  blocksAccess
-  clientAppTypes
-  consentType
-  eligibleAssignmentMaxDurationDays
-  hasLocationCondition
-  hasRiskCondition
-  inheritanceDepth
-  inheritancePath
-  maxActivationDurationHours
-  membershipType
-  memberType
-  permanentAssignmentAllowed
-  policyState
-  requiresAppProtection
-  requiresApproval
-  requiresApprovedApp
-  requiresCompliantDevice
-  requiresHybridAzureADJoin
-  requiresJustification
-  requiresMfa
-  requiresMfaOnActivation
-  requiresTicketInfo
-  scheduleInfo
-  scope
-  scopeDisplayName
-  scopeType
-  sourceAccountEnabled
-  sourceUserType
-  status
-  targetIsBuiltIn
-  targetIsPrivileged
-  targetRoleDefinitionId
-  targetRoleDefinitionName
-  targetRoleTemplateId
-  targetSkuId
-  targetSkuPartNumber
-  targetIsAssignableToRole
-  targetPublisherDomain
-  targetSignInAudience
-  targetAccountEnabled
-  targetAppDisplayName
-  targetServicePrincipalType
-  targetVisibility
-  targetAppId
-  targetMailEnabled
-  targetSecurityEnabled
-  sourceUserPrincipalName
-
-Licenses (60 rows):
-  appRoleDisplayName
-  appRoleId
-  assignmentType
-  blocksAccess
-  clientAppTypes
-  consentType
-  eligibleAssignmentMaxDurationDays
-  hasLocationCondition
-  hasRiskCondition
-  inheritanceDepth
-  inheritancePath
-  maxActivationDurationHours
-  membershipType
-  memberType
-  permanentAssignmentAllowed
-  policyState
-  requiresAppProtection
-  requiresApproval
-  requiresApprovedApp
-  requiresCompliantDevice
-  requiresHybridAzureADJoin
-  requiresJustification
-  requiresMfa
-  requiresMfaOnActivation
-  requiresTicketInfo
-  scheduleInfo
-  scope
-  scopeDisplayName
-  scopeType
-  status
-  targetAccountEnabled
-  targetAppDisplayName
-  targetAppId
-  targetIsAssignableToRole
-  targetIsBuiltIn
-  targetIsPrivileged
-  targetMailEnabled
-  targetPublisherDomain
-  targetRoleDefinitionId
-  targetRoleDefinitionName
-  targetRoleTemplateId
-  targetSecurityEnabled
-  targetServicePrincipalType
-  targetSignInAudience
-  targetVisibility
-
+sourceDisplayName
+targetDisplayName
+effectiveTo
+appRoleDisplayName
+appRoleId
+assignmentSource
+assignmentType
+blocksAccess
+clientAppTypes
+consentType
+eligibleAssignmentMaxDurationDays
+hasLocationCondition
+hasRiskCondition
+inheritanceDepth
+inheritancePath
+locationUsageType
+maxActivationDurationHours
+membershipType
+memberType
+permanentAssignmentAllowed
+policyState
+requiresAppProtection
+requiresApproval
+requiresApprovedApp
+requiresCompliantDevice
+requiresHybridAzureADJoin
+requiresJustification
+requiresMfa
+requiresMfaOnActivation
+requiresTicketInfo
+scheduleInfo
+sourceAccountEnabled
+sourceUserPrincipalName
+sourceUserType
+status
+targetAccountEnabled
+targetAppDisplayName
+targetAppId
+targetIsAssignableToRole
+targetIsBuiltIn
+targetIsPrivileged
+targetMailEnabled
+targetPublisherDomain
+targetRoleTemplateId
+targetSecurityEnabled
+targetServicePrincipalType
+targetSignInAudience
+targetSkuId
+targetSkuPartNumber
+targetVisibility
+resourceGroup
+App Roles (63 rows):
+effectiveTo
+assignmentSource
+assignmentType
+blocksAccess
+clientAppTypes
+consentType
+eligibleAssignmentMaxDurationDays
+hasLocationCondition
+hasRiskCondition
+inheritanceDepth
+inheritancePath
+locationUsageType
+maxActivationDurationHours
+membershipType
+memberType
+permanentAssignmentAllowed
+policyState
+requiresAppProtection
+requiresApproval
+requiresApprovedApp
+requiresCompliantDevice
+requiresHybridAzureADJoin
+requiresJustification
+requiresMfa
+requiresMfaOnActivation
+requiresTicketInfo
+resourceGroup
+scheduleInfo
+scope
+scopeDisplayName
+scopeType
+sourceAccountEnabled
+sourceUserPrincipalName
+sourceUserType
+status
+subscriptionId
+subscriptionName
+targetAccountEnabled
+targetAppDisplayName
+targetIsAssignableToRole
+targetIsBuiltIn
+targetIsPrivileged
+targetMailEnabled
+targetPublisherDomain
+targetRoleDefinitionId
+targetRoleDefinitionName
+targetRoleTemplateId
+targetSecurityEnabled
+targetServicePrincipalType
+targetSignInAudience
+targetSkuId
+targetSkuPartNumber
+targetVisibility
+appRoleDisplayName
+Ownership (28 rows):
+effectiveTo
+appRoleDisplayName
+appRoleId
+assignmentSource
+assignmentType
+blocksAccess
+clientAppTypes
+consentType
+eligibleAssignmentMaxDurationDays
+hasLocationCondition
+hasRiskCondition
+inheritanceDepth
+inheritancePath
+locationUsageType
+maxActivationDurationHours
+membershipType
+memberType
+permanentAssignmentAllowed
+policyState
+requiresAppProtection
+requiresApproval
+requiresApprovedApp
+requiresCompliantDevice
+requiresHybridAzureADJoin
+requiresJustification
+requiresMfa
+requiresMfaOnActivation
+requiresTicketInfo
+resourceGroup
+scheduleInfo
+scope
+scopeDisplayName
+scopeType
+sourceAccountEnabled
+sourceUserType
+status
+subscriptionId
+subscriptionName
+targetIsBuiltIn
+targetIsPrivileged
+targetRoleDefinitionId
+targetRoleDefinitionName
+targetRoleTemplateId
+targetSkuId
+targetSkuPartNumber
+targetIsAssignableToRole
+targetPublisherDomain
+targetSignInAudience
+targetVisibility
+targetAccountEnabled
+targetAppDisplayName
+targetServicePrincipalType
+targetAppId
+targetMailEnabled
+targetSecurityEnabled
+sourceUserPrincipalName
+Licenses (61 rows):
+effectiveTo
+appRoleDisplayName
+appRoleId
+assignmentType
+blocksAccess
+clientAppTypes
+consentType
+eligibleAssignmentMaxDurationDays
+hasLocationCondition
+hasRiskCondition
+inheritanceDepth
+inheritancePath
+locationUsageType
+maxActivationDurationHours
+membershipType
+memberType
+permanentAssignmentAllowed
+policyState
+requiresAppProtection
+requiresApproval
+requiresApprovedApp
+requiresCompliantDevice
+requiresHybridAzureADJoin
+requiresJustification
+requiresMfa
+requiresMfaOnActivation
+requiresTicketInfo
+resourceGroup
+scheduleInfo
+scope
+scopeDisplayName
+scopeType
+status
+subscriptionId
+subscriptionName
+targetAccountEnabled
+targetAppDisplayName
+targetAppId
+targetIsAssignableToRole
+targetIsBuiltIn
+targetIsPrivileged
+targetMailEnabled
+targetPublisherDomain
+targetRoleDefinitionId
+targetRoleDefinitionName
+targetRoleTemplateId
+targetSecurityEnabled
+targetServicePrincipalType
+targetSignInAudience
+targetVisibility
 Contacts (30 rows):
-  appRoleDisplayName
-  appRoleId
-  assignmentSource
-  assignmentType
-  blocksAccess
-  clientAppTypes
-  consentType
-  eligibleAssignmentMaxDurationDays
-  hasLocationCondition
-  hasRiskCondition
-  inheritanceDepth
-  inheritancePath
-  maxActivationDurationHours
-  membershipType
-  memberType
-  permanentAssignmentAllowed
-  policyState
-  requiresAppProtection
-  requiresApproval
-  requiresApprovedApp
-  requiresCompliantDevice
-  requiresHybridAzureADJoin
-  requiresJustification
-  requiresMfa
-  requiresMfaOnActivation
-  requiresTicketInfo
-  scheduleInfo
-  scope
-  scopeDisplayName
-  scopeType
-  sourceAccountEnabled
-  sourceUserPrincipalName
-  sourceUserType
-  status
-  targetAccountEnabled
-  targetAppDisplayName
-  targetAppId
-  targetIsAssignableToRole
-  targetIsBuiltIn
-  targetIsPrivileged
-  targetMailEnabled
-  targetPublisherDomain
-  targetRoleDefinitionId
-  targetRoleDefinitionName
-  targetRoleTemplateId
-  targetSecurityEnabled
-  targetServicePrincipalType
-  targetSignInAudience
-  targetSkuId
-  targetSkuPartNumber
-  targetVisibility
-  sourceDisplayName
-
-CA Policy Edges (8 rows):
-  targetDisplayName
-  appRoleDisplayName
-  appRoleId
-  assignmentSource
-  assignmentType
-  consentType
-  eligibleAssignmentMaxDurationDays
-  inheritanceDepth
-  inheritancePath
-  maxActivationDurationHours
-  membershipType
-  memberType
-  permanentAssignmentAllowed
-  requiresApproval
-  requiresJustification
-  requiresMfaOnActivation
-  requiresTicketInfo
-  scheduleInfo
-  scope
-  scopeDisplayName
-  scopeType
-  sourceAccountEnabled
-  sourceUserPrincipalName
-  sourceUserType
-  status
-  targetAccountEnabled
-  targetAppDisplayName
-  targetAppId
-  targetIsAssignableToRole
-  targetIsBuiltIn
-  targetIsPrivileged
-  targetMailEnabled
-  targetPublisherDomain
-  targetRoleDefinitionId
-  targetRoleDefinitionName
-  targetRoleTemplateId
-  targetSecurityEnabled
-  targetServicePrincipalType
-  targetSignInAudience
-  targetSkuId
-  targetSkuPartNumber
-  targetVisibility
-
-================================================================================
+effectiveTo
+appRoleDisplayName
+appRoleId
+assignmentSource
+assignmentType
+blocksAccess
+clientAppTypes
+consentType
+eligibleAssignmentMaxDurationDays
+hasLocationCondition
+hasRiskCondition
+inheritanceDepth
+inheritancePath
+locationUsageType
+maxActivationDurationHours
+membershipType
+memberType
+permanentAssignmentAllowed
+policyState
+requiresAppProtection
+requiresApproval
+requiresApprovedApp
+requiresCompliantDevice
+requiresHybridAzureADJoin
+requiresJustification
+requiresMfa
+requiresMfaOnActivation
+requiresTicketInfo
+resourceGroup
+scheduleInfo
+scope
+scopeDisplayName
+scopeType
+sourceAccountEnabled
+sourceUserPrincipalName
+sourceUserType
+status
+subscriptionId
+subscriptionName
+targetAccountEnabled
+targetAppDisplayName
+targetAppId
+targetIsAssignableToRole
+targetIsBuiltIn
+targetIsPrivileged
+targetMailEnabled
+targetPublisherDomain
+targetRoleDefinitionId
+targetRoleDefinitionName
+targetRoleTemplateId
+targetSecurityEnabled
+targetServicePrincipalType
+targetSignInAudience
+targetSkuId
+targetSkuPartNumber
+targetVisibility
+sourceDisplayName
+CA Policy Edges (10 rows):
+targetDisplayName
+effectiveTo
+appRoleDisplayName
+appRoleId
+assignmentSource
+assignmentType
+consentType
+eligibleAssignmentMaxDurationDays
+inheritanceDepth
+inheritancePath
+maxActivationDurationHours
+membershipType
+memberType
+permanentAssignmentAllowed
+requiresApproval
+requiresJustification
+requiresMfaOnActivation
+requiresTicketInfo
+resourceGroup
+scheduleInfo
+scope
+scopeDisplayName
+scopeType
+sourceAccountEnabled
+sourceUserPrincipalName
+sourceUserType
+status
+subscriptionId
+subscriptionName
+targetAccountEnabled
+targetAppDisplayName
+targetAppId
+targetIsAssignableToRole
+targetIsBuiltIn
+targetIsPrivileged
+targetMailEnabled
+targetPublisherDomain
+targetRoleDefinitionId
+targetRoleDefinitionName
+targetRoleTemplateId
+targetSecurityEnabled
+targetServicePrincipalType
+targetSignInAudience
+targetSkuId
+targetSkuPartNumber
+targetVisibility
+locationUsageType
 Policies
-================================================================================
-
 Conditional Access (3 rows):
-  modifiedDateTime
-
-Named Locations (2 rows): [NO NULL COLUMNS]
-
-Compliance Policies (1 rows):
-  assignments
-  description
-
+modifiedDateTime
 Role Policies (266 rows):
-  state
-  createdDateTime
-  modifiedDateTime
-  conditions
-  grantControls
-  sessionControls
-  displayName
+state
+createdDateTime
+modifiedDateTime
+conditions
+grantControls
+sessionControls
+displayName
+Compliance Policies (2 rows):
+dataBackupBlocked
+deviceComplianceRequired
+managedBrowser
+minimumPinLength
+periodOfflineBeforeAccessCheck
+periodOnlineBeforeAccessCheck
+pinRequired
+protectedAppCount
+protectedApps
+saveAsBlocked
+assignments
+description
+App Protection Policies (6 rows):
+odataType
+passwordRequired
+storageRequireEncryption
+dataBackupBlocked
+description
+deviceComplianceRequired
+managedBrowser
+minimumPinLength
+periodOnlineBeforeAccessCheck
+pinRequired
+saveAsBlocked
+protectedApps
+periodOfflineBeforeAccessCheck
+Named Locations (2 rows): [NO NULL COLUMNS]
+Directory
+Directory Roles (133 rows):
+isBuiltIn
+isPrivileged
+description
+Azure Roles (833 rows):
+isBuiltIn
+isPrivileged
+description
+Audit
+Changes (500 rows):
+changedFields
+delta
+displayName

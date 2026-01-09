@@ -56,10 +56,10 @@ function Format-Value {
 }
 
 # Dynamically discover all columns from data, with priority columns first
-# Only includes columns that have at least one non-null value in the dataset
+# Priority columns are always shown (even if all null), other columns only shown if they have data
 function Get-AllColumns {
     param($data, $priorityColumns = @())
-    if ($null -eq $data -or $data.Count -eq 0) { return @() }
+    if ($null -eq $data -or $data.Count -eq 0) { return $priorityColumns }
 
     # Collect property names that have at least one non-null value
     $propsWithValues = @{}
@@ -75,17 +75,15 @@ function Get-AllColumns {
         }
     }
 
-    # Build column list: priority columns first (if they have data), then the rest alphabetically
+    # Build column list: priority columns ALWAYS first, then the rest alphabetically
     $result = @()
     foreach ($col in $priorityColumns) {
-        if ($propsWithValues.ContainsKey($col)) {
-            $result += $col
-            $propsWithValues.Remove($col)
-        }
+        $result += $col
+        $propsWithValues.Remove($col)  # Remove from remaining to avoid duplicates
     }
     # Add remaining columns alphabetically, excluding internal Cosmos fields and common noise
     $excludeFields = @('_rid', '_self', '_etag', '_attachments', '_ts', 'id', 'principalType', 'resourceType', 'edgeType', 'policyType', 'eventType')
-    $remaining = $propsWithValues.Keys | Where-Object { $_ -notin $excludeFields } | Sort-Object
+    $remaining = $propsWithValues.Keys | Where-Object { $_ -notin $excludeFields -and $_ -notin $priorityColumns } | Sort-Object
     $result += $remaining
 
     return $result
@@ -136,6 +134,60 @@ try {
     $tenants = @($allResources | Where-Object { $_.resourceType -eq 'tenant' })
     $mgmtGroups = @($allResources | Where-Object { $_.resourceType -eq 'managementGroup' })
     $subscriptions = @($allResources | Where-Object { $_.resourceType -eq 'subscription' })
+
+    # Enrich subscriptions with owner info from Azure RBAC edges
+    # Owner role GUID: 8e3af657-a8ff-443c-a75c-2fe8c4bcb635
+    $subscriptionOwners = @{}
+    foreach ($edge in $edgesIn) {
+        if ($null -eq $edge) { continue }
+        if ($edge.edgeType -eq 'azureRbac' -and
+            $edge.scopeType -eq 'subscription' -and
+            $edge.targetRoleDefinitionId -and
+            $edge.targetRoleDefinitionId -match '8e3af657-a8ff-443c-a75c-2fe8c4bcb635') {
+            # Get subscription ID - prefer subscriptionId field, fall back to extracting from scope
+            $subId = $edge.subscriptionId
+            if (-not $subId -and $edge.scope -match '/subscriptions/([a-f0-9-]+)') {
+                $subId = $Matches[1]
+            }
+            if (-not $subId) { continue }
+            if (-not $subscriptionOwners.ContainsKey($subId)) {
+                $subscriptionOwners[$subId] = @()
+            }
+            # Look up principal displayName
+            $principalName = $edge.sourceDisplayName
+            if (-not $principalName) {
+                $principal = $allPrincipals | Where-Object { $_.objectId -eq $edge.sourceId } | Select-Object -First 1
+                $principalName = if ($principal) { $principal.displayName ?? $principal.userPrincipalName ?? $edge.sourceId } else { $edge.sourceId }
+            }
+            $ownerInfo = "$principalName ($($edge.sourceType))"
+            if ($ownerInfo -notin $subscriptionOwners[$subId]) {
+                $subscriptionOwners[$subId] += $ownerInfo
+            }
+        }
+    }
+    # Add owners property to each subscription
+    # Create deep copies to ensure mutability (Cosmos DB objects may be read-only)
+    $enrichedSubscriptions = @()
+    foreach ($sub in $subscriptions) {
+        if ($null -eq $sub) { continue }
+        $subId = $sub.subscriptionId ?? $sub.objectId
+        # If objectId has path prefix, extract just the GUID
+        if ($subId -match '/subscriptions/([a-f0-9-]+)') {
+            $subId = $Matches[1]
+        }
+        # Convert to JSON and back to create a mutable deep copy
+        $subCopy = $sub | ConvertTo-Json -Depth 10 | ConvertFrom-Json
+        # Add owners property
+        $ownerValue = if ($subId -and $subscriptionOwners.ContainsKey($subId)) {
+            ($subscriptionOwners[$subId] -join ', ')
+        } else {
+            $null
+        }
+        $subCopy | Add-Member -NotePropertyName 'owners' -NotePropertyValue $ownerValue -Force
+        $enrichedSubscriptions += $subCopy
+    }
+    $subscriptions = $enrichedSubscriptions
+
     $resourceGroups = @($allResources | Where-Object { $_.resourceType -eq 'resourceGroup' })
     $keyVaults = @($allResources | Where-Object { $_.resourceType -eq 'keyVault' })
     $vms = @($allResources | Where-Object { $_.resourceType -eq 'virtualMachine' })
@@ -188,13 +240,13 @@ try {
 
     # Column definitions - priority columns shown first, then ALL other columns discovered dynamically
     # V3.5: Dynamic column discovery ensures all collected properties are visible
-    $userPriority = @('objectId', 'displayName', 'userPrincipalName', 'accountEnabled', 'userType', 'perUserMfaState', 'authMethodCount', 'riskLevel', 'riskState', 'isAtRisk', 'hasP2License', 'hasE5License', 'licenseCount', 'assignedLicenseSkus', 'mail', 'jobTitle', 'department', 'createdDateTime', 'lastPasswordChangeDateTime', 'onPremisesSyncEnabled')
+    $userPriority = @('objectId', 'displayName', 'userPrincipalName', 'accountEnabled', 'userType', 'perUserMfaState', 'authMethodCount', 'riskLevel', 'riskState', 'riskLastUpdatedDateTime', 'isAtRisk', 'hasP2License', 'hasE5License', 'licenseCount', 'assignedLicenseSkus', 'mail', 'jobTitle', 'department', 'createdDateTime', 'lastPasswordChangeDateTime', 'onPremisesSyncEnabled')
     $groupPriority = @('objectId', 'displayName', 'securityEnabled', 'groupTypes', 'groupTypeCategory', 'memberCountDirect', 'memberCountIndirect', 'memberCountTotal', 'userMemberCount', 'groupMemberCount', 'servicePrincipalMemberCount', 'deviceMemberCount', 'nestingDepth', 'isAssignableToRole', 'mail', 'visibility', 'createdDateTime', 'onPremisesSyncEnabled')
     $spPriority = @('objectId', 'displayName', 'appId', 'servicePrincipalType', 'accountEnabled', 'secretCount', 'certificateCount', 'createdDateTime', 'appOwnerOrganizationId')
     $devicePriority = @('objectId', 'displayName', 'deviceId', 'operatingSystem', 'operatingSystemVersion', 'isCompliant', 'isManaged', 'trustType', 'registrationDateTime', 'approximateLastSignInDateTime')
     $adminUnitPriority = @('objectId', 'displayName', 'description', 'membershipType', 'membershipRule', 'isMemberManagementRestricted', 'visibility')
     $appPriority = @('objectId', 'displayName', 'appId', 'signInAudience', 'secretCount', 'certificateCount', 'createdDateTime', 'publisherDomain')
-    $azureResPriority = @('objectId', 'displayName', 'resourceType', 'location', 'subscriptionId', 'resourceGroup', 'kind', 'sku')
+    $azureResPriority = @('objectId', 'displayName', 'resourceType', 'owners', 'location', 'subscriptionId', 'resourceGroup', 'kind', 'sku')
     $roleDefPriority = @('objectId', 'displayName', 'resourceType', 'isBuiltIn', 'isPrivileged', 'description')
     $edgePriority = @('id', 'sourceId', 'sourceDisplayName', 'edgeType', 'targetId', 'targetDisplayName', 'effectiveFrom', 'effectiveTo')
     $derivedEdgePriority = @('id', 'sourceId', 'sourceDisplayName', 'edgeType', 'targetId', 'targetDisplayName', 'derivedFrom', 'severity', 'capability')
@@ -211,6 +263,9 @@ try {
     $adminUnitCols = Get-AllColumns $adminUnits $adminUnitPriority
     $appCols = Get-AllColumns $apps $appPriority
     $azureResCols = Get-AllColumns (@($tenants + $mgmtGroups + $subscriptions + $resourceGroups + $keyVaults + $vms + $storageAccounts + $aksClusters + $containerRegistries + $vmScaleSets + $functionApps + $logicApps + $webApps + $automationAccounts + $dataFactories) | Where-Object { $_ }) $azureResPriority
+    # Subscription-specific columns (includes owners)
+    $subsPriority = @('objectId', 'displayName', 'owners', 'subscriptionId', 'state', 'authorizationSource', 'tenantId')
+    $subsCols = Get-AllColumns $subscriptions $subsPriority
     $roleDefCols = Get-AllColumns (@($directoryRoleDefs + $azureRoleDefs) | Where-Object { $_ }) $roleDefPriority
     $edgeCols = Get-AllColumns $allEdges $edgePriority
     $derivedEdgeCols = Get-AllColumns $derivedEdges $derivedEdgePriority
@@ -349,7 +404,7 @@ try {
             <div id="apps-tab" class="tab-content active">$(Build-Table $apps 'apps-tbl' $appCols 'applications' $allResources.Count)</div>
             <div id="tenants-tab" class="tab-content">$(Build-Table $tenants 'tenants-tbl' $azureResCols 'tenants' $allResources.Count)</div>
             <div id="mgmt-tab" class="tab-content">$(Build-Table $mgmtGroups 'mgmt-tbl' $azureResCols 'management groups' $allResources.Count)</div>
-            <div id="subs-tab" class="tab-content">$(Build-Table $subscriptions 'subs-tbl' $azureResCols 'subscriptions' $allResources.Count)</div>
+            <div id="subs-tab" class="tab-content">$(Build-Table $subscriptions 'subs-tbl' $subsCols 'subscriptions' $allResources.Count)</div>
             <div id="rgs-tab" class="tab-content">$(Build-Table $resourceGroups 'rgs-tbl' $azureResCols 'resource groups' $allResources.Count)</div>
             <div id="kvs-tab" class="tab-content">$(Build-Table $keyVaults 'kvs-tbl' $azureResCols 'key vaults' $allResources.Count)</div>
             <div id="vms-tab" class="tab-content">$(Build-Table $vms 'vms-tbl' $azureResCols 'virtual machines' $allResources.Count)</div>

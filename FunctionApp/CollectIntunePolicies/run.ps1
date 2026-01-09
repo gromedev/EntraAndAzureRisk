@@ -218,7 +218,7 @@ try {
                     assignmentCount = $assignments.Count
                     protectedApps = $protectedApps
                     protectedAppCount = $protectedApps.Count
-                    # MAM settings
+                    # MAM settings (common)
                     pinRequired = $policy.pinRequired ?? $null
                     minimumPinLength = $policy.minimumPinLength ?? $null
                     managedBrowser = $policy.managedBrowser ?? $null
@@ -228,6 +228,27 @@ try {
                     periodOfflineBeforeAccessCheck = $policy.periodOfflineBeforeAccessCheck ?? $null
                     periodOnlineBeforeAccessCheck = $policy.periodOnlineBeforeAccessCheck ?? $null
                     collectionTimestamp = $timestampFormatted
+                }
+
+                # Add WIP-specific fields for Windows Information Protection policies
+                if ($platform -in @('WindowsInfoProtection', 'WindowsMDM')) {
+                    # enforcementLevel maps to: noProtection (Off), encryptAndAuditOnly (Silent),
+                    # encryptAuditAndPrompt (Allow Overrides), encryptAuditAndBlock (Block)
+                    $policyObj.enforcementLevel = $policy.enforcementLevel ?? $null
+                    $policyObj.protectionUnderLockConfigRequired = $policy.protectionUnderLockConfigRequired ?? $null
+                    $policyObj.revokeOnUnenrollDisabled = $policy.revokeOnUnenrollDisabled ?? $null
+                    $policyObj.azureRightsManagementServicesAllowed = $policy.azureRightsManagementServicesAllowed ?? $null
+                    $policyObj.iconsVisible = $policy.iconsVisible ?? $null
+                    $policyObj.indexingEncryptedStoresOrItemsBlocked = $policy.indexingEncryptedStoresOrItemsBlocked ?? $null
+                    $policyObj.isAssigned = $policy.isAssigned ?? $null
+                    # Map enforcementLevel to human-readable mode
+                    $policyObj.wipMode = switch ($policy.enforcementLevel) {
+                        'noProtection' { 'Off' }
+                        'encryptAndAuditOnly' { 'Silent' }
+                        'encryptAuditAndPrompt' { 'Allow Overrides' }
+                        'encryptAuditAndBlock' { 'Block' }
+                        default { $policy.enforcementLevel ?? 'Unknown' }
+                    }
                 }
 
                 [void]$jsonL.AppendLine(($policyObj | ConvertTo-Json -Compress -Depth 10))

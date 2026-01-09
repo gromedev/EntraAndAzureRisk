@@ -64,6 +64,10 @@ function Invoke-CosmosDbQuery {
     $results = @()
     $continuationToken = $null
 
+    Write-Information "[DERIVE-DEBUG] Cosmos query URI: $uri" -InformationAction Continue
+    Write-Information "[DERIVE-DEBUG] Query: $Query" -InformationAction Continue
+    Write-Information "[DERIVE-DEBUG] PartitionKey: $PartitionKey" -InformationAction Continue
+
     do {
         if ($continuationToken) {
             $headers["x-ms-continuation"] = $continuationToken
@@ -73,12 +77,14 @@ function Invoke-CosmosDbQuery {
             # Use Invoke-WebRequest to capture response headers for pagination
             $webResponse = Invoke-WebRequest -Uri $uri -Method Post -Headers $headers -Body $body -UseBasicParsing
             $responseBody = $webResponse.Content | ConvertFrom-Json
+            Write-Information "[DERIVE-DEBUG] Response status: $($webResponse.StatusCode), Documents count: $($responseBody.Documents.Count)" -InformationAction Continue
             $results += $responseBody.Documents
 
             # Get continuation token from response headers
             $continuationToken = $webResponse.Headers["x-ms-continuation"]
         }
         catch {
+            Write-Information "[DERIVE-DEBUG] Cosmos DB query FAILED: $($_.Exception.Message)" -InformationAction Continue
             Write-Warning "Cosmos DB query failed: $_"
             break
         }

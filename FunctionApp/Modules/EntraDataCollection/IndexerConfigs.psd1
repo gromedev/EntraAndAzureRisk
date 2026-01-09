@@ -1040,6 +1040,11 @@
             'assignmentFilterType'
             'protectedAppCount'
             'isExclusion'
+
+            # V3.5: Azure RBAC edge fields
+            'subscriptionId'
+            'subscriptionName'
+            'resourceGroup'
         )
         ArrayFields = @(
             'inheritancePath'
@@ -1154,6 +1159,11 @@
             assignmentFilterType = 'assignmentFilterType'
             protectedAppCount = 'protectedAppCount'
             isExclusion = 'isExclusion'
+
+            # V3.5: Azure RBAC edge fields
+            subscriptionId = 'subscriptionId'
+            subscriptionName = 'subscriptionName'
+            resourceGroup = 'resourceGroup'
         }
         WriteDeletes = $true
         IncludeDeleteMarkers = $true

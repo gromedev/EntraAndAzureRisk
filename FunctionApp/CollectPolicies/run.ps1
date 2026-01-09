@@ -93,6 +93,7 @@ try {
         ConditionalAccess = @{ Success = $false; Count = 0 }
         RoleManagementPolicies = @{ Success = $false; Count = 0 }
         RoleManagementAssignments = @{ Success = $false; Count = 0 }
+        PimGroupPolicies = @{ Success = $false; Count = 0 }
         NamedLocations = @{ Success = $false; Count = 0 }
     }
 
@@ -211,10 +212,75 @@ try {
     }
     #endregion
 
-    #region 2. Collect Role Management Policies
-    Write-Verbose "=== Phase 2: Collecting role management policies ==="
+    #region 2. Collect Role Management Policies (Directory Roles PIM)
+    Write-Verbose "=== Phase 2: Collecting role management policies (Directory Roles) ==="
 
     $rmPolicyCount = 0
+
+    # Helper function to extract key settings from policy rules
+    function Get-PolicySettings {
+        param($Rules)
+        $settings = @{
+            # Approval settings
+            isApprovalRequired = $false
+            approvalMode = $null
+            primaryApprovers = @()
+            # Expiration settings
+            maxActivationDuration = $null
+            maxEligibilityDuration = $null
+            maxAssignmentDuration = $null
+            isEligibilityExpirationRequired = $false
+            isAssignmentExpirationRequired = $false
+            # Enablement settings (what's required for activation)
+            requiresJustification = $false
+            requiresMfa = $false
+            requiresTicketInfo = $false
+        }
+
+        foreach ($rule in $Rules) {
+            $ruleType = $rule.'@odata.type'
+            $ruleId = $rule.id ?? ''
+
+            switch -Regex ($ruleType) {
+                'ApprovalRule' {
+                    $settings.isApprovalRequired = $rule.setting.isApprovalRequired ?? $false
+                    $settings.approvalMode = $rule.setting.approvalMode ?? $null
+                    if ($rule.setting.approvalStages -and $rule.setting.approvalStages.Count -gt 0) {
+                        $settings.primaryApprovers = @($rule.setting.approvalStages[0].primaryApprovers | ForEach-Object {
+                            @{
+                                type = $_.'@odata.type' -replace '#microsoft.graph.', ''
+                                id = $_.id ?? $null
+                                description = $_.description ?? $null
+                            }
+                        })
+                    }
+                }
+                'ExpirationRule' {
+                    if ($ruleId -match 'Eligibility') {
+                        $settings.maxEligibilityDuration = $rule.maximumDuration ?? $null
+                        $settings.isEligibilityExpirationRequired = $rule.isExpirationRequired ?? $false
+                    }
+                    elseif ($ruleId -match 'Assignment' -and $ruleId -match 'EndUser') {
+                        # This is the activation duration
+                        $settings.maxActivationDuration = $rule.maximumDuration ?? $null
+                    }
+                    elseif ($ruleId -match 'Assignment' -and $ruleId -match 'Admin') {
+                        $settings.maxAssignmentDuration = $rule.maximumDuration ?? $null
+                        $settings.isAssignmentExpirationRequired = $rule.isExpirationRequired ?? $false
+                    }
+                }
+                'EnablementRule' {
+                    if ($ruleId -match 'EndUser') {
+                        $enabledRules = $rule.enabledRules ?? @()
+                        $settings.requiresJustification = 'Justification' -in $enabledRules
+                        $settings.requiresMfa = 'MultiFactorAuthentication' -in $enabledRules
+                        $settings.requiresTicketInfo = 'Ticketing' -in $enabledRules
+                    }
+                }
+            }
+        }
+        return $settings
+    }
 
     try {
         $nextLink = "https://graph.microsoft.com/v1.0/policies/roleManagementPolicies?`$filter=scopeId eq '/' and scopeType eq 'DirectoryRole'&`$expand=rules,effectiveRules&`$top=$batchSize"
@@ -223,6 +289,9 @@ try {
             try {
                 $response = Invoke-GraphWithRetry -Uri $nextLink -AccessToken $graphToken
                 foreach ($policy in $response.value) {
+                    # Extract key settings for easier querying
+                    $policySettings = Get-PolicySettings -Rules $policy.rules
+
                     $policyObj = @{
                         id = $policy.id ?? ""
                         objectId = $policy.id ?? ""
@@ -233,6 +302,19 @@ try {
                         scope = $policy.scope ?? ""
                         scopeId = $policy.scopeId ?? ""
                         scopeType = $policy.scopeType ?? ""
+                        # Extracted key settings for dashboard display
+                        isApprovalRequired = $policySettings.isApprovalRequired
+                        approvalMode = $policySettings.approvalMode
+                        primaryApprovers = $policySettings.primaryApprovers
+                        maxActivationDuration = $policySettings.maxActivationDuration
+                        maxEligibilityDuration = $policySettings.maxEligibilityDuration
+                        maxAssignmentDuration = $policySettings.maxAssignmentDuration
+                        isEligibilityExpirationRequired = $policySettings.isEligibilityExpirationRequired
+                        isAssignmentExpirationRequired = $policySettings.isAssignmentExpirationRequired
+                        requiresJustification = $policySettings.requiresJustification
+                        requiresMfa = $policySettings.requiresMfa
+                        requiresTicketInfo = $policySettings.requiresTicketInfo
+                        # Full rules for deep analysis
                         rules = $policy.rules ?? @()
                         effectiveRules = $policy.effectiveRules ?? @()
                         lastModifiedDateTime = $policy.lastModifiedDateTime ?? ""
@@ -342,6 +424,96 @@ try {
         }
     }
 
+    #region 3b. Collect PIM Group Policies (requires RoleManagementPolicy.Read.AzureADGroup permission)
+    Write-Verbose "=== Phase 3b: Collecting PIM Group policies ==="
+
+    $pimGroupPolicyCount = 0
+
+    try {
+        # This requires RoleManagementPolicy.Read.AzureADGroup permission
+        $nextLink = "https://graph.microsoft.com/v1.0/policies/roleManagementPolicies?`$filter=scopeType eq 'Group'&`$expand=rules,effectiveRules&`$top=$batchSize"
+
+        while ($nextLink) {
+            try {
+                $response = Invoke-GraphWithRetry -Uri $nextLink -AccessToken $graphToken
+                foreach ($policy in $response.value) {
+                    # Extract key settings for easier querying
+                    $policySettings = Get-PolicySettings -Rules $policy.rules
+
+                    $policyObj = @{
+                        id = $policy.id ?? ""
+                        objectId = $policy.id ?? ""
+                        policyType = "pimGroupPolicy"
+                        displayName = $policy.displayName ?? ""
+                        description = $policy.description ?? ""
+                        isOrganizationDefault = $policy.isOrganizationDefault ?? $false
+                        scope = $policy.scope ?? ""
+                        scopeId = $policy.scopeId ?? ""  # This is the group ID
+                        scopeType = $policy.scopeType ?? ""
+                        # Extracted key settings for dashboard display
+                        isApprovalRequired = $policySettings.isApprovalRequired
+                        approvalMode = $policySettings.approvalMode
+                        primaryApprovers = $policySettings.primaryApprovers
+                        maxActivationDuration = $policySettings.maxActivationDuration
+                        maxEligibilityDuration = $policySettings.maxEligibilityDuration
+                        maxAssignmentDuration = $policySettings.maxAssignmentDuration
+                        isEligibilityExpirationRequired = $policySettings.isEligibilityExpirationRequired
+                        isAssignmentExpirationRequired = $policySettings.isAssignmentExpirationRequired
+                        requiresJustification = $policySettings.requiresJustification
+                        requiresMfa = $policySettings.requiresMfa
+                        requiresTicketInfo = $policySettings.requiresTicketInfo
+                        # Full rules for deep analysis
+                        rules = $policy.rules ?? @()
+                        effectiveRules = $policy.effectiveRules ?? @()
+                        lastModifiedDateTime = $policy.lastModifiedDateTime ?? ""
+                        lastModifiedBy = $policy.lastModifiedBy ?? @{}
+                        collectionTimestamp = $timestampFormatted
+                    }
+                    [void]$policiesJsonL.AppendLine(($policyObj | ConvertTo-Json -Compress -Depth 10))
+                    $pimGroupPolicyCount++
+                }
+                $nextLink = $response.'@odata.nextLink'
+            }
+            catch {
+                if ($_.Exception.Message -match '403|Forbidden|permission|PermissionScopeNotGranted') {
+                    Write-Warning "PIM Group policies requires RoleManagementPolicy.Read.AzureADGroup permission - skipping"
+                } else {
+                    Write-Warning "PIM Group policies batch error: $_"
+                }
+                break
+            }
+        }
+
+        $results.PimGroupPolicies = @{
+            Success = $pimGroupPolicyCount -gt 0
+            Count = $pimGroupPolicyCount
+        }
+        if ($pimGroupPolicyCount -gt 0) {
+            Write-Verbose "PIM Group policies complete: $pimGroupPolicyCount policies"
+        }
+    }
+    catch {
+        Write-Warning "PIM Group policies collection failed: $_"
+        $results.PimGroupPolicies = @{ Success = $false; Count = 0; Error = $_.Exception.Message }
+    }
+    #endregion
+
+    # Periodic flush
+    if ($policiesJsonL.Length -ge $writeThreshold) {
+        try {
+            Add-BlobContent -StorageAccountName $storageAccountName `
+                           -ContainerName $containerName `
+                           -BlobName $policiesBlobName `
+                           -Content $policiesJsonL.ToString() `
+                           -AccessToken $storageToken
+            Write-Verbose "Flushed $($policiesJsonL.Length) characters after PIM Group policies"
+            $policiesJsonL.Clear()
+        }
+        catch {
+            Write-Error "Blob flush failed: $_"
+        }
+    }
+
     #region 4. Collect Named Locations (used by CA policies for location conditions)
     Write-Verbose "=== Phase 4: Collecting named locations ==="
 
@@ -441,7 +613,8 @@ try {
 
     # Determine overall success
     $overallSuccess = $results.ConditionalAccess.Success -or $results.RoleManagementPolicies.Success -or $results.RoleManagementAssignments.Success -or $results.NamedLocations.Success
-    $totalCount = $results.ConditionalAccess.Count + $results.RoleManagementPolicies.Count + $results.RoleManagementAssignments.Count + $results.NamedLocations.Count
+    $pimGroupCount = if ($results.PimGroupPolicies) { $results.PimGroupPolicies.Count } else { 0 }
+    $totalCount = $results.ConditionalAccess.Count + $results.RoleManagementPolicies.Count + $results.RoleManagementAssignments.Count + $results.NamedLocations.Count + $pimGroupCount
 
     Write-Verbose "Combined policies collection complete: $totalCount total policies"
 
@@ -455,6 +628,7 @@ try {
         ConditionalAccessCount = $results.ConditionalAccess.Count
         RoleManagementPolicyCount = $results.RoleManagementPolicies.Count
         RoleManagementAssignmentCount = $results.RoleManagementAssignments.Count
+        PimGroupPolicyCount = $pimGroupCount
         NamedLocationCount = $results.NamedLocations.Count
 
         # Detailed results
@@ -472,6 +646,7 @@ try {
             roleManagement = @{
                 policies = $results.RoleManagementPolicies.Count
                 assignments = $results.RoleManagementAssignments.Count
+                pimGroupPolicies = $pimGroupCount
             }
             namedLocations = @{
                 total = $results.NamedLocations.Count

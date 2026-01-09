@@ -515,6 +515,73 @@ try {
     Write-Verbose "PIM roles complete: $($stats.PimEligible) eligible, $($stats.PimActive) active"
     #endregion
 
+    #region Phase 3b: PIM Role Requests (for justification - requires RoleManagement.Read.Directory)
+    Write-Verbose "=== Phase 3b: PIM Role Requests (justification) ==="
+
+    # Collect recent role assignment requests to capture justification
+    # This provides audit trail of who activated what role with what reason
+    $stats.PimRequests = 0
+
+    try {
+        $requestsLink = "https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignmentScheduleRequests?`$filter=status eq 'Provisioned' or status eq 'PendingApproval'&`$select=id,principalId,roleDefinitionId,action,status,justification,createdDateTime,scheduleInfo,targetScheduleId,createdBy&`$expand=roleDefinition,principal&`$top=$batchSize"
+
+        while ($requestsLink) {
+            try {
+                $response = Invoke-GraphWithRetry -Uri $requestsLink -AccessToken $graphToken
+                foreach ($request in $response.value) {
+                    $principalId = $request.principalId ?? ""
+                    $roleDefId = $request.roleDefinitionId ?? ""
+
+                    $relationship = @{
+                        id = "pimRequest_$($request.id)"
+                        objectId = "pimRequest_$($request.id)"
+                        edgeType = "pimRequest"
+                        sourceId = $principalId
+                        sourceType = $request.principal.'@odata.type' -replace '#microsoft.graph.', '' ?? ""
+                        sourceDisplayName = $request.principal.displayName ?? ""
+                        targetId = $roleDefId
+                        targetType = "directoryRole"
+                        targetDisplayName = $request.roleDefinition.displayName ?? ""
+                        targetRoleTemplateId = $request.roleDefinition.templateId ?? ""
+                        # PIM Request specific fields
+                        action = $request.action ?? ""
+                        status = $request.status ?? ""
+                        justification = $request.justification ?? ""
+                        createdDateTime = $request.createdDateTime ?? $null
+                        scheduleInfo = $request.scheduleInfo ?? @{}
+                        createdBy = @{
+                            id = $request.createdBy.user.id ?? $null
+                            displayName = $request.createdBy.user.displayName ?? $null
+                        }
+                        collectionTimestamp = $timestampFormatted
+                    }
+
+                    [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress))
+                    $stats.PimRequests++
+                }
+                $requestsLink = $response.'@odata.nextLink'
+            }
+            catch {
+                if ($_.Exception.Message -match '403|Forbidden|permission|PermissionScopeNotGranted') {
+                    Write-Warning "PIM role requests requires RoleManagement.Read.Directory permission - skipping justification collection"
+                } else {
+                    Write-Warning "PIM role requests batch error: $_"
+                }
+                break
+            }
+        }
+
+        if ($stats.PimRequests -gt 0) {
+            Write-Verbose "PIM role requests complete: $($stats.PimRequests) requests with justification"
+        }
+    }
+    catch {
+        Write-Warning "PIM role requests collection failed: $_"
+    }
+
+    Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
+    #endregion
+
     #region Phase 4: PIM Group Memberships
     Write-Verbose "=== Phase 4: PIM Group Memberships ==="
 
@@ -1503,7 +1570,8 @@ try {
     [System.GC]::Collect()
     [System.GC]::WaitForPendingFinalizers()
 
-    $totalRelationships = $stats.GroupMembershipsDirect + $stats.GroupMembershipsTransitive + $stats.DirectoryRoles + $stats.PimEligible + $stats.PimActive + $stats.PimGroupEligible + $stats.PimGroupActive + $stats.AzureRbac + $stats.AppOwners + $stats.SpOwners + $stats.Licenses + $stats.OAuth2PermissionGrants + $stats.AppRoleAssignments + $stats.GroupOwners + $stats.DeviceOwners + $stats.CaPolicyEdges + $stats.RolePolicyEdges
+    $pimRequestCount = if ($stats.PimRequests) { $stats.PimRequests } else { 0 }
+    $totalRelationships = $stats.GroupMembershipsDirect + $stats.GroupMembershipsTransitive + $stats.DirectoryRoles + $stats.PimEligible + $stats.PimActive + $pimRequestCount + $stats.PimGroupEligible + $stats.PimGroupActive + $stats.AzureRbac + $stats.AppOwners + $stats.SpOwners + $stats.Licenses + $stats.OAuth2PermissionGrants + $stats.AppRoleAssignments + $stats.GroupOwners + $stats.DeviceOwners + $stats.CaPolicyEdges + $stats.RolePolicyEdges
 
     Write-Verbose "Combined relationships collection complete: $totalRelationships total"
 
@@ -1521,6 +1589,7 @@ try {
             directoryRoles = $stats.DirectoryRoles
             pimEligible = $stats.PimEligible
             pimActive = $stats.PimActive
+            pimRequests = $pimRequestCount
             pimGroupEligible = $stats.PimGroupEligible
             pimGroupActive = $stats.PimGroupActive
             azureRbac = $stats.AzureRbac

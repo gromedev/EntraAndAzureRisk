@@ -1,8 +1,8 @@
 # Entra Risk Data Architecture (V3.5)
 
 > **Version:** 3.5
-> **Last Updated:** 2026-01-08
-> **Branch:** Version-3
+> **Last Updated:** 2026-01-09
+> **Branch:** Version-3.5
 > **Purpose:** Architecture specification for the Entra Risk data collection, analysis, and attack path discovery platform.
 
 ---
@@ -114,16 +114,24 @@ flowchart TB
 | **Collector Consolidation** | Reduced from 17 to 12 collectors via configuration-driven collection |
 | **CollectAzureResources** | Single collector for 11 Azure resource types via `AzureResourceTypes.psd1` |
 | **CollectRoleDefinitions** | Unified Directory + Azure role definitions in one collector |
-| **CollectIntunePolicies** | Combined Compliance + App Protection (MAM) policy collection |
-| **Embedded Risk Data** | User risk level/state from Identity Protection embedded in user documents |
+| **CollectIntunePolicies** | Combined Compliance + App Protection (MAM) policy collection including Windows MAM and WIP |
+| **Embedded Risk Data** | User risk level/state/detail from Identity Protection embedded in user documents with `riskLastUpdatedDateTime` |
+| **License Data Collection** | User license info (SKUs, hasP2License, hasE5License, licenseCount) embedded in user documents |
+| **Group Type Category** | `groupTypeCategory` field showing "Assigned", "Dynamic", or "Microsoft 365" for groups |
+| **PIM Justification** | New `pimRequest` edge type capturing role activation justifications |
+| **PIM Policy Settings** | Role management policies now include extracted settings: approval requirements, MFA, justification, duration limits |
+| **PIM Group Policies** | Collection of PIM policies for groups (`pimGroupPolicy` type) |
+| **Windows App Protection** | Full Windows MAM support: `windowsManagedAppProtections`, `windowsInformationProtectionPolicies`, `mdmWindowsInformationProtectionPolicies` |
+| **WIP Mode Detection** | Windows Information Protection policies include `wipMode` (Off, Silent, Allow Overrides, Block) and `enforcementLevel` |
 | **DeriveEdges** | Attack path capability edges derived from dangerous permissions |
 | **DeriveVirtualEdges** | Intune policy targeting edges (compliance + app protection) |
 | **Attack Path Snapshots** | Pre-rendered query results for common attack patterns (DOT format) - *Gremlin deferred to V3.6* |
 | **Gremlin Graph Projection** | Timer-triggered sync from audit container to Gremlin graph database - *Deferred to V3.6* |
-| **30+ Edge Types** | Original 24 + abuse edges (6) + Intune policy edges (2) |
+| **32+ Edge Types** | Original 24 + abuse edges (6) + Intune policy edges (2) + PIM request edges (1) |
 | **Synthetic Vertices** | Role definitions as queryable vertices with `isPrivileged` flags |
 | **CA Policy Analysis** | Edges show which principals are targeted/excluded from CA policies |
 | **PIM Policy Analysis** | Edges show role activation requirements (MFA, approval, justification) |
+| **Subscription Owner Display** | Dashboard enriches subscriptions with owner information from Azure RBAC edges |
 
 ### V3 Features (Retained)
 
@@ -243,7 +251,7 @@ sequenceDiagram
 | **Phase 1** | CollectAppRegistrations, CollectAzureHierarchy, CollectAzureResources, CollectRoleDefinitions | resources.jsonl | 4 parallel |
 | **Phase 1** | CollectPolicies (CA), CollectIntunePolicies (Compliance + MAM) | policies.jsonl | 2 parallel |
 | **Phase 1** | CollectEvents | events.jsonl | 1 |
-| **Phase 2** | CollectRelationships (24+ edge types incl. CA policy edges) | edges.jsonl | 1 |
+| **Phase 2** | CollectRelationships (25+ edge types incl. CA policy edges, PIM requests) | edges.jsonl | 1 |
 | **Phase 3** | All 5 indexers | → Cosmos DB | Sequential per type |
 | **Phase 4** | DeriveEdges, DeriveVirtualEdges | → edges container | 2 parallel |
 
@@ -335,8 +343,8 @@ Every document includes a type discriminator field:
 |-----------|---------------|--------|
 | `principals` | `principalType` | `user`, `group`, `servicePrincipal`, `device` |
 | `resources` | `resourceType` | `application`, `directoryRoleDefinition`, `azureRoleDefinition`, `tenant`, `managementGroup`, `subscription`, `resourceGroup`, `keyVault`, `virtualMachine`, `automationAccount`, `functionApp`, `logicApp`, `webApp`, `storageAccount`, `aksCluster`, `containerRegistry`, `vmScaleSet`, `dataFactory` |
-| `edges` | `edgeType` | `groupMember`, `directoryRole`, `pimEligible`, `azureRbac`, `hasManagedIdentity`, `caPolicyTargetsPrincipal`, `rolePolicyAssignment`, `canResetPassword`, `canManageCredentials`, `canModifyMembership`, `compliancePolicyTargets`, `appProtectionPolicyTargets`, ... (32+ types) |
-| `policies` | `policyType` | `conditionalAccess`, `roleManagement`, `namedLocation`, `compliancePolicy`, `appProtectionPolicy` |
+| `edges` | `edgeType` | `groupMember`, `directoryRole`, `pimEligible`, `pimRequest`, `azureRbac`, `hasManagedIdentity`, `caPolicyTargetsPrincipal`, `rolePolicyAssignment`, `canResetPassword`, `canManageCredentials`, `canModifyMembership`, `compliancePolicyTargets`, `appProtectionPolicyTargets`, ... (33+ types) |
+| `policies` | `policyType` | `conditionalAccess`, `roleManagement`, `pimGroupPolicy`, `namedLocation`, `compliancePolicy`, `appProtectionPolicy` |
 | `events` | `eventType` | `signIn`, `audit` |
 
 ### Blob Structure
@@ -365,8 +373,8 @@ raw-data/{timestamp}/
 
 | Collector | Output | principalType | Key Fields |
 |-----------|--------|---------------|------------|
-| `CollectUsers` | principals.jsonl | `user` | UPN, MFA state, auth methods, sign-in activity, **riskLevel, riskState, isAtRisk** (embedded) |
-| `CollectEntraGroups` | principals.jsonl | `group` | Security/mail enabled, membership rule, member counts |
+| `CollectUsers` | principals.jsonl | `user` | UPN, MFA state, auth methods, sign-in activity, **riskLevel, riskState, riskDetail, riskLastUpdatedDateTime, isAtRisk** (embedded), **assignedLicenseSkus, hasP2License, hasE5License, licenseCount** (embedded) |
+| `CollectEntraGroups` | principals.jsonl | `group` | Security/mail enabled, membership rule, member counts, **groupTypeCategory** (Assigned/Dynamic/Microsoft 365) |
 | `CollectEntraServicePrincipals` | principals.jsonl | `servicePrincipal` | App ID, SP type, credentials, OAuth scopes |
 | `CollectDevices` | principals.jsonl | `device` | OS, compliance, trust type, last sign-in |
 
@@ -401,14 +409,14 @@ Collects 11 Azure resource types via `AzureResourceTypes.psd1`:
 
 | Collector | Output | policyType | Key Fields |
 |-----------|--------|------------|------------|
-| `CollectPolicies` | policies.jsonl | `conditionalAccess`, `roleManagement`, `namedLocation` | CA policies, role policies, named locations |
-| `CollectIntunePolicies` | policies.jsonl | `compliancePolicy`, `appProtectionPolicy` | Device compliance + App protection (MAM) policies |
+| `CollectPolicies` | policies.jsonl | `conditionalAccess`, `roleManagement`, `pimGroupPolicy`, `namedLocation` | CA policies, role policies (with extracted settings: isApprovalRequired, requiresMfa, requiresJustification, primaryApprovers, maxActivationDuration), PIM group policies, named locations |
+| `CollectIntunePolicies` | policies.jsonl | `compliancePolicy`, `appProtectionPolicy` | Device compliance + App protection (MAM) policies for iOS, Android, Windows (including WIP with wipMode, enforcementLevel) |
 
 ### Other Collectors (2)
 
 | Collector | Output | Notes |
 |-----------|--------|-------|
-| `CollectRelationships` | edges.jsonl | All Entra relationships (24+ edge types incl. CA/PIM policy edges) |
+| `CollectRelationships` | edges.jsonl | All Entra relationships (25+ edge types incl. CA/PIM policy edges, PIM requests with justification) |
 | `CollectEvents` | events.jsonl | Sign-ins, audit logs |
 
 ### Derivation Functions (2)
@@ -420,9 +428,9 @@ Collects 11 Azure resource types via `AzureResourceTypes.psd1`:
 
 ---
 
-## Edge Types (32+ total)
+## Edge Types (33+ total)
 
-### Entra Edges (15 types)
+### Entra Edges (16 types)
 
 | edgeType | Source | Target | API |
 |----------|--------|--------|-----|
@@ -441,6 +449,7 @@ Collects 11 Azure resource types via `AzureResourceTypes.psd1`:
 | `deviceOwner` | user | device | `/devices/{id}/registeredOwners` |
 | `appOwner` | user/SP | application | `/applications/{id}/owners` |
 | `spOwner` | user/SP | servicePrincipal | `/servicePrincipals/{id}/owners` |
+| `pimRequest` | user | role | `/roleManagement/directory/roleAssignmentScheduleRequests` |
 
 ### Azure Edges (3 types)
 
