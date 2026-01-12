@@ -1898,11 +1898,88 @@ Implemented Microsoft Graph $batch API to reduce API calls by 95% across 4 colle
 
 | Priority | Feature | Impact | Status |
 |----------|---------|--------|--------|
-| 1 | **Indexing optimization** | High | New bottleneck - 8,425 Cosmos writes |
+| 1 | **Indexing optimization** | High | ✅ Done - 96% reduction (8,425 → 320 writes) |
 | 2 | Conditional Collection (Phase 2) | Very High | Only fetch auth for changed users |
 | 3 | Delta Queries (Phase 3) | Medium | Enables conditional collection |
 
 Implement Graph Delta Query API. Investigate using e.g. /users/delta instead of /users to get only changed entities. The devices Graph API also has delta capabilities. What else in the solution can use delta endpoints?
+
+---
+
+## Session Log: 2026-01-12 (Indexing Optimization)
+
+### Task #22 Completed: Indexing Optimization
+
+Achieved **96.2% reduction** in Cosmos DB writes per collection run (8,425 → 320).
+
+### Bugs Fixed
+
+| Bug | Impact | Fix |
+|-----|--------|-----|
+| **Principals indexer reads all types** | 420×5=2100 entities, all marked "New" | Added `FilterByPrincipalType` parameter to `Invoke-DeltaIndexing` |
+| **SQL queries missing fields** | False "Modified" detections | Changed indexer function.json files to `SELECT * FROM c` |
+| **Policies duplicate indexer call** | 298×2=596 policies processed | Consolidated to single indexer call in Orchestrator |
+| **policyType array filtering** | Other policy types marked "New" | Detect ALL policyTypes in blob before filtering |
+| **Derived edges random GUIDs** | Duplicates instead of upserts | Use `objectId` as document `id` |
+| **rules/effectiveRules comparison** | 133 policies always "Modified" | Removed from CompareFields (complex nested arrays) |
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `EntraDataCollection.psm1` | Added FilterByPrincipalType parameter, policyType array detection |
+| `IndexerConfigs.psd1` | Removed rules/effectiveRules from CompareFields |
+| `IndexPrincipalsInCosmosDB/function.json` | Changed to `SELECT * FROM c` |
+| `IndexEdgesInCosmosDB/function.json` | Changed to `SELECT * FROM c` |
+| `IndexPoliciesInCosmosDB/function.json` | Changed to `SELECT * FROM c` |
+| `IndexResourcesInCosmosDB/function.json` | Changed to `SELECT * FROM c` |
+| `DeriveEdges/function.json` | Changed to `SELECT * FROM c` (consistent) |
+| `Orchestrator/run.ps1` | Consolidated policies indexer call |
+| `DeriveEdges/run.ps1` | Fixed 6 occurrences of id generation |
+| `DeriveVirtualEdges/run.ps1` | Fixed 7 occurrences of id generation |
+
+### Results After Fix
+
+| Entity Type | Writes | Notes |
+|-------------|--------|-------|
+| Principals | 2 | Real changes only (from random test script) |
+| Policies | 1 | Real changes only |
+| Resources | 0 | Stable |
+| Edges | ~314 | Derived edge upserts (not duplicates) |
+| **Total** | **~320** | **96% reduction from 8,425** |
+
+### Code Changes
+
+**FilterByPrincipalType in EntraDataCollection.psm1:**
+```powershell
+# New parameter added to Invoke-DeltaIndexing
+[Parameter()]
+[string]$FilterByPrincipalType  # Filter blob entities to only this principalType
+
+# Filter current entities BEFORE delta detection
+if ($FilterByPrincipalType) {
+    $filteredEntities = @{}
+    foreach ($objectId in $currentEntities.Keys) {
+        $entity = $currentEntities[$objectId]
+        if ($entity.principalType -eq $FilterByPrincipalType) {
+            $filteredEntities[$objectId] = $entity
+        }
+    }
+    $currentEntities = $filteredEntities
+}
+```
+
+**Deterministic Edge IDs in DeriveEdges/run.ps1:**
+```powershell
+# Before: id = [guid]::NewGuid().ToString() (creates duplicates)
+# After: Use objectId as id so Cosmos upserts instead of creating duplicates
+$derivedObjectId = "$($edge.sourceId)_$($permInfo.TargetType)_$($permInfo.AbuseEdge)"
+$abuseEdge = @{
+    id = $derivedObjectId
+    objectId = $derivedObjectId
+    # ...
+}
+```
 
 ---
 
