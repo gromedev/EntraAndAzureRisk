@@ -1216,8 +1216,8 @@
             # Role Policy fields
             'scopeId'
             'scopeType'
-            'rules'
-            'effectiveRules'
+            # 'rules' - REMOVED: Complex nested array, Sort-Object doesn't compare properly
+            # 'effectiveRules' - REMOVED: Complex nested array, Sort-Object doesn't compare properly
 
             # Named Location fields (policyType = 'namedLocation')
             'locationType'
@@ -1312,8 +1312,8 @@
             'conditions'
             'grantControls'
             'sessionControls'
-            'rules'
-            'effectiveRules'
+            # 'rules' - REMOVED: No longer in CompareFields
+            # 'effectiveRules' - REMOVED: No longer in CompareFields
             'ipRanges'
             'countriesAndRegions'
             # Intune policy arrays
