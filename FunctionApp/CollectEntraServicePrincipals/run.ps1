@@ -282,7 +282,7 @@ try {
                 collectionTimestamp = $timestampFormatted
             }
 
-            [void]$servicePrincipalsJsonL.AppendLine(($servicePrincipalObj | ConvertTo-Json -Depth 10 -Compress))
+            [void]$servicePrincipalsJsonL.AppendLine(($servicePrincipalObj | ConvertTo-Json -Compress -Depth 10))
             $servicePrincipalCount++
 
             # Track summary statistics

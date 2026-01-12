@@ -187,7 +187,7 @@ try {
                 collectionTimestamp = $timestampFormatted
             }
 
-            [void]$devicesJsonL.AppendLine(($deviceObj | ConvertTo-Json -Compress))
+            [void]$devicesJsonL.AppendLine(($deviceObj | ConvertTo-Json -Compress -Depth 10))
             $deviceCount++
 
             # Track statistics

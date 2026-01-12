@@ -1690,17 +1690,22 @@ Ranked from **easiest** (least likely to break anything) to **hardest** (signifi
 | 12 | Rename Dashboard + add debug metrics | Pending | Update title, add speed/storage stats section | Medium |
 | 13 | Investigate Dashboard > Role Policies | Pending | Investigation first, then fix | Unknown |
 | 14 | Audit edges and data points | Pending | Determine which empty columns to remove | Low |
-| 15 | Investigate Dashboard > Azure Roles | Pending | Why listing roles without user connections? | Unknown |
+| 15 | ~~Investigate Dashboard > Azure Roles~~ | ✅ Done | Removed entirely - see Task #40 | None |
 | 16 | Investigate Edges > Intune Policies | Pending | Is it a placeholder or needed? | Unknown |
+| 38 | Review collector frequencies | Pending | Depends on #17 (Delta Query) - see consistency risks | Low |
+| 39 | Investigate risky sign-ins vs risky users | Pending | Does `/auditLogs/signIns` add value over existing `riskLevel` field? | Low |
+| 40 | ~~Replace CollectRoleDefinitions with static file~~ | ✅ Done | **REMOVED ENTIRELY** - Role definitions are static reference data, nothing depends on them. Saves API calls, Cosmos writes, 5MB dashboard payload. 2026-01-12 | None |
 
 ### 🔴 TIER 4: SIGNIFICANT (150-500 lines, architectural changes)
 
 | # | Task | Status | Change Required | Risk |
 |---|------|--------|-----------------|------|
-| 17 | Investigate Graph Delta Query API | Pending | Research + implement delta queries for supported types | Medium |
+| 17 | Implement Graph Delta Query API | Pending | See `/docs/Epic 0-plan-delta-Architecture.md` | Medium |
 | 18 | Audit - Who Made Changes feature | Pending | New collection from /auditLogs/directoryAudits | Medium |
 | 19 | Expand Intune/Devices collection | Pending | New API calls (ASR, Settings catalog, Baselines) | Medium |
 | 20 | Null vs Blank values fix | Pending | Investigation + standardize across all collectors | Medium |
+| 24 | M365 Usage Collection | Pending | See `/docs/M365-usage.md` | Medium |
+| 37 | E5 Over-provisioning Detection | Pending | See `/docs/M365-usage-more.md` | Medium |
 
 ### ⛔ TIER 5: MAJOR (500+ lines, refactoring required)
 

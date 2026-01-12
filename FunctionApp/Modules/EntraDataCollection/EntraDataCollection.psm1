@@ -2378,6 +2378,48 @@ function New-PerformanceTimer {
 
 #endregion
 
+#region JSON Optimization
+
+<#
+.SYNOPSIS
+    Converts object to JSON excluding null/empty properties
+.DESCRIPTION
+    Reduces JSONL file size by removing null values before serialization.
+    Null properties and missing properties are semantically equivalent in JSON.
+#>
+function ConvertTo-CompactJson {
+    param(
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [hashtable]$InputObject,
+
+        [int]$Depth = 10
+    )
+
+    # Recursively remove null/empty values
+    $cleaned = @{}
+    foreach ($key in $InputObject.Keys) {
+        $value = $InputObject[$key]
+        if ($null -ne $value -and $value -ne '') {
+            if ($value -is [hashtable]) {
+                $cleanedValue = ConvertTo-CompactJson -InputObject $value -Depth ($Depth - 1)
+                if ($cleanedValue -ne '{}') {
+                    $cleaned[$key] = $value  # Keep original for ConvertTo-Json
+                }
+            }
+            elseif ($value -is [array] -and $value.Count -eq 0) {
+                # Skip empty arrays
+            }
+            else {
+                $cleaned[$key] = $value
+            }
+        }
+    }
+
+    return ($cleaned | ConvertTo-Json -Compress -Depth $Depth)
+}
+
+#endregion
+
 Export-ModuleMember -Function @(
     # Token management
     'Get-ManagedIdentityToken',
@@ -2411,5 +2453,7 @@ Export-ModuleMember -Function @(
     'Sync-GraphFromAudit',
     # Performance Timing
     'Measure-Phase',
-    'New-PerformanceTimer'
+    'New-PerformanceTimer',
+    # JSON Optimization
+    'ConvertTo-CompactJson'
 )

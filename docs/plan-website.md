@@ -1,415 +1,431 @@
-# Alpenglow Dashboard - Implementation Proposal
+# Alpenglow Dashboard - Design Document
 
-**Document Purpose**: Critical analysis of Website 2 Design.md and implementation proposal for the Alpenglow Dashboard.
-
-**Related Documents**:
-- UI Design: [Website 2 Design.md](Website%202%20Design.md)
-- Architecture: [final architecture.md](final%20architecture.md)
-- Task List: [claude-to-do-reference.md](claude-to-do-reference.md)
+**Version**: 1.0
+**Last Updated**: 2026-01-12
+**Status**: Draft
 
 ---
 
-## Executive Summary
+## Table of Contents
 
-| Decision | Outcome |
-|----------|---------|
-| **Primary Users** | Security analysts (primary) + Less technical managers (secondary) |
-| **Approach** | Phase 1: Enhance debug dashboard → Phase 2: Build Alpenglow |
-| **Historical Trends** | Critical - requires backend work for metrics collection |
-
----
-
-## The Data Gold Mine - Value Propositions
-
-You collect **5 entity types, 15+ edge types, 50+ derived abuse edges, and 100+ dangerous permissions** across Entra ID and Azure. Here's how to turn that into compelling dashboards:
-
-### 1. SECURITY RISK INSIGHTS (Primary Value)
-
-#### "Who Can Compromise the Tenant?"
-| Insight | Data Source | Dashboard Element |
-|---------|-------------|-------------------|
-| **Tier 0 Exposure** | Users with Global Admin, Privileged Role Admin, App Admin | Card: "X users can take over the entire tenant" |
-| **MFA-less Admins** | Privileged users with `perUserMfaState != enforced` | RED ALERT: "3 Global Admins have no MFA" |
-| **Shortest Path to Admin** | Chain: User → Group → PIM Eligible → Global Admin | Attack path visualization |
-| **Shadow Admins** | Users who own apps/groups that have admin roles | "15 users have hidden admin access via ownership" |
-
-#### "Cross-Cloud Risk"
-| Insight | Data Source | Dashboard Element |
-|---------|-------------|-------------------|
-| **Entra → Azure Escalation** | SP with Graph perms + Azure RBAC Owner | "4 apps can pivot from Entra to Azure Owner" |
-| **VM Code Execution Paths** | Users → Groups → Azure VM Contributor | "Who can run code on your VMs?" |
-| **Key Vault Exposure** | Key Vault access policies + RBAC | "Secrets accessible by X identities" |
-
-#### "Credential Risk"
-| Insight | Data Source | Dashboard Element |
-|---------|-------------|-------------------|
-| **Expiring Secrets** | App/SP `passwordCredentials` with near expiry | "12 app secrets expire in < 30 days" |
-| **Apps with Dangerous Perms** | `DangerousPermissions.psd1` matches | "5 apps can read all email (Mail.ReadWrite)" |
-| **Over-Permissioned SPs** | SPs with > 5 Graph permissions | "Service principals with excessive access" |
-
-### 2. COMPLIANCE & GOVERNANCE (Management Value)
-
-#### "Policy Coverage Dashboard"
-| Insight | Data Source | Dashboard Element |
-|---------|-------------|-------------------|
-| **MFA Coverage** | Users with MFA / Total users | Gauge: "78% MFA adoption" |
-| **CA Policy Gaps** | Users excluded from CA policies | "156 users bypass Require MFA policy" |
-| **PIM Adoption** | Eligible vs Permanent assignments | "65% of admin roles use PIM" |
-| **Device Compliance** | `isCompliant` flag on devices | "89% device compliance rate" |
-
-#### "Privileged Access Governance"
-| Insight | Data Source | Dashboard Element |
-|---------|-------------|-------------------|
-| **Admin Sprawl** | Count of Global Admins over time | Trend: "Global Admins: 8 → 12 in 90 days" |
-| **Permanent vs Eligible** | directoryRole vs pimEligible edges | Pie chart: assignment types |
-| **Stale Privileged Accounts** | Admins with no sign-in > 30 days | "2 admins haven't signed in for 60+ days" |
-
-### 3. BUSINESS VALUE (Executive Buy-In)
-
-#### "Cost Optimization"
-| Insight | Data Source | Dashboard Element |
-|---------|-------------|-------------------|
-| **Unused Licenses** | `assignedLicenseSkus` vs `lastSignInDateTime` | "$4,200/month in unused E5 licenses" |
-| **Orphaned Resources** | Groups with 0 members, apps with 0 users | "47 orphaned objects to clean up" |
-| **Guest Sprawl** | External users with privileged access | "23 guests have access to sensitive groups" |
-
-#### "Audit Readiness"
-| Insight | Data Source | Dashboard Element |
-|---------|-------------|-------------------|
-| **Privileged Access Review** | All admin assignments with last activity | Export-ready report for auditors |
-| **Policy Compliance** | Security defaults + CA + MFA status | "Audit checklist: 8/10 controls met" |
-| **Change Documentation** | Audit container with who/what/when | "All changes to admin roles in last 90 days" |
-
-### 4. OPERATIONAL INTELLIGENCE (SOC Value)
-
-#### "Attack Surface Monitoring"
-| Insight | Data Source | Dashboard Element |
-|---------|-------------|-------------------|
-| **Public-Facing Resources** | Storage with public access, Key Vaults without private endpoint | "5 storage accounts have public blob access" |
-| **Legacy Auth Usage** | Sign-ins with Basic Auth | "142 legacy auth sign-ins this week" |
-| **Risky Sign-In Patterns** | Sign-in events with risk flags | "7 sign-ins from risky locations" |
-
-#### "Change Velocity"
-| Insight | Data Source | Dashboard Element |
-|---------|-------------|-------------------|
-| **Daily Changes** | Audit container counts | Trend: "Avg 47 changes/day, spike to 200 yesterday" |
-| **Privileged Changes** | Admin role additions/removals | Alert: "New Global Admin added" |
-| **Policy Modifications** | CA policy changes | "CA policy 'Block Legacy Auth' was modified" |
-
-### 5. INVESTIGATION & INCIDENT RESPONSE (SOC Deep Dive)
-
-#### "Blast Radius Analysis"
-| Insight | Data Source | Dashboard Element |
-|---------|-------------|-------------------|
-| **User Impact** | Given user → all accessible resources | "If user X is compromised, they can access..." |
-| **Group Impact** | Given group → all members + their access | "Group Y has 47 members with access to..." |
-| **App Takeover** | Given app → all permissions + owners | "App Z has Mail.ReadWrite + 2 owners who could be targeted" |
-
-#### "Lateral Movement Paths"
-| Insight | Data Source | Dashboard Element |
-|---------|-------------|-------------------|
-| **From Any User** | Starting point → all reachable admin roles | Interactive: "Select user, see escalation paths" |
-| **Group Nesting Exploits** | Groups with `nestingDepth > 3` | "These groups have hidden membership chains" |
-| **Cross-Tenant Risk** | Guest users with privileged access | "External users who could escalate" |
+1. [Overview](#1-overview)
+2. [Data Foundation](#2-data-foundation)
+3. [Feature Specifications](#3-feature-specifications)
+4. [User Interface Design](#4-user-interface-design)
+5. [Technical Architecture](#5-technical-architecture)
+6. [Implementation Plan](#6-implementation-plan)
+7. [Appendix: Data Availability Audit](#7-appendix-data-availability-audit)
 
 ---
 
-## Priority Features Based on Value
+## 1. Overview
 
-### MUST HAVE (Immediate differentiators)
+### 1.1 Purpose
 
-| Feature | Value | Effort |
-|---------|-------|--------|
-| **"Who can take over the tenant?" card** | CRITICAL - unique insight | Medium |
-| **MFA-less admins alert** | HIGH - actionable finding | Low |
-| **Expiring credentials list** | HIGH - prevents outages | Low |
-| **License waste calculator** | HIGH - $ savings | Low |
-| **CA policy coverage gaps** | HIGH - security blind spots | Medium |
+The Alpenglow Dashboard is a security posture visualization and analysis tool that transforms collected Entra ID and Azure data into actionable insights. It serves as the primary interface for security analysts and management to understand identity risks, compliance status, and cost optimization opportunities.
 
-### SHOULD HAVE (Compelling additions)
+### 1.2 Target Users
 
-| Feature | Value | Effort |
-|---------|-------|--------|
-| **Attack path visualization** | HIGH - visual impact | High |
-| **Privilege change trends** | MEDIUM - historical context | Medium |
-| **Cross-cloud escalation paths** | HIGH - unique insight | Medium |
-| **Blast radius calculator** | HIGH - incident response | Medium |
+| User Type | Needs | Frequency |
+|-----------|-------|-----------|
+| **Security Analysts** | Detailed data exploration, investigation, attack path analysis | Daily |
+| **Security Managers** | Posture overview, trend monitoring, compliance reporting | Weekly |
+| **Executives / Leadership** | High-level metrics, cost savings, risk summary | Monthly |
 
-### NICE TO HAVE (Future polish)
+### 1.3 Key Differentiators
 
-| Feature | Value | Effort |
-|---------|-------|--------|
-| **Comparison to industry benchmarks** | MEDIUM | High |
-| **Automated remediation suggestions** | HIGH | High |
-| **Integration with ticketing systems** | MEDIUM | Medium |
+What makes this dashboard valuable vs. the Entra/Azure portals:
 
----
+1. **Unified View**: Entra ID + Azure in one place (portals are separate)
+2. **Attack Path Visibility**: Derived abuse edges show "who can compromise what"
+3. **Cross-Cloud Analysis**: Entra permissions → Azure resource access
+4. **Historical Context**: Trend data over 90 days (portals show current state only)
+5. **Cost Insights**: License optimization, orphaned resources
 
-## Landing Page Hero Metrics
+### 1.4 Relationship to Existing Components
 
-These are the "headline" numbers that immediately communicate value:
-
-### Security Posture Cards (5 cards, redesigned)
-
-| Card | Headline Metric | Supporting Metrics | Why It Matters |
-|------|-----------------|--------------------|-----------------|
-| **Tenant Takeover Risk** | "8 users can compromise entire tenant" | - 3 Global Admins<br>- 2 Privileged Role Admins<br>- 3 via ownership chains | This is THE differentiator. No other tool shows this so clearly. |
-| **MFA Gaps** | "12 privileged users without MFA" | - 3 Global Admins<br>- 5 with legacy auth<br>- 4 with weak methods | Directly actionable, high urgency. |
-| **Credential Exposure** | "23 secrets expire in 30 days" | - 8 apps<br>- 15 service principals<br>- $0 Key Vault secrets | Prevents outages, shows proactive monitoring. |
-| **Policy Coverage** | "78% protected by MFA policy" | - 156 users excluded<br>- 12 apps bypassed<br>- 3 policy conflicts | Shows CA effectiveness and gaps. |
-| **Cost Opportunity** | "$4,200/month recoverable" | - 47 unused E5 licenses<br>- 23 inactive 90+ days<br>- 12 guest with licenses | Immediate ROI justification. |
-
-### Alternative Card Options
-
-| Card | Headline | Supporting | Use Case |
-|------|----------|------------|----------|
-| **Cross-Cloud Risk** | "4 apps can pivot to Azure Owner" | SP permissions + RBAC | For orgs with significant Azure footprint |
-| **Guest Risk** | "23 external users with privileged access" | Guest + group membership + roles | For orgs with heavy B2B collaboration |
-| **Device Compliance** | "89% devices compliant" | By OS, by policy | For Intune-heavy environments |
-| **Change Velocity** | "47 changes/day (↑15% vs last week)" | By type, by criticality | For mature SOC teams |
+| Component | Role | Future |
+|-----------|------|--------|
+| **Data Collection Function App** | Collects data from Graph/Azure APIs | Stays in Function App 1 |
+| **Debug Dashboard** | Developer/troubleshooting view of raw data | Stays in Function App 1, renamed |
+| **Alpenglow Dashboard** | Production security dashboard | NEW - Function App 2 |
 
 ---
 
-## Proposed Dashboard Sections (Redesigned)
+## 2. Data Foundation
 
-Instead of the original 5 sections, consider organizing by **use case**:
+### 2.1 What We Collect
 
-### Section 1: Executive Summary (Landing Page)
-- Hero metrics (5 cards above)
-- 90-day trend charts
-- Recent critical changes
+| Category | Entity Types | Edge Types | Key Fields |
+|----------|--------------|------------|------------|
+| **Principals** | Users, Groups, Service Principals, Devices, Admin Units | - | `perUserMfaState`, `lastSignInDateTime`, `riskLevel`, `authMethodCount` |
+| **Resources** | Applications, Subscriptions, Resource Groups, Key Vaults, VMs | - | `passwordCredentials`, `keyCredentials`, `apiPermissionCount` |
+| **Relationships** | - | 15+ types: `directoryRole`, `pimEligible`, `azureRbac`, `groupMember`, `appOwner`, `keyVaultAccess`, `caPolicyTargets*` | `edgeType`, `assignmentType` |
+| **Derived Edges** | - | 50+ abuse types: `isGlobalAdmin`, `canAddSecretToAnyApp`, `canAssignAnyRole` | `severity`, `capability` |
+| **Policies** | CA, Auth Methods, PIM, Intune | `caPolicyTargetsPrincipal`, `caPolicyExcludesPrincipal` | `state`, `requiresMfa` |
+| **Changes** | Audit records | - | `changeType`, `changeTimestamp`, `delta` |
 
-### Section 2: Risk Explorer
-- **Tier 0 Exposure**: All paths to Global Admin
-- **Cross-Cloud Paths**: Entra → Azure escalation
-- **Credential Risks**: Expiring, over-permissioned, dangerous
+### 2.2 Data Availability Summary
 
-### Section 3: Compliance Dashboard
-- MFA coverage by user type
-- CA policy coverage matrix
-- PIM adoption metrics
-- Device compliance by OS
+Based on code audit, here's what we can actually build:
 
-### Section 4: Cost & Cleanup
-- License optimization
-- Orphaned objects
-- Stale accounts
-- Guest access review
+| Status | Count | Examples |
+|--------|-------|----------|
+| ✅ **Ready Now** | 19 | Tier 0 exposure, MFA status, expiring secrets, CA gaps, device compliance |
+| ⚠️ **Needs Query Logic** | 12 | Unused licenses (need JOIN), stale admins (need JOIN), blast radius |
+| ❌ **Not Collected** | 10 | Sign-in logs, M365 usage, VM metrics, historical trends |
+| 🔧 **Needs Backend** | 5 | Metrics container, compliance frameworks |
 
-### Section 5: Investigation (SOC)
-- Blast radius calculator
-- Change timeline
-- Entity deep-dive
-- Export for SIEM
-
-### Section 6: Data Browser (Debug Dashboard replacement)
-- Raw data tables (current functionality)
-- Filtering and export
-- Audit trail
+**Critical Gap**: Historical trend data requires a new `metrics` container with daily aggregations.
 
 ---
 
-## Critical Analysis of Website 2 Design.md
+## 3. Feature Specifications
 
-### What's Solid
+### 3.1 MVP Features (Phase 1-2)
 
-| Aspect | Assessment |
-|--------|------------|
-| **Design Philosophy** | "Information density and functional clarity" is exactly right for security analysts |
-| **Data Freshness Awareness** | Correct emphasis on snapshot-based data, not real-time |
-| **Visual Design System** | Color palette, typography, spacing are well-defined and consistent |
-| **Security Posture Cards** | High-value concept - executives and analysts both want at-a-glance status |
-| **Layout Structure** | Standard sidebar + content pattern is proven and familiar |
+Only features with ✅ or ⚠️ data availability.
 
-### What's Problematic
+#### 3.1.1 Security Posture Cards
 
-| Issue | Severity | Analysis |
-|-------|----------|----------|
-| **Scope is Massive** | HIGH | The design describes a feature-complete SPA. Current debug dashboard is ~560 lines. This would be 10-20x larger. |
-| **No Tech Stack Decision** | HIGH | Document discusses static demo site stack but not production. Is this server-rendered? SPA? This fundamentally affects everything. |
-| **Historical Trends Assume Data Exists** | HIGH | 90-day trends require historical snapshots. We only have current state + recent audit changes. Backend work needed first. |
-| **Relationship Visualization Unsolved** | MEDIUM | Notes say "Gremlin won't be implemented" but design still shows relationships. The table approach in debug dashboard already works. What's the actual improvement? |
-| **Search with Autocomplete** | MEDIUM | Requires either client-side index (memory) or API endpoint (backend work). Neither exists. |
-| **Detail Panels** | LOW | Nice UX polish but adds complexity. Current click-to-see-details in table works. |
-| **Mobile Responsiveness** | LOW | Security analysts use desktops. Mobile is likely low priority. |
+**Purpose**: At-a-glance risk summary for the landing page
 
-### What's Missing
+| Card | Metric | Data Source | Status |
+|------|--------|-------------|--------|
+| **Tenant Takeover Risk** | Count of users who can compromise the tenant | `directoryRole` edges where role is Tier 0 + derived `canAssignAnyRole` edges + ownership chains | ✅ Ready |
+| **MFA Gaps** | Privileged users without MFA | Users with admin edges WHERE `perUserMfaState != 'enforced'` | ✅ Ready |
+| **Credential Exposure** | Secrets expiring in 30 days | Apps/SPs where `passwordCredentials.endDateTime < now + 30 days` | ✅ Ready |
+| **Policy Coverage** | % users covered by MFA CA policy | Count `caPolicyTargetsPrincipal` edges vs total users | ✅ Ready |
+| **Cost Opportunity** | $ in unused licenses | Users with `assignedLicenseSkus` WHERE `lastSignInDateTime > 90 days` | ⚠️ Need JOIN |
 
-1. **Target User Definition**: Who exactly uses this? Developers (debug dashboard covers this), Security Analysts, Executives, Compliance? Each has different needs.
+**Implementation**: Query edges container at page load, aggregate counts, display as cards.
 
-2. **MVP Definition**: What's the minimum that delivers value?
+#### 3.1.2 Privileged Access View
 
-3. **Backend Requirements**: Which features need backend changes vs pure frontend?
+**Purpose**: Who has admin access and how
 
-4. **Tech Stack Decision**: React? Vue? Plain JS? Server-rendered? This affects every implementation decision.
+| Element | Description | Data Source |
+|---------|-------------|-------------|
+| **Tier 0 Admins Table** | Global Admins, Privileged Role Admins, App Admins | `directoryRole` edges filtered by dangerous role GUIDs |
+| **PIM vs Permanent Chart** | Pie chart showing assignment types | Count `directoryRole` vs `pimEligible` edges |
+| **Shadow Admins Table** | Users who own apps/groups with admin roles | `appOwner` + `spOwner` + `groupOwner` edges → filter targets with admin roles |
+| **Stale Admins** | Admins with no sign-in > 30 days | Admin edges + JOIN on principals for `lastSignInDateTime` |
 
-5. **Authentication/Authorization**: How do users access this? Entra ID integration? Role-based views?
+#### 3.1.3 Credential Risk View
 
-6. **Data Refresh Strategy**: Live polling? Manual refresh? Push notifications?
+**Purpose**: Expiring secrets and dangerous permissions
+
+| Element | Description | Data Source |
+|---------|-------------|-------------|
+| **Expiring Secrets Table** | Apps/SPs with secrets expiring soon | Resources WHERE `expiringSecretsCount > 0` |
+| **Dangerous Permissions Table** | Apps with high-risk Graph permissions | Derived edges: `canAddSecretToAnyApp`, `canGrantAnyPermission`, etc. |
+| **Over-Permissioned Apps** | Apps with > 10 Graph permissions | Resources WHERE `apiPermissionCount > 10` |
+
+#### 3.1.4 Compliance View
+
+**Purpose**: Policy coverage and gaps
+
+| Element | Description | Data Source |
+|---------|-------------|-------------|
+| **MFA Coverage Gauge** | % of users with MFA enabled | Count principals WHERE `perUserMfaState IN ('enabled', 'enforced')` / total users |
+| **CA Policy Gaps Table** | Users excluded from key policies | `caPolicyExcludesPrincipal` edges filtered by policies with `requiresMfa = true` |
+| **Device Compliance** | % of devices compliant | Count devices WHERE `isCompliant = true` / total devices |
+| **PIM Adoption %** | Ratio of eligible to permanent roles | `pimEligible` count / (`directoryRole` + `pimEligible`) count |
+
+#### 3.1.5 Cost & Cleanup View
+
+**Purpose**: License optimization and orphaned resources
+
+| Element | Description | Data Source |
+|---------|-------------|-------------|
+| **Unused Licenses Table** | Users with licenses but no recent sign-in | Principals with `assignedLicenseSkus` + `lastSignInDateTime > 90 days ago` |
+| **Orphaned Groups** | Groups with no members | Principals (groups) WHERE `memberCountTotal = 0` |
+| **Guest Access Review** | External users with privileged access | Principals WHERE `userType = 'Guest'` + have admin or ownership edges |
+| **External Apps Table** | Third-party apps with consent grants | `oauth2PermissionGrant` edges |
+
+#### 3.1.6 Data Browser (Enhanced Debug Dashboard)
+
+**Purpose**: Raw data exploration for analysts
+
+| Element | Description |
+|---------|-------------|
+| **Principals Tab** | Users, Groups, SPs, Devices, Admin Units - sortable tables with filters |
+| **Resources Tab** | Applications, Azure resources, Role definitions |
+| **Edges Tab** | All relationship types with filtering by edge type |
+| **Policies Tab** | CA, Auth Methods, PIM policies, Intune |
+| **Audit Tab** | Recent changes with filtering by entity type |
+
+**Enhancement over current debug dashboard**: Add column filters, CSV export, search.
+
+### 3.2 Future Features (Phase 3+)
+
+Features that need additional work before implementation.
+
+| Feature | Blocker | Notes |
+|---------|---------|-------|
+| **Historical Trend Charts** | Need `metrics` container | Requires backend: daily metric aggregation |
+| **Attack Path Visualization** | Need graph traversal logic | Currently just tables; graphical paths need Gremlin or custom |
+| **Blast Radius Calculator** | Need query logic | Data exists, need UI for "select user → show impact" |
+| **Sign-in Analysis** | Not collected | Would need `/auditLogs/signIns` API |
+| **Compliance Frameworks** | Need mapping design | SOC 2, NIST, ISO 27001 control mapping |
 
 ---
 
-## Feature ROI Matrix
+## 4. User Interface Design
 
-| Feature | User Value | Effort | ROI | Recommendation |
-|---------|------------|--------|-----|----------------|
-| **Security Posture Cards (Landing Page)** | HIGH | MEDIUM | **HIGH** | Priority 1 - Clear executive value |
-| **License Analysis (Cost Savings)** | HIGH | LOW | **HIGH** | Priority 2 - Immediate business value for managers |
-| **Better Table Filtering/Sorting** | HIGH | LOW | **HIGH** | Priority 3 - Low effort, high utility |
-| **Historical Trend Charts** | HIGH | HIGH | **MEDIUM** | Priority 4 - Needs backend work first |
-| **Global Search** | MEDIUM | MEDIUM | MEDIUM | Priority 5 - Useful but current tables work |
-| **Navigation Sidebar** | MEDIUM | LOW | MEDIUM | Priority 6 - Standard improvement |
-| **Detail Panels (Slide-in)** | LOW | MEDIUM | LOW | Defer - Nice polish, not essential |
-| **Relationship Visualization** | MEDIUM | HIGH | LOW | Defer - Tables work, Gremlin is V4+ |
-| **Static Demo Site** | LOW | MEDIUM | LOW | Defer - Marketing, not user value |
-| **Mobile Responsiveness** | LOW | MEDIUM | LOW | Skip - Not target use case |
-
----
-
-## Historical Trends - Backend Requirements
-
-Since historical trends are critical for launch, backend work is required:
-
-### Options
-
-| Option | Pros | Cons | Recommendation |
-|--------|------|------|----------------|
-| Store full snapshots daily | Complete history, any query possible | Storage grows linearly, ~1GB/90 days | Too heavy |
-| **Store aggregated metrics only** | Tiny storage (~KB/day), fast queries | Limited to pre-defined metrics | **Recommended** |
-| Query audit container | No new storage | Complex queries, may miss data | Fallback option |
-
-### Recommended Metrics to Track Daily
+### 4.1 Layout Structure
 
 ```
-Security Posture Metrics:
-- Total users (enabled/disabled)
-- Users with MFA / without MFA
-- Users with risk levels (none/low/medium/high)
-- Total groups
-- Total service principals
-- Privileged role assignments (permanent/eligible)
-- Global admin count
-- CA policies (enabled/disabled/report-only)
-
-Business Value Metrics:
-- Unused licenses count (no sign-in > 30/60/90 days)
-- License cost opportunity ($ potential savings)
-- License utilization by SKU
+┌─────────────────────────────────────────────────────────────────┐
+│ HEADER: Tenant Name | Data Age: "6 hours ago" | Refresh | User  │
+├──────────────┬──────────────────────────────────────────────────┤
+│              │                                                   │
+│  NAVIGATION  │  CONTENT AREA                                    │
+│              │                                                   │
+│  Dashboard   │  [Depends on selected section]                   │
+│  Privileged  │                                                   │
+│  Credentials │                                                   │
+│  Compliance  │                                                   │
+│  Cost        │                                                   │
+│  Data        │                                                   │
+│              │                                                   │
+├──────────────┴──────────────────────────────────────────────────┤
+│ FOOTER: Last collection: Jan 10 2:14 AM | Duration: 14m        │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### Implementation
+### 4.2 Navigation
 
-1. Create new Cosmos DB container: `metrics` (partition key: `/date`)
-2. Add `CollectMetrics` function to Orchestrator (runs after indexing)
-3. Store one document per day with all metrics
-4. Implement 90-day TTL for automatic cleanup
+| Section | Icon | Description |
+|---------|------|-------------|
+| **Dashboard** | 📊 | Landing page with posture cards |
+| **Privileged Access** | 🔑 | Admin roles, PIM, shadow admins |
+| **Credentials** | 🔐 | Expiring secrets, dangerous permissions |
+| **Compliance** | ✓ | MFA coverage, CA gaps, device compliance |
+| **Cost & Cleanup** | 💰 | License optimization, orphaned resources |
+| **Data Browser** | 📁 | Raw data tables (enhanced debug) |
 
----
+### 4.3 Landing Page (Dashboard)
 
-## License Optimization - Business Value Quick Win
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ SECURITY POSTURE SUMMARY                                        │
+├─────────────┬─────────────┬─────────────┬─────────────┬─────────┤
+│   TENANT    │    MFA      │ CREDENTIALS │   POLICY    │  COST   │
+│  TAKEOVER   │    GAPS     │  EXPOSURE   │  COVERAGE   │ SAVINGS │
+│             │             │             │             │         │
+│     8       │     12      │     23      │    78%      │ $4,200  │
+│   users     │  privileged │   secrets   │  protected  │ /month  │
+│             │ without MFA │  expiring   │             │         │
+│  [Details]  │  [Details]  │  [Details]  │  [Details]  │[Details]│
+└─────────────┴─────────────┴─────────────┴─────────────┴─────────┘
 
-This demonstrates immediate value to managers:
+┌─────────────────────────────────────────────────────────────────┐
+│ RECENT CHANGES                                                  │
+├─────────────────────────────────────────────────────────────────┤
+│ • New Global Admin added: john.doe@contoso.com (2 hours ago)    │
+│ • CA Policy modified: "Block Legacy Auth" (5 hours ago)         │
+│ • App secret expiring: HR-Application (expires in 7 days)       │
+│ [View All Changes →]                                            │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-| Metric | Value Proposition | Implementation |
-|--------|-------------------|----------------|
-| **Unused licenses** | "23 users haven't signed in for 90 days - $X/month potential savings" | Compare `assignedLicenseSkus` vs `lastSignInDateTime` |
-| **License by SKU** | "You have 50 E5 licenses but only 30 are active users" | Group by SKU, count active vs inactive |
-| **Cost summary** | "$2,500/month could be saved by removing unused licenses" | Map SKUs to known costs, calculate totals |
+### 4.4 Data Tables
 
----
+All data tables follow this pattern:
 
-## Technical Decisions
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ USERS (2,847)                                    [Export CSV]   │
+├─────────────────────────────────────────────────────────────────┤
+│ Filter: [___________] [MFA: Any ▼] [Risk: Any ▼] [Clear]       │
+├──────────────┬──────────────────────┬─────────┬────────┬────────┤
+│ Display Name │ UPN                  │ MFA     │ Risk   │ Sign-In│
+│ ▲            │                      │         │        │        │
+├──────────────┼──────────────────────┼─────────┼────────┼────────┤
+│ John Doe     │ john.doe@contoso.com │ ✓ Phone │ None   │ 2h ago │
+│ Jane Smith   │ jane.smith@contoso   │ ✗ None  │ 🔴 High│ 1d ago │
+├──────────────┴──────────────────────┴─────────┴────────┴────────┤
+│ [← Prev] Page 1 of 57 [Next →]              Showing 1-50 of 2847│
+└─────────────────────────────────────────────────────────────────┘
+```
 
-### Tech Stack Recommendation
+### 4.5 Visual Design
 
-| Component | Recommendation | Rationale |
-|-----------|----------------|-----------|
-| **Phase 1 (Debug Dashboard)** | Enhanced PowerShell | No new tech, fast iteration, already works |
-| **Phase 2 (Alpenglow)** | Plain HTML/CSS/JS + Chart.js | Simple, no build step, easy to host as static site |
-| **Data Source** | Cosmos DB input bindings (existing pattern) | Already proven, no new infrastructure |
-| **Authentication** | Azure AD Easy Auth | Built-in to Azure Functions, low complexity |
-| **Charts** | Chart.js | Lightweight, well-documented, no dependencies |
-
-### Data Strategy
-
-| Question | Decision |
-|----------|----------|
-| How does frontend get data? | Cosmos DB input bindings (same as debug dashboard) |
-| Historical data for trends? | New `metrics` container with daily aggregations |
-| Real-time or snapshot? | Snapshot with manual refresh button |
-
----
-
-## Phased Implementation Plan
-
-### Phase 1: Debug Dashboard Enhancements + Backend Prep
-**Timeline**: 2 weeks
-
-**Frontend (Debug Dashboard):**
-- [ ] Add Security Posture Summary section at top
-- [ ] Add License Analysis section (unused licenses, potential savings by SKU)
-- [ ] Add per-column filter inputs to all tables
-- [ ] Add CSV export buttons to all tables
-- [ ] Rename to "Debug Dashboard" in HTML title/header
-
-**Backend (Historical Trends Foundation):**
-- [ ] Design metrics schema for daily aggregation
-- [ ] Create `metrics` container in Cosmos DB
-- [ ] Add `CollectMetrics` function to Orchestrator
-- [ ] Implement 90-day TTL retention policy
-
-### Phase 2: Alpenglow Dashboard (Separate Function App)
-**Timeline**: 2-3 weeks
-**Prerequisite**: Phase 1 complete
-
-- [ ] Create Function App 2 infrastructure (Bicep/ARM)
-- [ ] Configure Managed Identity with read-only Cosmos access
-- [ ] Build landing page with security posture cards
-- [ ] Build historical trend charts (4 charts from metrics container)
-- [ ] Build License optimization view (manager-friendly)
-- [ ] Build Principals view (users, groups, SPs, devices)
-- [ ] Build Policies view (CA, auth methods)
-- [ ] Configure Azure AD Easy Auth
-
-### Phase 3: Advanced Features (V4+)
-**Timeline**: TBD
-**Prerequisite**: Phase 2 deployed, user feedback collected
-
-- [ ] Relationship visualization improvements (post-Gremlin)
-- [ ] Detail panels (slide-in)
-- [ ] Global search with autocomplete
-- [ ] Advanced filtering / saved views
-- [ ] Static demo site (marketing)
+| Element | Specification |
+|---------|---------------|
+| **Font** | Segoe UI (Windows native) |
+| **Primary Color** | #2c3e50 (dark blue-gray) |
+| **Accent** | #3498db (blue) |
+| **Success** | #27ae60 (green) |
+| **Warning** | #f39c12 (orange) |
+| **Error** | #e74c3c (red) |
+| **Background** | #ecf0f1 (light gray) |
 
 ---
 
-## What to Explicitly Defer
+## 5. Technical Architecture
 
-| Feature | Why Defer |
-|---------|-----------|
-| **Relationship Visualization** | Gremlin integration is V4+. Tables work fine for now. |
-| **Mobile Responsiveness** | Security analysts use desktops. Low priority. |
-| **Static Demo Site** | Marketing asset, not user-facing value. |
-| **Detail Panels** | Nice UX polish but not essential for MVP. |
+### 5.1 Deployment Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Function App 1: Data Collection                                 │
+│ (14 Graph API permissions - HIGH privilege)                     │
+│                                                                 │
+│ • Orchestrator, Collectors, Indexers, DeriveEdges              │
+│ • Debug Dashboard (HTTP endpoint)                               │
+│ • Timer trigger: every 6 hours                                  │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ writes to
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Cosmos DB                                                       │
+│ • principals, resources, edges, policies, events, audit        │
+│ • metrics (NEW - for historical trends)                        │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ reads from
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Function App 2: Alpenglow Dashboard                             │
+│ (Read-only Cosmos access - LOW privilege)                       │
+│                                                                 │
+│ • HTTP endpoint serving HTML                                    │
+│ • Azure AD Easy Auth                                            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 5.2 Tech Stack
+
+| Layer | Technology | Rationale |
+|-------|------------|-----------|
+| **Runtime** | Azure Functions (PowerShell) | Consistent with data collection |
+| **Data Access** | Cosmos DB input bindings | Proven pattern, no new infrastructure |
+| **Frontend** | Server-rendered HTML + vanilla JS | Simple, no build step |
+| **Charts** | Chart.js (CDN) | Lightweight, no dependencies |
+| **Auth** | Azure AD Easy Auth | Built-in, zero code |
+
+### 5.3 Data Flow
+
+1. User navigates to Alpenglow Dashboard URL
+2. Azure AD Easy Auth validates user token
+3. Function App reads from Cosmos DB via input bindings
+4. PowerShell generates HTML with embedded data
+5. JavaScript provides interactivity (sorting, filtering, charts)
+
+### 5.4 Queries Needed
+
+| Feature | Query Pattern |
+|---------|---------------|
+| **Tier 0 Count** | `edges WHERE edgeType = 'directoryRole' AND targetRoleDefinitionName IN ('Global Administrator', ...)` |
+| **MFA-less Admins** | Above JOIN `principals WHERE perUserMfaState != 'enforced'` |
+| **Expiring Secrets** | `resources WHERE entityType = 'application' AND expiringSecretsCount > 0` |
+| **CA Exclusions** | `edges WHERE edgeType = 'caPolicyExcludesPrincipal' AND requiresMfa = true` |
+| **Unused Licenses** | `principals WHERE assignedLicenseSkus != null AND lastSignInDateTime < (now - 90 days)` |
 
 ---
 
-## Success Metrics
+## 6. Implementation Plan
 
-How we'll know the dashboard is delivering value:
+### 6.1 Phase 1: Debug Dashboard Enhancements (Week 1-2)
 
-| Metric | Target |
-|--------|--------|
-| **User Adoption** | Security team uses it weekly |
-| **Manager Engagement** | License report reviewed monthly |
-| **Cost Savings Identified** | $X/month in unused licenses found |
-| **Time Saved** | Analysts find info faster than Entra portal |
+**Goal**: Quick wins on existing dashboard while preparing backend for trends.
+
+| Task | Type | Effort |
+|------|------|--------|
+| Rename to "Debug Dashboard" in UI | Frontend | 1 hour |
+| Add Security Posture Summary section (5 cards) | Frontend | 1 day |
+| Add per-column filter inputs to all tables | Frontend | 1 day |
+| Add CSV export buttons | Frontend | 0.5 day |
+| Design metrics schema | Backend | 0.5 day |
+| Create `metrics` container in Cosmos DB | Backend | 0.5 day |
+| Add `CollectMetrics` function to Orchestrator | Backend | 1 day |
+| Implement 90-day TTL | Backend | 0.5 day |
+
+### 6.2 Phase 2: Alpenglow Dashboard MVP (Week 3-5)
+
+**Goal**: Separate, polished dashboard for analysts and managers.
+
+| Task | Type | Effort |
+|------|------|--------|
+| Create Function App 2 infrastructure (Bicep) | Infra | 1 day |
+| Configure Managed Identity (read-only Cosmos) | Infra | 0.5 day |
+| Configure Azure AD Easy Auth | Infra | 0.5 day |
+| Build landing page with 5 posture cards | Frontend | 1 day |
+| Build Privileged Access view | Frontend | 1 day |
+| Build Credentials view | Frontend | 1 day |
+| Build Compliance view | Frontend | 1 day |
+| Build Cost & Cleanup view | Frontend | 1 day |
+| Build Data Browser (enhanced tables) | Frontend | 2 days |
+| Add historical trend charts (from metrics) | Frontend | 1 day |
+| Testing and refinement | QA | 2 days |
+
+### 6.3 Phase 3: Advanced Features (V4+)
+
+| Task | Dependency | Notes |
+|------|------------|-------|
+| Attack path visualization | Gremlin integration | After Function App 3 |
+| Blast radius calculator | Query logic | Complex traversal |
+| Sign-in analysis | New API collection | `/auditLogs/signIns` |
+| Compliance framework mapping | Design work | SOC 2, NIST, ISO |
 
 ---
 
-## Next Steps
+## 7. Appendix: Data Availability Audit
 
-1. **Approve this plan** and add Phase 1 tasks to sprint
-2. **Design metrics schema** for historical trends
-3. **Start Phase 1 frontend work** (Security Posture Summary section)
-4. **Start Phase 1 backend work** (metrics container and collection)
+### Legend
+- ✅ **YES** - Data collected and working
+- ⚠️ **PARTIAL** - Data exists but needs JOIN/calculation
+- ❌ **NO** - Not currently collected
+- 🔧 **NEEDS BACKEND** - Requires new collection or container
+
+### Security Risk Insights
+
+| Insight | Status | Notes |
+|---------|--------|-------|
+| Tier 0 Exposure | ✅ | `directoryRole` edges + derived abuse edges |
+| MFA-less Admins | ✅ | `perUserMfaState` field on users |
+| Shortest Path to Admin | ⚠️ | Edges exist, need traversal logic |
+| Shadow Admins (ownership) | ✅ | Ownership edges + derived `canAddSecret*` |
+| Entra → Azure Escalation | ⚠️ | Have both edge types, need JOIN |
+| VM Code Execution Paths | ✅ | `azureRbac` edges with VM Contributor |
+| Key Vault Exposure | ✅ | `keyVaultAccess` edges |
+| Expiring Secrets | ✅ | `passwordCredentials.endDateTime` |
+| Dangerous Permissions | ✅ | Derived edges from DangerousPermissions.psd1 |
+
+### Compliance & Governance
+
+| Insight | Status | Notes |
+|---------|--------|-------|
+| MFA Coverage % | ✅ | `perUserMfaState` + `authMethodCount` |
+| CA Policy Gaps | ✅ | `caPolicyExcludesPrincipal` edges |
+| PIM Adoption | ✅ | `directoryRole` vs `pimEligible` counts |
+| Device Compliance | ✅ | `isCompliant` field on devices |
+| Admin Sprawl (trend) | ❌ | Requires metrics container |
+| Stale Privileged Accounts | ⚠️ | Admin edges + `lastSignInDateTime` JOIN |
+
+### Business Value
+
+| Insight | Status | Notes |
+|---------|--------|-------|
+| Unused Licenses | ⚠️ | Have data, need JOIN + threshold |
+| Over-Provisioned Licenses | ❌ | Need M365 usage data (not collected) |
+| Orphaned Groups | ✅ | `memberCountTotal = 0` |
+| Guest Access Review | ✅ | `userType = Guest` + edges |
+| External App Access | ✅ | `oauth2PermissionGrant` edges |
+| Historical Trends | ❌ | Requires metrics container |
+| Compliance Frameworks | 🔧 | Need control mapping design |
+
+### Operational Intelligence
+
+| Insight | Status | Notes |
+|---------|--------|-------|
+| Daily Changes | ✅ | Audit container counts |
+| Privileged Changes | ⚠️ | Audit + filter by admin roles |
+| Policy Modifications | ✅ | CA policies in audit with change tracking |
+| Legacy Auth Usage | ❌ | Don't collect sign-in logs |
+| Risky Sign-Ins | ❌ | Don't collect sign-in logs |
+
+---
+
+**End of Document**

@@ -21,11 +21,10 @@
       - CollectEntraServicePrincipals -> principals.jsonl (principalType=servicePrincipal)
       - CollectDevices -> principals.jsonl (principalType=device)
 
-      Resource Collectors (4):
+      Resource Collectors (3):
       - CollectAppRegistrations -> resources.jsonl (resourceType=application)
       - CollectAzureHierarchy -> resources.jsonl (resourceType=tenant/managementGroup/subscription/resourceGroup)
       - CollectAzureResources -> resources.jsonl (CONSOLIDATED: keyVault, virtualMachine, storageAccount, etc.)
-      - CollectRoleDefinitions -> resources.jsonl (CONSOLIDATED: directoryRoleDefinition, azureRoleDefinition)
 
       Policy/Event Collectors (3):
       - CollectPolicies -> policies.jsonl (CA policies)
@@ -120,12 +119,6 @@ try {
         -Input $collectionInput `
         -NoWait
 
-    # CONSOLIDATED: Role Definitions (directory + Azure)
-    $roleDefinitionsTask = Invoke-DurableActivity `
-        -FunctionName 'CollectRoleDefinitions' `
-        -Input $collectionInput `
-        -NoWait
-
     # Policy Collectors (2) - output to policies.jsonl
     $policiesTask = Invoke-DurableActivity `
         -FunctionName 'CollectPolicies' `
@@ -155,7 +148,7 @@ try {
     #endregion
 
     #region Wait for All Collections
-    Write-Verbose "Waiting for all 13 collectors to complete..."
+    Write-Verbose "Waiting for all 12 collectors to complete..."
 
     $allResults = Wait-ActivityFunction -Task @(
         $usersTask,
@@ -166,14 +159,13 @@ try {
         $applicationsTask,
         $azureHierarchyTask,
         $azureResourcesTask,
-        $roleDefinitionsTask,
         $policiesTask,
         $intunePoliciesTask,
         $eventsTask,
         $edgesTask
     )
 
-    # Unpack results (13 collectors)
+    # Unpack results (12 collectors)
     $usersResult = $allResults[0]
     $groupsResult = $allResults[1]
     $servicePrincipalsResult = $allResults[2]
@@ -182,11 +174,10 @@ try {
     $applicationsResult = $allResults[5]
     $azureHierarchyResult = $allResults[6]
     $azureResourcesResult = $allResults[7]
-    $roleDefinitionsResult = $allResults[8]
-    $policiesResult = $allResults[9]
-    $intunePoliciesResult = $allResults[10]
-    $eventsResult = $allResults[11]
-    $edgesResult = $allResults[12]
+    $policiesResult = $allResults[8]
+    $intunePoliciesResult = $allResults[9]
+    $eventsResult = $allResults[10]
+    $edgesResult = $allResults[11]
     #endregion
 
     #region Validate Collection Results
@@ -235,12 +226,6 @@ try {
         $azureResourcesResult = @{ Success = $false; ResourceCount = 0; ResourcesBlobName = $null; EdgesBlobName = $null; Statistics = @{} }
     }
 
-    # CONSOLIDATED: Role Definitions
-    if (-not $roleDefinitionsResult.Success) {
-        Write-Warning "Role Definitions collection failed: $($roleDefinitionsResult.Error)"
-        $roleDefinitionsResult = @{ Success = $false; RoleDefinitionCount = 0; ResourcesBlobName = $null; Statistics = @{} }
-    }
-
     if (-not $policiesResult.Success) {
         Write-Warning "Policies collection failed: $($policiesResult.Error)"
         $policiesResult = @{ Success = $false; PolicyCount = 0; BlobName = $null }
@@ -270,7 +255,6 @@ try {
     Write-Verbose "  Applications: $($applicationsResult.AppCount ?? 0)"
     Write-Verbose "  Azure Hierarchy: $($azureHierarchyResult.ResourceCount ?? 0)"
     Write-Verbose "  Azure Resources: $($azureResourcesResult.ResourceCount ?? 0) (consolidated)"
-    Write-Verbose "  Role Definitions: $($roleDefinitionsResult.RoleDefinitionCount ?? 0) (consolidated)"
     Write-Verbose "  CA Policies: $($policiesResult.PolicyCount ?? 0)"
     Write-Verbose "  Intune Policies: $($intunePoliciesResult.PolicyCount ?? 0)"
     Write-Verbose "  Events: $($eventsResult.EventCount ?? 0)"
@@ -401,21 +385,6 @@ try {
             $resourcesIndexResult.CosmosWriteCount += $indexResult.CosmosWriteCount
         } else {
             Write-Warning "Azure Resources indexing failed: $($indexResult.Error)"
-        }
-    }
-
-    # CONSOLIDATED: Index Role Definitions
-    if ($roleDefinitionsResult.Success -and $roleDefinitionsResult.ResourcesBlobName) {
-        $indexInput = @{ Timestamp = $timestamp; BlobName = $roleDefinitionsResult.ResourcesBlobName }
-        $indexResult = Invoke-DurableActivity -FunctionName 'IndexResourcesInCosmosDB' -Input $indexInput
-        if ($indexResult.Success) {
-            Write-Verbose "Role Definitions indexing complete: $($indexResult.TotalResources) total"
-            $resourcesIndexResult.TotalResources += $indexResult.TotalResources
-            $resourcesIndexResult.NewResources += $indexResult.NewResources
-            $resourcesIndexResult.ModifiedResources += $indexResult.ModifiedResources
-            $resourcesIndexResult.CosmosWriteCount += $indexResult.CosmosWriteCount
-        } else {
-            Write-Warning "Role Definitions indexing failed: $($indexResult.Error)"
         }
     }
 
@@ -619,12 +588,6 @@ try {
                 EdgesBlobPath = $azureResourcesResult.EdgesBlobName
                 Statistics = $azureResourcesResult.Statistics
             }
-            RoleDefinitions = @{
-                Success = $roleDefinitionsResult.Success
-                Count = $roleDefinitionsResult.RoleDefinitionCount ?? 0
-                ResourcesBlobPath = $roleDefinitionsResult.ResourcesBlobName
-                Statistics = $roleDefinitionsResult.Statistics
-            }
 
             # Policies
             CAPolicies = @{
@@ -723,12 +686,10 @@ try {
             TotalApplications = $applicationsResult.AppCount ?? 0
             TotalAzureHierarchyResources = $azureHierarchyResult.ResourceCount ?? 0
             TotalAzureResources = $azureResourcesResult.ResourceCount ?? 0
-            TotalRoleDefinitions = $roleDefinitionsResult.RoleDefinitionCount ?? 0
             TotalResources = (
                 ($applicationsResult.AppCount ?? 0) +
                 ($azureHierarchyResult.ResourceCount ?? 0) +
-                ($azureResourcesResult.ResourceCount ?? 0) +
-                ($roleDefinitionsResult.RoleDefinitionCount ?? 0)
+                ($azureResourcesResult.ResourceCount ?? 0)
             )
 
             # Policy counts
@@ -778,8 +739,7 @@ try {
             AllResourceCollectionsSucceeded = (
                 $applicationsResult.Success -and
                 $azureHierarchyResult.Success -and
-                $azureResourcesResult.Success -and
-                $roleDefinitionsResult.Success
+                $azureResourcesResult.Success
             )
             AllPolicyCollectionsSucceeded = (
                 $policiesResult.Success -and

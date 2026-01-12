@@ -300,7 +300,7 @@ try {
                 collectionTimestamp = $timestampFormatted
             }
 
-            [void]$groupsJsonL.AppendLine(($groupObj | ConvertTo-Json -Compress))
+            [void]$groupsJsonL.AppendLine(($groupObj | ConvertTo-Json -Compress -Depth 10))
             $groupCount++
 
             # Track summary statistics

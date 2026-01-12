@@ -2,7 +2,7 @@ using namespace System.Net
 
 # Dashboard - 5 Unified Containers + Derived Edges
 # 1. principals (users, groups, SPs, devices)
-# 2. resources (applications + Azure resources + role definitions)
+# 2. resources (applications + Azure resources)
 # 3. edges (all relationships + derived edges)
 # 4. policies (CA, Intune compliance, App Protection, Named Locations)
 # 5. audit (change tracking)
@@ -202,9 +202,6 @@ try {
     $containerRegistries = @($allResources | Where-Object { $_.resourceType -eq 'containerRegistry' })
     $vmScaleSets = @($allResources | Where-Object { $_.resourceType -eq 'vmScaleSet' })
     $dataFactories = @($allResources | Where-Object { $_.resourceType -eq 'dataFactory' })
-    # Role definitions
-    $directoryRoleDefs = @($allResources | Where-Object { $_.resourceType -eq 'directoryRoleDefinition' })
-    $azureRoleDefs = @($allResources | Where-Object { $_.resourceType -eq 'azureRoleDefinition' })
 
     # ========== CONTAINER 3: EDGES (all relationships + derived edges) ==========
     $allEdges = @($edgesIn | Where-Object { $_ })
@@ -256,7 +253,6 @@ try {
     $adminUnitPriority = @('objectId', 'displayName', 'description', 'membershipType', 'memberCountTotal', 'userMemberCount', 'groupMemberCount', 'deviceMemberCount', 'scopedRoleCount', 'membershipRule', 'isMemberManagementRestricted', 'visibility')
     $appPriority = @('objectId', 'displayName', 'appId', 'signInAudience', 'secretCount', 'certificateCount', 'createdDateTime', 'publisherDomain')
     $azureResPriority = @('objectId', 'displayName', 'resourceType', 'owners', 'location', 'subscriptionId', 'resourceGroup', 'kind', 'sku')
-    $roleDefPriority = @('objectId', 'displayName', 'resourceType', 'isBuiltIn', 'isPrivileged', 'description')
     $edgePriority = @('id', 'sourceId', 'sourceDisplayName', 'edgeType', 'targetId', 'targetDisplayName', 'effectiveFrom', 'effectiveTo')
     $derivedEdgePriority = @('id', 'sourceId', 'sourceDisplayName', 'edgeType', 'targetId', 'targetDisplayName', 'derivedFrom', 'severity', 'capability')
     # Azure RBAC-specific columns with role name prominently displayed
@@ -285,7 +281,6 @@ try {
     # Subscription-specific columns (includes owners)
     $subsPriority = @('objectId', 'displayName', 'owners', 'subscriptionId', 'state', 'authorizationSource', 'tenantId')
     $subsCols = Get-AllColumns $subscriptions $subsPriority
-    $roleDefCols = Get-AllColumns (@($directoryRoleDefs + $azureRoleDefs) | Where-Object { $_ }) $roleDefPriority
     $edgeCols = Get-AllColumns $allEdges $edgePriority
     $derivedEdgeCols = Get-AllColumns $derivedEdges $derivedEdgePriority
     $azureRbacCols = Get-AllColumns $azureRbac $azureRbacPriority
@@ -406,7 +401,7 @@ try {
         <div class="container-header" onclick="toggleContainer('resources-section')">
             <span class="chevron">&#9660;</span>
             RESOURCES <span class="count">$($allResources.Count)</span>
-            <span class="desc">applications + Azure resources + role definitions</span>
+            <span class="desc">applications + Azure resources</span>
         </div>
         <div class="container-body">
             <div class="tabs">
@@ -426,8 +421,6 @@ try {
                 <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'web-tab', this)">Web Apps ($($webApps.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'auto-tab', this)">Automation ($($automationAccounts.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'adf-tab', this)">Data Factory ($($dataFactories.Count))</button>
-                <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'dirroles-tab', this)">Dir Roles ($($directoryRoleDefs.Count))</button>
-                <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'azroles-tab', this)">Azure Roles ($($azureRoleDefs.Count))</button>
             </div>
             <div id="apps-tab" class="tab-content active">$(Build-Table $apps 'apps-tbl' $appCols 'applications' $allResources.Count)</div>
             <div id="tenants-tab" class="tab-content">$(Build-Table $tenants 'tenants-tbl' $azureResCols 'tenants' $allResources.Count)</div>
@@ -445,8 +438,6 @@ try {
             <div id="web-tab" class="tab-content">$(Build-Table $webApps 'web-tbl' $azureResCols 'web apps' $allResources.Count)</div>
             <div id="auto-tab" class="tab-content">$(Build-Table $automationAccounts 'auto-tbl' $azureResCols 'automation accounts' $allResources.Count)</div>
             <div id="adf-tab" class="tab-content">$(Build-Table $dataFactories 'adf-tbl' $azureResCols 'data factories' $allResources.Count)</div>
-            <div id="dirroles-tab" class="tab-content">$(Build-Table $directoryRoleDefs 'dirroles-tbl' $roleDefCols 'directory role definitions' $allResources.Count)</div>
-            <div id="azroles-tab" class="tab-content">$(Build-Table $azureRoleDefs 'azroles-tbl' $roleDefCols 'Azure role definitions' $allResources.Count)</div>
         </div>
     </div>
 
