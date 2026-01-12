@@ -13,7 +13,7 @@
         CompareFields = @(
             'accountEnabled'
             'userType'
-            'lastSignInDateTime'
+            # 'lastSignInDateTime' - REMOVED: Activity timestamp, changes on every sign-in
             'userPrincipalName'
             'displayName'
             'passwordPolicies'
@@ -28,7 +28,7 @@
             'lastPasswordChangeDateTime'
             'signInSessionsValidFromDateTime'
             'refreshTokensValidFromDateTime'
-            'deleted'
+            # 'deleted' - REMOVED: Managed by indexer, not by collectors
         )
         ArrayFields = @('authMethodTypes')
         DocumentFields = @{
@@ -78,7 +78,7 @@
             'visibility'
             'onPremisesSyncEnabled'
             'mail'
-            'deleted'
+            # 'deleted' - REMOVED: Managed by indexer, not by collectors
             # Member statistics
             'memberCountDirect'
             'memberCountIndirect'
@@ -190,7 +190,7 @@
             'riskLastUpdatedDateTime'
             'isDeleted'
             'isProcessing'
-            'deleted'
+            # 'deleted' - REMOVED: Managed by indexer, not by collectors
         )
         ArrayFields = @()
         DocumentFields = @{
@@ -225,11 +225,11 @@
             'isCompliant'
             'isManaged'
             'trustType'
-            'approximateLastSignInDateTime'
+            # 'approximateLastSignInDateTime' - REMOVED: Activity timestamp, changes periodically
             'manufacturer'
             'model'
             'profileType'
-            'deleted'
+            # 'deleted' - REMOVED: Managed by indexer, not by collectors
         )
         ArrayFields = @()
         DocumentFields = @{
@@ -278,7 +278,7 @@
             'deviceMemberCount'
             # Scoped role count (delegated admins)
             'scopedRoleCount'
-            'deleted'
+            # 'deleted' - REMOVED: Managed by indexer, not by collectors
         )
         ArrayFields = @()
         DocumentFields = @{
@@ -317,7 +317,7 @@
             'conditions'
             'grantControls'
             'sessionControls'
-            'deleted'
+            # 'deleted' - REMOVED: Managed by indexer, not by collectors
         )
         ArrayFields = @('conditions', 'grantControls', 'sessionControls')
         DocumentFields = @{
@@ -358,7 +358,7 @@
             'federatedIdentityCredentials'
             'hasFederatedCredentials'
             'federatedCredentialCount'
-            'deleted'
+            # 'deleted' - REMOVED: Managed by indexer, not by collectors
         )
         ArrayFields = @('passwordCredentials', 'keyCredentials', 'requiredResourceAccess', 'federatedIdentityCredentials')
         DocumentFields = @{
@@ -400,7 +400,7 @@
             'isPrivileged'
             'memberCount'
             'members'
-            'deleted'
+            # 'deleted' - REMOVED: Managed by indexer, not by collectors
         )
         ArrayFields = @('members')
         DocumentFields = @{
@@ -436,7 +436,7 @@
             'hasWindowsHello'
             'methodCount'
             'methods'
-            'deleted'
+            # 'deleted' - REMOVED: Managed by indexer, not by collectors
         )
         ArrayFields = @('methods')
         DocumentFields = @{
@@ -478,7 +478,7 @@
             'memberType'
             'status'
             'scheduleInfo'
-            'deleted'
+            # 'deleted' - REMOVED: Managed by indexer, not by collectors
         )
         ArrayFields = @('scheduleInfo')
         DocumentFields = @{
@@ -520,7 +520,7 @@
             'memberType'
             'status'
             'scheduleInfo'
-            'deleted'
+            # 'deleted' - REMOVED: Managed by indexer, not by collectors
         )
         ArrayFields = @('scheduleInfo')
         DocumentFields = @{
@@ -556,7 +556,7 @@
             'scopeType'
             'rules'
             'effectiveRules'
-            'deleted'
+            # 'deleted' - REMOVED: Managed by indexer, not by collectors
         )
         ArrayFields = @('rules', 'effectiveRules')
         DocumentFields = @{
@@ -589,7 +589,7 @@
             'scope'
             'scopeType'
             'condition'
-            'deleted'
+            # 'deleted' - REMOVED: Managed by indexer, not by collectors
         )
         ArrayFields = @()
         DocumentFields = @{
@@ -632,13 +632,13 @@
             'principalType'
             'displayName'
             'accountEnabled'
-            'deleted'
+            # 'deleted' - REMOVED: Managed by indexer (soft-delete), not collected from Graph. Comparing null vs false causes false positives.
             'createdDateTime'
 
             # User-specific fields (from CollectUsers)
             'userPrincipalName'
             'userType'
-            'lastSignInDateTime'
+            # 'lastSignInDateTime' - REMOVED: Activity timestamp, changes on every sign-in causing excessive Cosmos writes
             'passwordPolicies'
             'usageLocation'
             'externalUserState'
@@ -668,7 +668,7 @@
             'riskLevel'
             'riskState'
             'riskDetail'
-            'riskLastUpdatedDateTime'
+            # 'riskLastUpdatedDateTime' - REMOVED: Activity timestamp, actual risk tracked via riskLevel/riskState/riskDetail
             'isAtRisk'
             # Phase 1b: User identity and contact fields
             'mail'
@@ -765,7 +765,7 @@
             'manufacturer'
             'model'
             'deviceVersion'
-            'approximateLastSignInDateTime'
+            # 'approximateLastSignInDateTime' - REMOVED: Activity timestamp, changes periodically causing excessive Cosmos writes
             'registrationDateTime'
             # Phase 1b: Device MDM and sync fields
             'extensionAttributes'
@@ -965,7 +965,7 @@
             'targetId'
             'targetType'
             'targetDisplayName'
-            'deleted'
+            # 'deleted' - REMOVED: Managed by indexer, not by collectors
 
             # Denormalized source fields (for Power BI filtering)
             'sourceUserPrincipalName'
@@ -1034,9 +1034,9 @@
             'permanentAssignmentAllowed'
             'eligibleAssignmentMaxDurationDays'
 
-            # V3.1: Temporal fields
-            'effectiveFrom'
-            'effectiveTo'
+            # V3.1: Temporal fields - REMOVED: Managed by indexer, not collected
+            # 'effectiveFrom' - Set by indexer when entity first appears
+            # 'effectiveTo' - Set by indexer on soft-delete
 
             # Abuse Edge fields (derived edges)
             'derivedFrom'
@@ -1205,7 +1205,7 @@
             'policyType'
             'displayName'
             'description'
-            'deleted'
+            # 'deleted' - REMOVED: Managed by indexer, not by collectors
 
             # CA Policy fields
             'state'

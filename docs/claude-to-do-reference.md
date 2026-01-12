@@ -1700,7 +1700,7 @@ Ranked from **easiest** (least likely to break anything) to **hardest** (signifi
 
 | # | Task | Status | Change Required | Risk |
 |---|------|--------|-----------------|------|
-| 17 | Implement Graph Delta Query API | Pending | See `/docs/Epic 0-plan-delta-Architecture.md` | Medium |
+| 17 | Implement Graph Delta Query API. Investigate using e.g. /users/delta instead of /users to get only changed entities. The devices Graph API also has delta capabilities. What else in the solution can use delta endpoints? | Pending | See `/docs/Epic 0-plan-delta-Architecture.md` | Medium |
 | 18 | Audit - Who Made Changes feature | Pending | New collection from /auditLogs/directoryAudits | Medium |
 | 19 | Expand Intune/Devices collection | Pending | New API calls (ASR, Settings catalog, Baselines, etc) | Medium |
 | 20 | Null vs Blank values fix | Pending | Investigation + standardize across all collectors | Medium |
@@ -1713,7 +1713,29 @@ Ranked from **easiest** (least likely to break anything) to **hardest** (signifi
 |---|------|--------|-----------------|------|
 | 21 | **Graph $batch API** | ✅ Done | Implemented `Invoke-GraphBatch` - 95% API call reduction across 4 collectors - 2026-01-12 | High |
 | 22 | Inverstigate attack path features | Pending | New algorithms for edge weights, path scoring | High |
-| 23 | Evaluate Purview integration | Pending | New integration, APIs, data model - see Purview DLP.md | High |
+| 23 | Evaluate Purview integration | Pending | New integration, APIs, data model - see Epic 3-Purview DLP 2.md | High |
+
+### 📤 TIER 2.5: DASHBOARD EXPORT FEATURE
+
+| # | Task | Status | Change Required | Risk |
+|---|------|--------|-----------------|------|
+| 41 | **Dashboard Export to CSV/JSON** | Pending | Add export buttons per category (Users, Groups, Apps, Edges, etc.) | Low |
+
+**Details for Task #41:**
+- Export should use **dashboard column order** (not raw JSONL property order)
+- Categories to support: Principals (Users, Groups, SPs, Devices, AUs), Resources (Apps, Azure), Edges (by type), Policies
+- Format options: CSV and/or JSON
+- Implementation approach:
+  - The `$xxxPriority` arrays in Dashboard/run.ps1 already define column order (e.g., `$userPriority`, `$groupPriority`)
+  - Add JavaScript export function that respects these column orderings
+  - CSV: Use column headers in priority order, output rows in same order
+  - JSON: Output array of objects with keys ordered per priority array
+- Example JSONL input vs Dashboard output:
+  ```
+  JSONL order: resourceBehaviorOptions, deviceMemberCount, expirationDateTime, groupMemberCount, ...
+  Dashboard order: objectId, displayName, securityEnabled, groupTypes, groupTypeCategory, memberCountDirect, ...
+  ```
+- Export should match what user sees in the table (filtered, sorted, column-ordered)
 
 ### Implementation Strategy
 
@@ -1879,6 +1901,8 @@ Implemented Microsoft Graph $batch API to reduce API calls by 95% across 4 colle
 | 1 | **Indexing optimization** | High | New bottleneck - 8,425 Cosmos writes |
 | 2 | Conditional Collection (Phase 2) | Very High | Only fetch auth for changed users |
 | 3 | Delta Queries (Phase 3) | Medium | Enables conditional collection |
+
+Implement Graph Delta Query API. Investigate using e.g. /users/delta instead of /users to get only changed entities. The devices Graph API also has delta capabilities. What else in the solution can use delta endpoints?
 
 ---
 

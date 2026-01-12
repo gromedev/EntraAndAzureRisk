@@ -163,11 +163,11 @@ try {
     $groupSelectFields = "id,displayName,securityEnabled,mailEnabled,groupTypes,isAssignableToRole,visibility"
     $groupsNextLink = "https://graph.microsoft.com/beta/groups?`$select=$groupSelectFields&`$top=$batchSize"
 
-    $groups = @()
+    $groups = [System.Collections.Generic.List[object]]::new()
     while ($groupsNextLink) {
         try {
             $response = Invoke-GraphWithRetry -Uri $groupsNextLink -AccessToken $graphToken
-            $groups += $response.value
+            $groups.AddRange($response.value)
             $groupsNextLink = $response.'@odata.nextLink'
         }
         catch { Write-Warning "Failed to retrieve groups: $_"; break }
@@ -206,9 +206,9 @@ try {
                         # Track group nesting (which groups contain other groups)
                         if ($memberType -eq 'group') {
                             if (-not $groupNesting.ContainsKey($member.id)) {
-                                $groupNesting[$member.id] = @()
+                                $groupNesting[$member.id] = [System.Collections.Generic.List[string]]::new()
                             }
-                            $groupNesting[$member.id] += $group.id
+                            $groupNesting[$member.id].Add($group.id)
                         }
 
                         $relationship = @{
@@ -589,12 +589,12 @@ try {
     Write-Verbose "=== Phase 4: PIM Group Memberships ==="
 
     # Get role-assignable groups
-    $roleAssignableGroups = @()
+    $roleAssignableGroups = [System.Collections.Generic.List[object]]::new()
     $groupsLink = "https://graph.microsoft.com/v1.0/groups?`$filter=isAssignableToRole eq true&`$select=id,displayName&`$top=999"
     while ($groupsLink) {
         try {
             $groupsResponse = Invoke-GraphWithRetry -Uri $groupsLink -AccessToken $graphToken
-            $roleAssignableGroups += $groupsResponse.value
+            $roleAssignableGroups.AddRange($groupsResponse.value)
             $groupsLink = $groupsResponse.'@odata.nextLink'
         }
         catch { Write-Warning "Failed to get role-assignable groups: $_"; break }

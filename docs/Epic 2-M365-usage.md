@@ -1,3 +1,24 @@
+# Hmm...
+
+Actually this whole idea is shit... 
+Let's just focus on 
+-- when users share, send documents to external partieis. Think DLP
+-- how much storage they are using in OneDrive and Sharepoint
+
+Unless purview takes care of that
+
+-------------------
+
+# USER NOTES
+We will not be imoplementing
+- Teams related stuff 
+- Power BI related stuff (but will take Power BI into consideration in case users want to import the data themselves. We are simply structuring the data. They will have to make the code changes themselves)
+- Lets just focus on 
+-- when users share, send documents to external partieis. Think DLP
+-- how much storage they are using in OneDrive and Sharepoint
+
+
+
 # M365 Usage Data Collection - Design Document
 
 **Version**: 1.0

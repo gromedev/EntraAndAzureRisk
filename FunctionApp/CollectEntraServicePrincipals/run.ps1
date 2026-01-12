@@ -168,8 +168,8 @@ try {
             # Process credentials
             $hasSecrets = $false
             $hasCertificates = $false
-            $processedSecrets = @()
-            $processedCertificates = @()
+            $processedSecrets = [System.Collections.Generic.List[hashtable]]::new()
+            $processedCertificates = [System.Collections.Generic.List[hashtable]]::new()
 
             # Process password credentials (secrets)
             if ($sp.passwordCredentials -and $sp.passwordCredentials.Count -gt 0) {
@@ -188,13 +188,13 @@ try {
                         }
                     }
 
-                    $processedSecrets += @{
+                    $processedSecrets.Add(@{
                         keyId = $secret.keyId ?? ""
                         displayName = $secret.displayName ?? ""
                         startDateTime = $secret.startDateTime ?? $null
                         endDateTime = $secret.endDateTime ?? $null
                         status = $status
-                    }
+                    })
                 }
             }
 
@@ -215,7 +215,7 @@ try {
                         }
                     }
 
-                    $processedCertificates += @{
+                    $processedCertificates.Add(@{
                         keyId = $cert.keyId ?? ""
                         displayName = $cert.displayName ?? ""
                         type = $cert.type ?? ""
@@ -223,7 +223,7 @@ try {
                         startDateTime = $cert.startDateTime ?? $null
                         endDateTime = $cert.endDateTime ?? $null
                         status = $status
-                    }
+                    })
                 }
             }
 

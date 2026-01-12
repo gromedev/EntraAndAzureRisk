@@ -1384,7 +1384,10 @@ function Invoke-DeltaIndexing {
         [array]$ExistingData,
 
         [Parameter(Mandatory)]
-        [hashtable]$Config
+        [hashtable]$Config,
+
+        [Parameter()]
+        [string]$FilterByPrincipalType  # Filter blob entities to only this principalType (e.g., 'user', 'group')
     )
 
     # Extract config
@@ -1456,6 +1459,22 @@ function Invoke-DeltaIndexing {
 
     Write-Verbose "Parsed $($currentEntities.Count) $entityPlural from Blob"
 
+    # CRITICAL FIX: If FilterByPrincipalType is specified, filter current entities BEFORE delta detection
+    # This prevents the same entities from being processed multiple times when the orchestrator
+    # calls the indexer separately for each principal type (users, groups, servicePrincipals, etc.)
+    if ($FilterByPrincipalType) {
+        $originalCount = $currentEntities.Count
+        $filteredEntities = @{}
+        foreach ($objectId in $currentEntities.Keys) {
+            $entity = $currentEntities[$objectId]
+            if ($entity.principalType -eq $FilterByPrincipalType) {
+                $filteredEntities[$objectId] = $entity
+            }
+        }
+        $currentEntities = $filteredEntities
+        Write-Verbose "Filtered to principalType='$FilterByPrincipalType': $originalCount -> $($currentEntities.Count) entities"
+    }
+
     # For unified containers (principals), determine the type being indexed
     # This is used to filter existing data so we only compare like-with-like
     # NOTE: For 'relationships', we don't filter by relationType since all types are in one file
@@ -1465,7 +1484,12 @@ function Invoke-DeltaIndexing {
     $targetResourceTypes = @()  # Initialize before the if block to ensure it's always defined
     $isMixedTypeCollection = ($Config.EntityType -eq 'relationships')  # Relationships contain multiple types
 
-    if ($currentEntities.Count -gt 0 -and -not $isMixedTypeCollection) {
+    # Use FilterByPrincipalType if provided, otherwise detect from first entity
+    if ($FilterByPrincipalType) {
+        $targetPrincipalType = $FilterByPrincipalType
+        Write-Verbose "Using explicit principalType filter: $targetPrincipalType"
+    }
+    elseif ($currentEntities.Count -gt 0 -and -not $isMixedTypeCollection) {
         $firstEntity = $currentEntities.Values | Select-Object -First 1
         $targetPrincipalType = $firstEntity.principalType
         $targetRelationType = $firstEntity.relationType
@@ -1599,11 +1623,12 @@ function Invoke-DeltaIndexing {
     #   - changedFields: array of field names that changed (for quick filtering)
     # ============================================================================
 
-    $newEntities = @()
-    $modifiedEntities = @()
-    $unchangedEntities = @()
-    $deletedEntities = @()
-    $changeLog = @()
+    # Use List<T> for efficient Add() operations instead of += which is O(n²)
+    $newEntities = [System.Collections.Generic.List[object]]::new()
+    $modifiedEntities = [System.Collections.Generic.List[object]]::new()
+    $unchangedEntities = [System.Collections.Generic.List[string]]::new()
+    $deletedEntities = [System.Collections.Generic.List[object]]::new()
+    $changeLog = [System.Collections.Generic.List[object]]::new()
 
     # Check current entities
     foreach ($objectId in $currentEntities.Keys) {
@@ -1611,10 +1636,10 @@ function Invoke-DeltaIndexing {
 
         if (-not $existingEntities.ContainsKey($objectId)) {
             # NEW entity
-            $newEntities += $currentEntity
+            $newEntities.Add($currentEntity)
 
             # Store minimal change record - full entity is in principals container
-            $changeLog += @{
+            $changeLog.Add(@{
                 id = [Guid]::NewGuid().ToString()
                 objectId = $objectId
                 displayName = $currentEntity.displayName
@@ -1625,7 +1650,7 @@ function Invoke-DeltaIndexing {
                 auditDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
                 changeDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
                 snapshotId = $Timestamp
-            }
+            })
         }
         else {
             # Check if modified
@@ -1652,11 +1677,28 @@ function Invoke-DeltaIndexing {
                     }
                 }
                 else {
-                    # Standard scalar comparison
+                    # Standard scalar comparison (but handle objects/hashtables properly)
                     $currentValue = $currentEntity.$field
                     $existingValue = $existingEntity.$field
 
-                    if ($currentValue -ne $existingValue) {
+                    # For objects/hashtables, PowerShell's -ne compares references, not values
+                    # Use JSON serialization to compare by value instead
+                    $isCurrentObject = $currentValue -is [hashtable] -or $currentValue -is [System.Collections.IDictionary] -or ($currentValue -is [PSCustomObject])
+                    $isExistingObject = $existingValue -is [hashtable] -or $existingValue -is [System.Collections.IDictionary] -or ($existingValue -is [PSCustomObject])
+
+                    $isDifferent = $false
+                    if ($isCurrentObject -or $isExistingObject) {
+                        # Compare objects by JSON serialization
+                        $currentJson = if ($null -eq $currentValue) { 'null' } else { $currentValue | ConvertTo-Json -Compress -Depth 10 }
+                        $existingJson = if ($null -eq $existingValue) { 'null' } else { $existingValue | ConvertTo-Json -Compress -Depth 10 }
+                        $isDifferent = ($currentJson -ne $existingJson)
+                    }
+                    else {
+                        # Simple scalar comparison
+                        $isDifferent = ($currentValue -ne $existingValue)
+                    }
+
+                    if ($isDifferent) {
                         $changed = $true
                         $delta[$field] = @{
                             old = $existingValue
@@ -1668,11 +1710,11 @@ function Invoke-DeltaIndexing {
 
             if ($changed) {
                 # MODIFIED entity
-                $modifiedEntities += $currentEntity
+                $modifiedEntities.Add($currentEntity)
 
                 # Store only delta (changed fields) - not full entity copies
                 # Full current state is in principals container
-                $changeLog += @{
+                $changeLog.Add(@{
                     id = [Guid]::NewGuid().ToString()
                     objectId = $objectId
                     displayName = $currentEntity.displayName
@@ -1685,11 +1727,11 @@ function Invoke-DeltaIndexing {
                     snapshotId = $Timestamp
                     changedFields = @($delta.Keys)
                     delta = $delta
-                }
+                })
             }
             else {
                 # UNCHANGED
-                $unchangedEntities += $objectId
+                $unchangedEntities.Add($objectId)
             }
         }
     }
@@ -1699,11 +1741,11 @@ function Invoke-DeltaIndexing {
         foreach ($objectId in $existingEntities.Keys) {
             if (-not $currentEntities.ContainsKey($objectId)) {
                 # DELETED entity
-                $deletedEntities += $existingEntities[$objectId]
+                $deletedEntities.Add($existingEntities[$objectId])
 
                 # Store minimal delete record - no need to duplicate the full entity
                 # The entity is soft-deleted in principals container with effectiveTo=now (V3)
-                $changeLog += @{
+                $changeLog.Add(@{
                     id = [Guid]::NewGuid().ToString()
                     objectId = $objectId
                     displayName = $existingEntities[$objectId].displayName
@@ -1714,7 +1756,7 @@ function Invoke-DeltaIndexing {
                     auditDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
                     changeDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
                     snapshotId = $Timestamp
-                }
+                })
             }
         }
     }
@@ -1727,15 +1769,16 @@ function Invoke-DeltaIndexing {
     #endregion
 
     #region Step 4: Prepare documents for output
-    $entitiesToWrite = @()
-    $entitiesToWrite += $newEntities
-    $entitiesToWrite += $modifiedEntities
+    # Use List<T> with AddRange for efficient merging instead of += which is O(n²)
+    $entitiesToWrite = [System.Collections.Generic.List[object]]::new()
+    $entitiesToWrite.AddRange($newEntities)
+    $entitiesToWrite.AddRange($modifiedEntities)
 
     if ($writeDeletes) {
-        $entitiesToWrite += $deletedEntities
+        $entitiesToWrite.AddRange($deletedEntities)
     }
 
-    $docsToWrite = @()
+    $docsToWrite = [System.Collections.Generic.List[object]]::new()
 
     if ($entitiesToWrite.Count -gt 0 -or (-not $enableDelta)) {
         Write-Verbose "Preparing $($entitiesToWrite.Count) changed $entityPlural for Cosmos..."
@@ -1788,7 +1831,7 @@ function Invoke-DeltaIndexing {
                 }
             }
 
-            $docsToWrite += $doc
+            $docsToWrite.Add($doc)
         }
     }
     else {
@@ -1883,11 +1926,13 @@ function Invoke-DeltaIndexingWithBinding {
         }
 
         # Call the core delta indexing logic
+        # Pass FilterByPrincipalType if specified in ActivityInput (e.g., 'user', 'group', 'servicePrincipal')
         $result = Invoke-DeltaIndexing `
             -BlobName $ActivityInput.BlobName `
             -Timestamp $ActivityInput.Timestamp `
             -ExistingData $ExistingData `
-            -Config $config
+            -Config $config `
+            -FilterByPrincipalType $ActivityInput.PrincipalType
 
         # Push to output bindings using config-defined binding names
         if ($result.RawDocuments.Count -gt 0) {

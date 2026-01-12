@@ -296,7 +296,7 @@ try {
             $hasWindowsHello = $false
             $hasSoftwareOath = $false
             $methodCount = 0
-            $authMethodTypes = @()
+            $authMethodTypes = [System.Collections.Generic.List[string]]::new()
 
             # --- Process Auth Methods from batch results ---
             $shouldCollectAuth = -not ($skipDisabledForAuthMethods -and $accountEnabled -eq $false)
@@ -307,7 +307,7 @@ try {
                 if ($null -ne $authMethodsResponse -and $authMethodsResponse.value) {
                     foreach ($method in $authMethodsResponse.value) {
                         $methodType = $method.'@odata.type' -replace '#microsoft.graph.', ''
-                        $authMethodTypes += $methodType
+                        $authMethodTypes.Add($methodType)
                         $methodCount++
 
                         switch ($methodType) {
