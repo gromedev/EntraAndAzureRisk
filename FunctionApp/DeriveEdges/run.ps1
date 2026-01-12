@@ -108,9 +108,11 @@ try {
                 $permInfo = $DangerousPerms.GraphPermissions[$appRoleId]
 
                 # Create derived abuse edge
+                # Use objectId as id so Cosmos upserts instead of creating duplicates
+                $derivedObjectId = "$($edge.sourceId)_$($permInfo.TargetType)_$($permInfo.AbuseEdge)"
                 $abuseEdge = @{
-                    id = [guid]::NewGuid().ToString()
-                    objectId = "$($edge.sourceId)_$($permInfo.TargetType)_$($permInfo.AbuseEdge)"
+                    id = $derivedObjectId
+                    objectId = $derivedObjectId
                     edgeType = $permInfo.AbuseEdge
                     sourceId = $edge.sourceId
                     sourceType = $edge.sourceType ?? ""
@@ -170,9 +172,11 @@ try {
 
                 # Create abuse edges for each capability
                 foreach ($abuseType in $roleInfo.AbuseEdges) {
+                    # Use objectId as id so Cosmos upserts instead of creating duplicates
+                    $derivedObjectId = "$($edge.sourceId)_tenant_$abuseType"
                     $abuseEdge = @{
-                        id = [guid]::NewGuid().ToString()
-                        objectId = "$($edge.sourceId)_tenant_$abuseType"
+                        id = $derivedObjectId
+                        objectId = $derivedObjectId
                         edgeType = $abuseType
                         sourceId = $edge.sourceId
                         sourceType = $edge.sourceType ?? ""
@@ -224,9 +228,11 @@ try {
             foreach ($edge in $ownerEdges) {
                 $ownerAbuse = $DangerousPerms.OwnershipAbuse[$ownerType]
 
+                # Use objectId as id so Cosmos upserts instead of creating duplicates
+                $derivedObjectId = "$($edge.sourceId)_$($edge.targetId)_$($ownerAbuse.AbuseEdge)"
                 $abuseEdge = @{
-                    id = [guid]::NewGuid().ToString()
-                    objectId = "$($edge.sourceId)_$($edge.targetId)_$($ownerAbuse.AbuseEdge)"
+                    id = $derivedObjectId
+                    objectId = $derivedObjectId
                     edgeType = $ownerAbuse.AbuseEdge
                     sourceId = $edge.sourceId
                     sourceType = $edge.sourceType ?? ""
@@ -272,9 +278,11 @@ try {
             $groupOwnerAbuse = $DangerousPerms.OwnershipAbuse.groupOwner
 
             # Basic group modification capability
+            # Use objectId as id so Cosmos upserts instead of creating duplicates
+            $derivedObjectId = "$($edge.sourceId)_$($edge.targetId)_$($groupOwnerAbuse.AbuseEdge)"
             $abuseEdge = @{
-                id = [guid]::NewGuid().ToString()
-                objectId = "$($edge.sourceId)_$($edge.targetId)_$($groupOwnerAbuse.AbuseEdge)"
+                id = $derivedObjectId
+                objectId = $derivedObjectId
                 edgeType = $groupOwnerAbuse.AbuseEdge
                 sourceId = $edge.sourceId
                 sourceType = $edge.sourceType ?? ""
@@ -300,9 +308,11 @@ try {
             if ($edge.targetIsAssignableToRole -eq $true) {
                 $roleAssignableAbuse = $groupOwnerAbuse.ConditionalAbuse.IsRoleAssignable
 
+                # Use objectId as id so Cosmos upserts instead of creating duplicates
+                $derivedRoleObjectId = "$($edge.sourceId)_$($edge.targetId)_$($roleAssignableAbuse.AbuseEdge)"
                 $roleAbuseEdge = @{
-                    id = [guid]::NewGuid().ToString()
-                    objectId = "$($edge.sourceId)_$($edge.targetId)_$($roleAssignableAbuse.AbuseEdge)"
+                    id = $derivedRoleObjectId
+                    objectId = $derivedRoleObjectId
                     edgeType = $roleAssignableAbuse.AbuseEdge
                     sourceId = $edge.sourceId
                     sourceType = $edge.sourceType ?? ""
@@ -355,9 +365,11 @@ try {
                 if ($DangerousPerms.AzureRbacAbuse.ContainsKey($roleGuid)) {
                     $rbacInfo = $DangerousPerms.AzureRbacAbuse[$roleGuid]
 
+                    # Use objectId as id so Cosmos upserts instead of creating duplicates
+                    $derivedObjectId = "$($edge.sourceId)_$($edge.scope)_$($rbacInfo.AbuseEdge)"
                     $abuseEdge = @{
-                        id = [guid]::NewGuid().ToString()
-                        objectId = "$($edge.sourceId)_$($edge.scope)_$($rbacInfo.AbuseEdge)"
+                        id = $derivedObjectId
+                        objectId = $derivedObjectId
                         edgeType = $rbacInfo.AbuseEdge
                         sourceId = $edge.sourceId
                         sourceType = $edge.sourceType ?? ""

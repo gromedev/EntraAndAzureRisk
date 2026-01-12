@@ -204,9 +204,11 @@ try {
                 'groupAssignmentTarget' {
                     # Direct group assignment
                     if ($assignment.groupId) {
+                        # Use objectId as id so Cosmos upserts instead of creating duplicates
+                        $derivedObjectId = "$($policy.objectId)_$($assignment.groupId)_compliancePolicyTargets"
                         $virtualEdge = @{
-                            id = [guid]::NewGuid().ToString()
-                            objectId = "$($policy.objectId)_$($assignment.groupId)_compliancePolicyTargets"
+                            id = $derivedObjectId
+                            objectId = $derivedObjectId
                             edgeType = "compliancePolicyTargets"
                             sourceId = $policy.objectId
                             sourceType = "compliancePolicy"
@@ -227,9 +229,11 @@ try {
                 }
                 'allLicensedUsersAssignmentTarget' {
                     # All users target
+                    # Use objectId as id so Cosmos upserts instead of creating duplicates
+                    $derivedObjectId = "$($policy.objectId)_allUsers_compliancePolicyTargets"
                     $virtualEdge = @{
-                        id = [guid]::NewGuid().ToString()
-                        objectId = "$($policy.objectId)_allUsers_compliancePolicyTargets"
+                        id = $derivedObjectId
+                        objectId = $derivedObjectId
                         edgeType = "compliancePolicyTargets"
                         sourceId = $policy.objectId
                         sourceType = "compliancePolicy"
@@ -249,9 +253,11 @@ try {
                 }
                 'allDevicesAssignmentTarget' {
                     # All devices target
+                    # Use objectId as id so Cosmos upserts instead of creating duplicates
+                    $derivedObjectId = "$($policy.objectId)_allDevices_compliancePolicyTargets"
                     $virtualEdge = @{
-                        id = [guid]::NewGuid().ToString()
-                        objectId = "$($policy.objectId)_allDevices_compliancePolicyTargets"
+                        id = $derivedObjectId
+                        objectId = $derivedObjectId
                         edgeType = "compliancePolicyTargets"
                         sourceId = $policy.objectId
                         sourceType = "compliancePolicy"
@@ -272,9 +278,11 @@ try {
                 'exclusionGroupAssignmentTarget' {
                     # Exclusion group - create edge with exclusion flag
                     if ($assignment.groupId) {
+                        # Use objectId as id so Cosmos upserts instead of creating duplicates
+                        $derivedObjectId = "$($policy.objectId)_$($assignment.groupId)_compliancePolicyExcludes"
                         $virtualEdge = @{
-                            id = [guid]::NewGuid().ToString()
-                            objectId = "$($policy.objectId)_$($assignment.groupId)_compliancePolicyExcludes"
+                            id = $derivedObjectId
+                            objectId = $derivedObjectId
                             edgeType = "compliancePolicyExcludes"
                             sourceId = $policy.objectId
                             sourceType = "compliancePolicy"
@@ -314,9 +322,11 @@ try {
             switch -Regex ($targetType) {
                 'groupAssignmentTarget' {
                     if ($assignment.groupId) {
+                        # Use objectId as id so Cosmos upserts instead of creating duplicates
+                        $derivedObjectId = "$($policy.objectId)_$($assignment.groupId)_appProtectionPolicyTargets"
                         $virtualEdge = @{
-                            id = [guid]::NewGuid().ToString()
-                            objectId = "$($policy.objectId)_$($assignment.groupId)_appProtectionPolicyTargets"
+                            id = $derivedObjectId
+                            objectId = $derivedObjectId
                             edgeType = "appProtectionPolicyTargets"
                             sourceId = $policy.objectId
                             sourceType = "appProtectionPolicy"
@@ -336,9 +346,11 @@ try {
                     }
                 }
                 'allLicensedUsersAssignmentTarget' {
+                    # Use objectId as id so Cosmos upserts instead of creating duplicates
+                    $derivedObjectId = "$($policy.objectId)_allUsers_appProtectionPolicyTargets"
                     $virtualEdge = @{
-                        id = [guid]::NewGuid().ToString()
-                        objectId = "$($policy.objectId)_allUsers_appProtectionPolicyTargets"
+                        id = $derivedObjectId
+                        objectId = $derivedObjectId
                         edgeType = "appProtectionPolicyTargets"
                         sourceId = $policy.objectId
                         sourceType = "appProtectionPolicy"
@@ -359,9 +371,11 @@ try {
                 }
                 'exclusionGroupAssignmentTarget' {
                     if ($assignment.groupId) {
+                        # Use objectId as id so Cosmos upserts instead of creating duplicates
+                        $derivedObjectId = "$($policy.objectId)_$($assignment.groupId)_appProtectionPolicyExcludes"
                         $virtualEdge = @{
-                            id = [guid]::NewGuid().ToString()
-                            objectId = "$($policy.objectId)_$($assignment.groupId)_appProtectionPolicyExcludes"
+                            id = $derivedObjectId
+                            objectId = $derivedObjectId
                             edgeType = "appProtectionPolicyExcludes"
                             sourceId = $policy.objectId
                             sourceType = "appProtectionPolicy"

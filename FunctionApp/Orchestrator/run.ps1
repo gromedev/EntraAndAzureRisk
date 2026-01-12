@@ -448,31 +448,21 @@ try {
         }
     }
 
-    # Index Policies (policies container - CA policies)
+    # Index Policies (policies container - ALL policies including CA and Intune)
+    # NOTE: Both CollectPolicies and CollectIntunePolicies write to the SAME policies.jsonl blob
+    # So we only call the indexer ONCE with whichever blob name is available
     $policiesIndexResult = @{ Success = $false; TotalPolicies = 0; NewPolicies = 0; ModifiedPolicies = 0; DeletedPolicies = 0; UnchangedPolicies = 0; CosmosWriteCount = 0 }
-    if ($policiesResult.Success -and $policiesResult.BlobName) {
-        $policiesIndexInput = @{ Timestamp = $timestamp; BlobName = $policiesResult.BlobName }
+    $policiesBlobName = if ($policiesResult.Success -and $policiesResult.BlobName) { $policiesResult.BlobName }
+                        elseif ($intunePoliciesResult.Success -and $intunePoliciesResult.BlobName) { $intunePoliciesResult.BlobName }
+                        else { $null }
+
+    if ($policiesBlobName) {
+        $policiesIndexInput = @{ Timestamp = $timestamp; BlobName = $policiesBlobName }
         $policiesIndexResult = Invoke-DurableActivity -FunctionName 'IndexPoliciesInCosmosDB' -Input $policiesIndexInput
         if ($policiesIndexResult.Success) {
-            Write-Verbose "CA Policies indexing complete: $($policiesIndexResult.TotalPolicies) total, $($policiesIndexResult.NewPolicies) new"
+            Write-Verbose "Policies indexing complete: $($policiesIndexResult.TotalPolicies) total, $($policiesIndexResult.NewPolicies) new"
         } else {
-            Write-Warning "CA Policies indexing failed: $($policiesIndexResult.Error)"
-        }
-    }
-
-    # Index Intune Policies
-    $intunePoliciesIndexResult = @{ Success = $false; TotalPolicies = 0; NewPolicies = 0; ModifiedPolicies = 0; CosmosWriteCount = 0 }
-    if ($intunePoliciesResult.Success -and $intunePoliciesResult.BlobName) {
-        $intunePoliciesIndexInput = @{ Timestamp = $timestamp; BlobName = $intunePoliciesResult.BlobName }
-        $intunePoliciesIndexResult = Invoke-DurableActivity -FunctionName 'IndexPoliciesInCosmosDB' -Input $intunePoliciesIndexInput
-        if ($intunePoliciesIndexResult.Success) {
-            Write-Verbose "Intune Policies indexing complete: $($intunePoliciesIndexResult.TotalPolicies) total"
-            $policiesIndexResult.TotalPolicies += $intunePoliciesIndexResult.TotalPolicies
-            $policiesIndexResult.NewPolicies += $intunePoliciesIndexResult.NewPolicies
-            $policiesIndexResult.ModifiedPolicies += $intunePoliciesIndexResult.ModifiedPolicies
-            $policiesIndexResult.CosmosWriteCount += $intunePoliciesIndexResult.CosmosWriteCount
-        } else {
-            Write-Warning "Intune Policies indexing failed: $($intunePoliciesIndexResult.Error)"
+            Write-Warning "Policies indexing failed: $($policiesIndexResult.Error)"
         }
     }
 

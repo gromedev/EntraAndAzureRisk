@@ -1510,6 +1510,14 @@ function Invoke-DeltaIndexing {
                 Write-Verbose "Detected relationTypes: $($targetRelationType -join ', ')"
             }
         }
+        # For policies, detect ALL policyTypes in the current collection
+        # This prevents filtering issues when blob contains multiple policy types (CA, Intune, etc.)
+        if ($Config.EntityType -eq 'policies') {
+            $targetPolicyType = @($currentEntities.Values | Select-Object -ExpandProperty policyType -Unique)
+            if ($targetPolicyType.Count -gt 0) {
+                Write-Verbose "Detected policyTypes: $($targetPolicyType -join ', ')"
+            }
+        }
 
         if ($targetPrincipalType) {
             Write-Verbose "Detected principalType: $targetPrincipalType"
@@ -1564,7 +1572,12 @@ function Invoke-DeltaIndexing {
                     }
                 }
                 elseif ($targetPolicyType -and $doc.policyType) {
-                    $includeDoc = ($doc.policyType -eq $targetPolicyType)
+                    # Handle both single policyType and array of policyTypes
+                    if ($targetPolicyType -is [array]) {
+                        $includeDoc = ($doc.policyType -in $targetPolicyType)
+                    } else {
+                        $includeDoc = ($doc.policyType -eq $targetPolicyType)
+                    }
                 }
                 elseif ($targetResourceTypes.Count -gt 0 -and $doc.resourceType) {
                     # For Azure resources, only include existing docs that match resource types in current blob
@@ -1581,6 +1594,7 @@ function Invoke-DeltaIndexing {
                       elseif ($targetPrincipalType) { "principalType=$targetPrincipalType" }
                       elseif ($targetRelationType -and $targetRelationType -is [array]) { "relationType in ($($targetRelationType -join ', '))" }
                       elseif ($targetRelationType) { "relationType=$targetRelationType" }
+                      elseif ($targetPolicyType -and $targetPolicyType -is [array]) { "policyType in ($($targetPolicyType -join ', '))" }
                       elseif ($targetPolicyType) { "policyType=$targetPolicyType" }
                       elseif ($targetResourceTypes.Count -gt 0) { "resourceType in ($($targetResourceTypes -join ', '))" }
                       else { "no filter" }

@@ -32,7 +32,7 @@
       "databaseName": "EntraData",
       "containerName": "policies",
       "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT c.id, c.objectId, c.policyType, c.displayName, c.description, c.state, c.conditions, c.grantControls, c.sessionControls, c.scopeId, c.scopeType, c.rules, c.effectiveRules, c.deleted, c.lastModified FROM c"
+      "sqlQuery": "SELECT * FROM c"
     }
   ]
 }
