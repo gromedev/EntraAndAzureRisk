@@ -1686,12 +1686,12 @@ Ranked from **easiest** (least likely to break anything) to **hardest** (signifi
 | # | Task | Status | Change Required | Risk |
 |---|------|--------|-----------------|------|
 | 10 | Add usersLoggedOn to device tracking | Pending | Add field to CollectDevices, IndexerConfigs, Dashboard | Low |
-| 11 | Enhance Historical Changes tab | Pending | Add sub-tabs per entity type in Dashboard HTML | Medium |
-| 12 | Rename Dashboard + add debug metrics | Pending | Update title, add speed/storage stats section | Medium |
-| 13 | Investigate Dashboard > Role Policies | Pending | Investigation first, then fix | Unknown |
-| 14 | Audit edges and data points | Pending | Determine which empty columns to remove | Low |
+| 11 | Enhance Historical Changes tab | ✅ Done | Added sub-tabs: All, Principals, Policies, Resources, Edges - 2026-01-12 | Medium |
+| 12 | Rename Dashboard + add debug metrics | ✅ Done | Renamed + added debug metrics (data age, newest/oldest timestamps, change breakdown, data quality checks) - 2026-01-13 | Medium |
+| 13 | Investigate Dashboard > Role Policies | ✅ Done | Investigation: Working as designed, filters roleManagement* policyTypes - 2026-01-12 | None |
+| 14 | Audit edges and data points | ✅ Done | Investigation: Dynamic columns already filter empty values via Get-AllColumns - 2026-01-12 | None |
 | 15 | ~~Investigate Dashboard > Azure Roles~~ | ✅ Done | Removed entirely - see Task #40 | None |
-| 16 | Investigate Edges > Intune Policies | Pending | Is it a placeholder or needed? | Unknown |
+| 16 | Investigate Edges > Intune Policies | ✅ Done | BUG FIXED: DeriveVirtualEdges query used `c.deleted != true` which doesn't match undefined. Changed to `(NOT IS_DEFINED(c.deleted) OR c.deleted = false)` - 2026-01-13 | None |
 | 38 | Review collector frequencies | Pending | Depends on #17 (Delta Query) - see consistency risks | Low |
 | 39 | Investigate risky sign-ins vs risky users | Pending | Does `/auditLogs/signIns` add value over existing `riskLevel` field? | Low |
 | 40 | ~~Replace CollectRoleDefinitions with static file~~ | ✅ Done | **REMOVED ENTIRELY** - Role definitions are static reference data, nothing depends on them. Saves API calls, Cosmos writes, 5MB dashboard payload. 2026-01-12 | None |
@@ -1703,7 +1703,7 @@ Ranked from **easiest** (least likely to break anything) to **hardest** (signifi
 | 17 | Implement Graph Delta Query API. Investigate using e.g. /users/delta instead of /users to get only changed entities. The devices Graph API also has delta capabilities. What else in the solution can use delta endpoints? | Pending | See `/docs/Epic 0-plan-delta-Architecture.md` | Medium |
 | 18 | Audit - Who Made Changes feature | Pending | New collection from /auditLogs/directoryAudits | Medium |
 | 19 | Expand Intune/Devices collection | Pending | New API calls (ASR, Settings catalog, Baselines, etc) | Medium |
-| 20 | Null vs Blank values fix | Pending | Investigation + standardize across all collectors | Medium |
+| 20 | Null vs Blank values fix | ✅ Done | INVESTIGATION COMPLETE: Dashboard shows 0 empty cells, 0 quality issues. `?? ""` pattern (310 occurrences) is intentional for clean display. Enrichment logic working for RBAC edges. No action needed - 2026-01-13 | None |
 
 ### ⛔ TIER 5: MAJOR (500+ lines, refactoring required)
 
@@ -1717,7 +1717,72 @@ Ranked from **easiest** (least likely to break anything) to **hardest** (signifi
 
 | # | Task | Status | Change Required | Risk |
 |---|------|--------|-----------------|------|
-| 41 | **Dashboard Export to CSV/JSON** | Pending | Add export buttons per category (Users, Groups, Apps, Edges, etc.) | Low |
+| 41 | **Dashboard Export to CSV/JSON** | ✅ Done | Added CSV/JSON export buttons to all 5 sections, filenames include tab name (e.g., principals-users.csv) - 2026-01-12 | Low |
+| 42 | **Audit completed tasks for accuracy** | ✅ Done | **AUDIT COMPLETED 2026-01-13** - See findings below | High |
+
+### Task 42 Audit Findings (2026-01-13)
+
+#### DATA INTEGRITY VERIFICATION (Blob vs Dashboard)
+
+**Verified via `az storage blob download` and dashboard comparison:**
+
+| Container | Blob Count | Dashboard Count | Status |
+|-----------|------------|-----------------|--------|
+| Principals | 448 (U:70 G:52 SP:323 D:2 AU:1) | 448 | ✅ Match |
+| Policies | 303 | 303 | ✅ Match |
+| Edges (raw) | 692 | 745 | ⚠️ +53 derived edges added by DeriveEdges |
+
+**Policy type breakdown verified:**
+- Conditional Access: 5 ✓
+- Role Policies: 266 (133+133) ✓
+- App Protection: 7 ✓
+- All other types match ✓
+
+#### DATA QUALITY ISSUES FOUND AND FIXED (2026-01-13)
+
+| Issue | Severity | Fix Applied |
+|-------|----------|-------------|
+| **azureRbac sourceDisplayName = null** | HIGH | ✅ FIXED - Added enrichment logic in Dashboard to lookup principal names from allPrincipals |
+| **Missing edge type tabs** | MEDIUM | ✅ FIXED - Added 4 new tabs: AU Scoped Roles (2), PIM Requests (0), OAuth2 Grants (9), Role Policy (133) |
+| **Summary bar missing AU** | LOW | ✅ FIXED - Added AU count to summary bar |
+| **Syntax error in run.ps1** | HIGH | ✅ FIXED - Corrected `$policyChanges ""=` to `$policyChanges =` |
+
+**Verification commands used:**
+```bash
+# Verify RBAC enrichment - now shows "thomas" instead of null
+curl -s "DASHBOARD_URL" | grep -E "rbac-tbl" -A 50 | grep -oE '<td>[^<]+</td>' | head -10
+
+# Verify new edge tabs visible
+curl -s "DASHBOARD_URL" | grep -E "AU Scoped|OAuth2|PIM Requests|Role Policy"
+```
+
+#### CODE + RUNTIME VERIFICATION (2026-01-13)
+
+**RUNTIME VERIFIED via curl/grep commands:**
+| Task | Verification Command | Result |
+|------|---------------------|--------|
+| 3 - Hide isDeleted column | `curl ... \| grep 'isDeleted</th>'` | ✅ 0 matches - column hidden |
+| 7 - groupTypeCategory | `curl ... \| grep 'Assigned\|Dynamic\|Microsoft 365'` | ✅ 41 Assigned, 5 Dynamic, 6 M365 |
+| 11 - Historical sub-tabs | `curl ... \| grep 'audit-section' -A 30` | ✅ All(500), Principals(23), Policies(17), Resources(1), Edges(459) |
+| 12 - Debug metrics | `curl ... \| grep 'Debug Metrics'` | ✅ Data Age: 59.8 min, realistic timestamps, +0/~60/-440 |
+| 21 - Invoke-GraphBatch | `grep 'Invoke-GraphBatch'` across FunctionApp | ✅ 11+ calls in 4 collectors |
+| 40 - CollectRoleDefinitions | `ls FunctionApp/ \| grep role` | ✅ Folder does not exist |
+| 41 - CSV/JSON export | `curl ... \| grep 'exportTo'` | ✅ Functions and buttons present |
+
+**CODE EXISTS (not runtime verified):**
+| Task | Verification Method | Status |
+|------|---------------------|--------|
+| 1 - Cosmos parallelism 25 | `$ParallelThrottle = 25` in EntraDataCollection.psm1:1252 | ✅ Code exists |
+| 2 - Blob buffer 2MB | `$writeThreshold = 2000000` in 6 collectors | ✅ Code exists |
+| 5 - Trim $select fields | $select fields present in all collectors | ✅ Code exists |
+
+**ISSUES FOUND AND FIXED:**
+| Issue | Problem | Fix Applied |
+|-------|---------|-------------|
+| Audit ORDER BY missing | Dashboard audit query was `SELECT TOP 500 * FROM c` - missing `ORDER BY c.auditDate DESC`. All records showed as "new" | Fixed in Dashboard/function.json - added ORDER BY |
+| Task 12 incomplete | Debug metrics weren't added, only title rename | Fixed - added data age, timestamps, change breakdown, quality checks |
+
+**NOTE:** The "Verify deleted objects appear in delta/audit" verification on 2026-01-09 may have been coincidentally correct due to random document selection, but the fix wasn't persistent. Now properly fixed with ORDER BY clause.
 
 **Details for Task #41:**
 - Export should use **dashboard column order** (not raw JSONL property order)

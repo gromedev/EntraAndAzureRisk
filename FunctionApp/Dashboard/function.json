@@ -65,7 +65,7 @@
       "databaseName": "EntraData",
       "containerName": "audit",
       "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT TOP 500 * FROM c"
+      "sqlQuery": "SELECT TOP 500 * FROM c ORDER BY c.auditDate DESC"
     }
   ]
 }

@@ -760,6 +760,7 @@ try {
                     edgeType = "azureRbac"
                     sourceId = $principalId
                     sourceType = $assignment.properties.principalType ?? ""
+                    sourceDisplayName = ""  # Enriched from principals container in Dashboard
                     targetId = $roleDefId
                     targetType = "azureRole"
                     targetRoleDefinitionId = $roleDefId

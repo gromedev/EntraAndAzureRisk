@@ -205,6 +205,36 @@ try {
 
     # ========== CONTAINER 3: EDGES (all relationships + derived edges) ==========
     $allEdges = @($edgesIn | Where-Object { $_ })
+
+    # Build principal lookup table for edge enrichment
+    $principalLookup = @{}
+    foreach ($principal in $allPrincipals) {
+        if ($principal.objectId) {
+            $principalLookup[$principal.objectId] = @{
+                displayName = $principal.displayName ?? $principal.userPrincipalName ?? $principal.objectId
+                principalType = $principal.principalType ?? ''
+            }
+        }
+    }
+
+    # Enrich edges that have empty sourceDisplayName (Azure RBAC, Directory Roles, PIM)
+    $enrichedEdges = @()
+    foreach ($edge in $allEdges) {
+        if ($null -eq $edge) { continue }
+        # If sourceDisplayName is empty and we have the principal in our lookup, enrich it
+        if ((-not $edge.sourceDisplayName -or $edge.sourceDisplayName -eq '') -and $edge.sourceId -and $principalLookup.ContainsKey($edge.sourceId)) {
+            $edgeCopy = $edge | ConvertTo-Json -Depth 10 | ConvertFrom-Json
+            $edgeCopy.sourceDisplayName = $principalLookup[$edge.sourceId].displayName
+            if (-not $edgeCopy.sourceType -or $edgeCopy.sourceType -eq '') {
+                $edgeCopy.sourceType = $principalLookup[$edge.sourceId].principalType
+            }
+            $enrichedEdges += $edgeCopy
+        } else {
+            $enrichedEdges += $edge
+        }
+    }
+    $allEdges = $enrichedEdges
+
     $groupMembers = @($allEdges | Where-Object { $_.edgeType -match '^groupMember' })
     $directoryRoles = @($allEdges | Where-Object { $_.edgeType -eq 'directoryRole' })
     $pimRoles = @($allEdges | Where-Object { $_.edgeType -match '^pim(Eligible|Active)$' })
@@ -217,6 +247,11 @@ try {
     $kvAccess = @($allEdges | Where-Object { $_.edgeType -eq 'keyVaultAccess' })
     $managedIdentities = @($allEdges | Where-Object { $_.edgeType -eq 'hasManagedIdentity' })
     $auMembers = @($allEdges | Where-Object { $_.edgeType -eq 'auMember' })
+    $auScopedRoles = @($allEdges | Where-Object { $_.edgeType -eq 'auScopedRole' })
+    # Additional edge types that were being collected but not displayed
+    $pimRequests = @($allEdges | Where-Object { $_.edgeType -eq 'pimRequest' })
+    $oauth2Grants = @($allEdges | Where-Object { $_.edgeType -eq 'oauth2PermissionGrant' })
+    $rolePolicyAssignments = @($allEdges | Where-Object { $_.edgeType -eq 'rolePolicyAssignment' })
     # Derived edges (from DeriveEdges function)
     $derivedEdges = @($allEdges | Where-Object { $_.edgeType -match '^can|^is|^azure' -and $_.derivedFrom })
     # CA policy edges (caPolicyTargetsPrincipal, caPolicyTargetsApplication, caPolicyExcludesPrincipal, etc.)
@@ -248,6 +283,29 @@ try {
     $policyChanges = @($changes | Where-Object { $_.entityType -eq 'policies' })
     $resourceChanges = @($changes | Where-Object { $_.entityType -eq 'resources' })
     $edgeChanges = @($changes | Where-Object { $_.entityType -eq 'edges' })
+
+    # ========== DEBUG METRICS ==========
+    # Calculate data freshness from collection timestamps
+    $allTimestamps = @()
+    foreach ($item in @($allPrincipals + $allResources + $allPolicies)) {
+        if ($item.collectionTimestamp) {
+            try { $allTimestamps += [DateTime]::Parse($item.collectionTimestamp) } catch {}
+        }
+    }
+    $newestCollection = if ($allTimestamps.Count -gt 0) { ($allTimestamps | Sort-Object -Descending | Select-Object -First 1).ToString('yyyy-MM-dd HH:mm:ss') } else { 'N/A' }
+    $oldestCollection = if ($allTimestamps.Count -gt 0) { ($allTimestamps | Sort-Object | Select-Object -First 1).ToString('yyyy-MM-dd HH:mm:ss') } else { 'N/A' }
+    $dataAgeMinutes = if ($allTimestamps.Count -gt 0) { [math]::Round(((Get-Date) - ($allTimestamps | Sort-Object -Descending | Select-Object -First 1)).TotalMinutes, 1) } else { 'N/A' }
+
+    # Audit change type breakdown
+    $newCount = @($changes | Where-Object { $_.changeType -eq 'new' }).Count
+    $modifiedCount = @($changes | Where-Object { $_.changeType -eq 'modified' }).Count
+    $deletedCount = @($changes | Where-Object { $_.changeType -eq 'deleted' }).Count
+
+    # Data quality checks
+    $usersNoUpn = @($users | Where-Object { -not $_.userPrincipalName }).Count
+    $groupsNoName = @($groups | Where-Object { -not $_.displayName }).Count
+    $edgesNoSource = @($allEdges | Where-Object { -not $_.sourceId }).Count
+    $edgesNoTarget = @($allEdges | Where-Object { -not $_.targetId }).Count
 
     # Column definitions - priority columns shown first, then ALL other columns discovered dynamically
     # Dynamic column discovery ensures all collected properties are visible
@@ -415,13 +473,29 @@ try {
 <body>
     <h1>Entra Risk Debug Dashboard</h1>
     <div class="summary">
-        <b>Debug View</b> |
-        Principals: <b>$($allPrincipals.Count)</b> |
+        <b>Container Counts</b> |
+        Principals: <b>$($allPrincipals.Count)</b> (U:$($users.Count) G:$($groups.Count) SP:$($sps.Count) D:$($devices.Count) AU:$($adminUnits.Count)) |
         Resources: <b>$($allResources.Count)</b> |
         Edges: <b>$($allEdges.Count)</b> (Derived: $($derivedEdges.Count)) |
         Policies: <b>$($allPolicies.Count)</b> |
-        Audit: <b>$($changes.Count)</b> |
-        <span style="color:#666">$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') UTC</span>
+        Audit: <b>$($changes.Count)</b>
+    </div>
+    <div class="summary" style="background:#fff3cd;border-left-color:#ffc107;">
+        <b>Debug Metrics</b> |
+        Data Age: <b>$dataAgeMinutes min</b> |
+        Newest: $newestCollection |
+        Oldest: $oldestCollection |
+        Changes: <span style="color:#107c10">+$newCount new</span> / <span style="color:#0078d4">~$modifiedCount mod</span> / <span style="color:#d13438">-$deletedCount del</span>
+        $(if ($usersNoUpn -gt 0 -or $groupsNoName -gt 0 -or $edgesNoSource -gt 0 -or $edgesNoTarget -gt 0) {
+            " | <b style='color:#d13438'>Quality Issues:</b> " +
+            $(if ($usersNoUpn -gt 0) { "Users w/o UPN: $usersNoUpn " } else { "" }) +
+            $(if ($groupsNoName -gt 0) { "Groups w/o name: $groupsNoName " } else { "" }) +
+            $(if ($edgesNoSource -gt 0) { "Edges w/o source: $edgesNoSource " } else { "" }) +
+            $(if ($edgesNoTarget -gt 0) { "Edges w/o target: $edgesNoTarget" } else { "" })
+        })
+    </div>
+    <div class="summary" style="background:#e8f5e9;border-left-color:#4caf50;">
+        <b>View Generated</b>: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') UTC
     </div>
 
     <!-- CONTAINER 1: PRINCIPALS -->
@@ -521,6 +595,10 @@ try {
                 <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'kva-tab', this)">KV Access ($($kvAccess.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'mi-tab', this)">Managed Identity ($($managedIdentities.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'aum-tab', this)">AU Members ($($auMembers.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'ausr-tab', this)">AU Scoped Roles ($($auScopedRoles.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'pimreq-tab', this)">PIM Requests ($($pimRequests.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'oauth2-tab', this)">OAuth2 Grants ($($oauth2Grants.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'rpa-tab', this)">Role Policy ($($rolePolicyAssignments.Count))</button>
                 <button class="tab derived" onclick="event.stopPropagation(); showTab('edges-section', 'derived-tab', this)">Derived ($($derivedEdges.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'ca-edge-tab', this)">CA Policy ($($caPolicyEdges.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'virtual-tab', this)">Intune Policy ($($virtualEdges.Count))</button>
@@ -541,6 +619,10 @@ try {
             <div id="kva-tab" class="tab-content">$(Build-Table $kvAccess 'kva-tbl' $edgeCols 'Key Vault access' $allEdges.Count)</div>
             <div id="mi-tab" class="tab-content">$(Build-Table $managedIdentities 'mi-tbl' $edgeCols 'managed identity edges' $allEdges.Count)</div>
             <div id="aum-tab" class="tab-content">$(Build-Table $auMembers 'aum-tbl' $edgeCols 'AU membership edges' $allEdges.Count)</div>
+            <div id="ausr-tab" class="tab-content">$(Build-Table $auScopedRoles 'ausr-tbl' $edgeCols 'AU scoped role edges' $allEdges.Count)</div>
+            <div id="pimreq-tab" class="tab-content">$(Build-Table $pimRequests 'pimreq-tbl' $edgeCols 'PIM request edges' $allEdges.Count)</div>
+            <div id="oauth2-tab" class="tab-content">$(Build-Table $oauth2Grants 'oauth2-tbl' $edgeCols 'OAuth2 permission grants' $allEdges.Count)</div>
+            <div id="rpa-tab" class="tab-content">$(Build-Table $rolePolicyAssignments 'rpa-tbl' $edgeCols 'role policy assignments' $allEdges.Count)</div>
             <div id="derived-tab" class="tab-content">$(Build-Table $derivedEdges 'derived-tbl' $derivedEdgeCols 'derived abuse edges' $allEdges.Count)</div>
             <div id="ca-edge-tab" class="tab-content">$(Build-Table $caPolicyEdges 'ca-edge-tbl' $edgeCols 'CA policy edges' $allEdges.Count)</div>
             <div id="virtual-tab" class="tab-content">$(Build-Table $virtualEdges 'virtual-tbl' $edgeCols 'Intune policy edges' $allEdges.Count)</div>

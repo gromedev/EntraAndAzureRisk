@@ -148,9 +148,10 @@ try {
     #region Query Policies from Cosmos DB
     Write-Verbose "=== Querying Intune Policies from Cosmos DB ==="
 
-    # Query compliance policies
-    $complianceQuery = "SELECT * FROM c WHERE c.policyType = 'compliancePolicy' AND c.deleted != true"
-    $appProtectionQuery = "SELECT * FROM c WHERE c.policyType = 'appProtectionPolicy' AND c.deleted != true"
+    # Query compliance policies - use same deleted check pattern as Dashboard
+    # In Cosmos DB, c.deleted != true doesn't match when deleted is undefined/null
+    $complianceQuery = "SELECT * FROM c WHERE c.policyType = 'compliancePolicy' AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+    $appProtectionQuery = "SELECT * FROM c WHERE c.policyType = 'appProtectionPolicy' AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
 
     $compliancePolicies = @()
     $appProtectionPolicies = @()
