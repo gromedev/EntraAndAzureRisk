@@ -1704,8 +1704,6 @@ Ranked from **easiest** (least likely to break anything) to **hardest** (signifi
 | 18 | Audit - Who Made Changes feature | Pending | New collection from /auditLogs/directoryAudits | Medium |
 | 19 | Expand Intune/Devices collection | Pending | New API calls (ASR, Settings catalog, Baselines, etc) | Medium |
 | 20 | Null vs Blank values fix | Pending | Investigation + standardize across all collectors | Medium |
-| 24 | M365 Usage Collection | Pending | See `/docs/M365-usage.md` | Medium |
-| 37 | E5 Over-provisioning Detection | Pending | See `/docs/M365-usage-more.md` | Medium |
 
 ### ⛔ TIER 5: MAJOR (500+ lines, refactoring required)
 

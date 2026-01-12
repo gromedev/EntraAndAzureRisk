@@ -243,6 +243,11 @@ try {
 
     # ========== CONTAINER 5: AUDIT (Change Tracking) ==========
     $changes = @($auditIn | Where-Object { $_ })
+    # Filter changes by entity type for sub-tabs
+    $principalChanges = @($changes | Where-Object { $_.entityType -eq 'principals' })
+    $policyChanges = @($changes | Where-Object { $_.entityType -eq 'policies' })
+    $resourceChanges = @($changes | Where-Object { $_.entityType -eq 'resources' })
+    $edgeChanges = @($changes | Where-Object { $_.entityType -eq 'edges' })
 
     # Column definitions - priority columns shown first, then ALL other columns discovered dynamically
     # Dynamic column discovery ensures all collected properties are visible
@@ -301,7 +306,7 @@ try {
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Entra Risk Dashboard</title>
+    <title>Entra Risk Debug Dashboard</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 20px; background: #f0f2f5; }
@@ -333,6 +338,9 @@ try {
         .risk-high { color: #d13438; font-weight: bold; }
         .risk-medium { color: #ff8c00; font-weight: bold; }
         .risk-low { color: #107c10; }
+        .export-btns { float: right; margin-left: 10px; }
+        .export-btn { padding: 4px 8px; margin-left: 4px; font-size: 11px; cursor: pointer; background: #f0f0f0; border: 1px solid #ccc; border-radius: 3px; }
+        .export-btn:hover { background: #e0e0e0; }
     </style>
     <script>
         function toggleContainer(containerId) {
@@ -359,18 +367,61 @@ try {
             table.dataset.sortCol = col;
             table.dataset.sortDir = asc ? 'asc' : 'desc';
         }
+        function getTableData(tableId) {
+            var table = document.getElementById(tableId);
+            if (!table) return { headers: [], rows: [] };
+            var headers = Array.from(table.querySelectorAll('thead th')).map(th => th.textContent.trim());
+            var rows = Array.from(table.querySelectorAll('tbody tr')).map(tr =>
+                Array.from(tr.cells).map(td => td.textContent.trim())
+            );
+            return { headers, rows };
+        }
+        function exportToCSV(tableId, prefix) {
+            var data = getTableData(tableId);
+            if (data.rows.length === 0) { alert('No data to export'); return; }
+            var tabName = tableId.replace('-tbl', '');
+            var filename = prefix + '-' + tabName;
+            var csv = [data.headers.map(h => '"' + h.replace(/"/g, '""') + '"').join(',')];
+            data.rows.forEach(row => {
+                csv.push(row.map(cell => '"' + cell.replace(/"/g, '""') + '"').join(','));
+            });
+            downloadFile(csv.join('\n'), filename + '.csv', 'text/csv');
+        }
+        function exportToJSON(tableId, prefix) {
+            var data = getTableData(tableId);
+            if (data.rows.length === 0) { alert('No data to export'); return; }
+            var tabName = tableId.replace('-tbl', '');
+            var filename = prefix + '-' + tabName;
+            var json = data.rows.map(row => {
+                var obj = {};
+                data.headers.forEach((h, i) => obj[h] = row[i]);
+                return obj;
+            });
+            downloadFile(JSON.stringify(json, null, 2), filename + '.json', 'application/json');
+        }
+        function downloadFile(content, filename, mimeType) {
+            var blob = new Blob([content], { type: mimeType });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
     </script>
 </head>
 <body>
-    <h1>Entra Risk Dashboard</h1>
+    <h1>Entra Risk Debug Dashboard</h1>
     <div class="summary">
-        <b>Consolidated Architecture</b> |
+        <b>Debug View</b> |
         Principals: <b>$($allPrincipals.Count)</b> |
         Resources: <b>$($allResources.Count)</b> |
         Edges: <b>$($allEdges.Count)</b> (Derived: $($derivedEdges.Count)) |
         Policies: <b>$($allPolicies.Count)</b> |
         Audit: <b>$($changes.Count)</b> |
-        <span style="color:#666">$(Get-Date -Format 'yyyy-MM-dd HH:mm')</span>
+        <span style="color:#666">$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') UTC</span>
     </div>
 
     <!-- CONTAINER 1: PRINCIPALS -->
@@ -387,6 +438,10 @@ try {
                 <button class="tab" onclick="event.stopPropagation(); showTab('principals-section', 'sps-tab', this)">Service Principals ($($sps.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('principals-section', 'devices-tab', this)">Devices ($($devices.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('principals-section', 'au-tab', this)">Admin Units ($($adminUnits.Count))</button>
+                <span class="export-btns">
+                    <button class="export-btn" onclick="event.stopPropagation(); exportToCSV(document.querySelector('#principals-section .tab-content.active table').id, 'principals')" title="Export to CSV">CSV</button>
+                    <button class="export-btn" onclick="event.stopPropagation(); exportToJSON(document.querySelector('#principals-section .tab-content.active table').id, 'principals')" title="Export to JSON">JSON</button>
+                </span>
             </div>
             <div id="users-tab" class="tab-content active">$(Build-Table $users 'users-tbl' $userCols 'users' $allPrincipals.Count)</div>
             <div id="groups-tab" class="tab-content">$(Build-Table $groups 'groups-tbl' $groupCols 'groups' $allPrincipals.Count)</div>
@@ -421,6 +476,10 @@ try {
                 <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'web-tab', this)">Web Apps ($($webApps.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'auto-tab', this)">Automation ($($automationAccounts.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('resources-section', 'adf-tab', this)">Data Factory ($($dataFactories.Count))</button>
+                <span class="export-btns">
+                    <button class="export-btn" onclick="event.stopPropagation(); exportToCSV(document.querySelector('#resources-section .tab-content.active table').id, 'resources')" title="Export to CSV">CSV</button>
+                    <button class="export-btn" onclick="event.stopPropagation(); exportToJSON(document.querySelector('#resources-section .tab-content.active table').id, 'resources')" title="Export to JSON">JSON</button>
+                </span>
             </div>
             <div id="apps-tab" class="tab-content active">$(Build-Table $apps 'apps-tbl' $appCols 'applications' $allResources.Count)</div>
             <div id="tenants-tab" class="tab-content">$(Build-Table $tenants 'tenants-tbl' $azureResCols 'tenants' $allResources.Count)</div>
@@ -465,6 +524,10 @@ try {
                 <button class="tab derived" onclick="event.stopPropagation(); showTab('edges-section', 'derived-tab', this)">Derived ($($derivedEdges.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'ca-edge-tab', this)">CA Policy ($($caPolicyEdges.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('edges-section', 'virtual-tab', this)">Intune Policy ($($virtualEdges.Count))</button>
+                <span class="export-btns">
+                    <button class="export-btn" onclick="event.stopPropagation(); exportToCSV(document.querySelector('#edges-section .tab-content.active table').id, 'edges')" title="Export to CSV">CSV</button>
+                    <button class="export-btn" onclick="event.stopPropagation(); exportToJSON(document.querySelector('#edges-section .tab-content.active table').id, 'edges')" title="Export to JSON">JSON</button>
+                </span>
             </div>
             <div id="gm-tab" class="tab-content active">$(Build-Table $groupMembers 'gm-tbl' $edgeCols 'group memberships' $allEdges.Count)</div>
             <div id="dr-tab" class="tab-content">$(Build-Table $directoryRoles 'dr-tbl' $edgeCols 'directory role assignments' $allEdges.Count)</div>
@@ -504,6 +567,10 @@ try {
                 <button class="tab" onclick="event.stopPropagation(); showTab('policies-section', 'crosstenant-tab', this)">Cross-Tenant ($($crossTenantPolicies.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('policies-section', 'permgrant-tab', this)">Permission Grant ($($permissionGrantPolicies.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('policies-section', 'adminconsent-tab', this)">Admin Consent ($($adminConsentPolicies.Count))</button>
+                <span class="export-btns">
+                    <button class="export-btn" onclick="event.stopPropagation(); exportToCSV(document.querySelector('#policies-section .tab-content.active table').id, 'policies')" title="Export to CSV">CSV</button>
+                    <button class="export-btn" onclick="event.stopPropagation(); exportToJSON(document.querySelector('#policies-section .tab-content.active table').id, 'policies')" title="Export to JSON">JSON</button>
+                </span>
             </div>
             <div id="ca-tab" class="tab-content active">$(Build-Table $caPolicies 'ca-tbl' $policyCols 'CA policies' $allPolicies.Count)</div>
             <div id="rp-tab" class="tab-content">$(Build-Table $rolePolicies 'rp-tbl' $policyCols 'role policies' $allPolicies.Count)</div>
@@ -528,9 +595,21 @@ try {
         </div>
         <div class="container-body">
             <div class="tabs">
-                <button class="tab active" onclick="event.stopPropagation(); showTab('audit-section', 'changes-tab', this)">All Changes ($($changes.Count))</button>
+                <button class="tab active" onclick="event.stopPropagation(); showTab('audit-section', 'changes-tab', this)">All ($($changes.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('audit-section', 'principal-changes-tab', this)">Principals ($($principalChanges.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('audit-section', 'policy-changes-tab', this)">Policies ($($policyChanges.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('audit-section', 'resource-changes-tab', this)">Resources ($($resourceChanges.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('audit-section', 'edge-changes-tab', this)">Edges ($($edgeChanges.Count))</button>
+                <span class="export-btns">
+                    <button class="export-btn" onclick="event.stopPropagation(); exportToCSV(document.querySelector('#audit-section .tab-content.active table').id, 'audit-changes')" title="Export to CSV">CSV</button>
+                    <button class="export-btn" onclick="event.stopPropagation(); exportToJSON(document.querySelector('#audit-section .tab-content.active table').id, 'audit-changes')" title="Export to JSON">JSON</button>
+                </span>
             </div>
             <div id="changes-tab" class="tab-content active">$(Build-Table $changes 'changes-tbl' $auditCols 'historical changes' $changes.Count)</div>
+            <div id="principal-changes-tab" class="tab-content">$(Build-Table $principalChanges 'principal-changes-tbl' $auditCols 'principal changes' $changes.Count)</div>
+            <div id="policy-changes-tab" class="tab-content">$(Build-Table $policyChanges 'policy-changes-tbl' $auditCols 'policy changes' $changes.Count)</div>
+            <div id="resource-changes-tab" class="tab-content">$(Build-Table $resourceChanges 'resource-changes-tbl' $auditCols 'resource changes' $changes.Count)</div>
+            <div id="edge-changes-tab" class="tab-content">$(Build-Table $edgeChanges 'edge-changes-tbl' $auditCols 'edge changes' $changes.Count)</div>
         </div>
     </div>
 
