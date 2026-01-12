@@ -813,6 +813,161 @@ try {
     }
     #endregion
 
+    #region 8. Collect Cross-Tenant Access Policy (B2B collaboration settings)
+    Write-Verbose "=== Phase 8: Collecting Cross-Tenant Access Policy ==="
+
+    $crossTenantCount = 0
+
+    try {
+        $crossTenantUri = "https://graph.microsoft.com/v1.0/policies/crossTenantAccessPolicy"
+
+        try {
+            $crossTenantPolicy = Invoke-GraphWithRetry -Uri $crossTenantUri -AccessToken $graphToken
+
+            $policyObj = @{
+                id = $crossTenantPolicy.displayName ?? "crossTenantAccessPolicy"
+                objectId = "crossTenantAccessPolicy"
+                policyType = "crossTenantAccessPolicy"
+                displayName = $crossTenantPolicy.displayName ?? "Cross-Tenant Access Policy"
+                allowedCloudEndpoints = $crossTenantPolicy.allowedCloudEndpoints ?? @()
+                # Default settings for external collaboration
+                default = @{
+                    b2bCollaborationInbound = $crossTenantPolicy.default.b2bCollaborationInbound ?? @{}
+                    b2bCollaborationOutbound = $crossTenantPolicy.default.b2bCollaborationOutbound ?? @{}
+                    b2bDirectConnectInbound = $crossTenantPolicy.default.b2bDirectConnectInbound ?? @{}
+                    b2bDirectConnectOutbound = $crossTenantPolicy.default.b2bDirectConnectOutbound ?? @{}
+                    inboundTrust = $crossTenantPolicy.default.inboundTrust ?? @{}
+                    tenantRestrictions = $crossTenantPolicy.default.tenantRestrictions ?? @{}
+                }
+                collectionTimestamp = $timestampFormatted
+            }
+
+            [void]$policiesJsonL.AppendLine(($policyObj | ConvertTo-Json -Compress -Depth 10))
+            $crossTenantCount++
+
+            $results.CrossTenantAccess = @{
+                Success = $true
+                Count = $crossTenantCount
+            }
+            Write-Verbose "Cross-Tenant Access Policy complete: $crossTenantCount policy"
+        }
+        catch {
+            if ($_.Exception.Message -match '403|Forbidden|permission') {
+                Write-Warning "Cross-Tenant Access Policy requires Policy.Read.All permission - skipping"
+            } else {
+                Write-Warning "Failed to retrieve cross-tenant access policy: $_"
+            }
+            $results.CrossTenantAccess = @{ Success = $false; Error = $_.Exception.Message }
+        }
+    }
+    catch {
+        Write-Warning "Cross-Tenant Access Policy collection failed: $_"
+        $results.CrossTenantAccess = @{ Success = $false; Error = $_.Exception.Message }
+    }
+    #endregion
+
+    #region 9. Collect Permission Grant Policies (OAuth consent controls)
+    Write-Verbose "=== Phase 9: Collecting Permission Grant Policies ==="
+
+    $permissionGrantCount = 0
+
+    try {
+        $permGrantUri = "https://graph.microsoft.com/v1.0/policies/permissionGrantPolicies"
+
+        try {
+            $permGrantResponse = Invoke-GraphWithRetry -Uri $permGrantUri -AccessToken $graphToken
+
+            foreach ($policy in $permGrantResponse.value) {
+                $policyObj = @{
+                    id = $policy.id
+                    objectId = $policy.id
+                    policyType = "permissionGrantPolicy"
+                    displayName = $policy.displayName ?? ""
+                    description = $policy.description ?? ""
+                    # Include/exclude conditions
+                    includes = $policy.includes ?? @()
+                    excludes = $policy.excludes ?? @()
+                    includeCount = ($policy.includes ?? @()).Count
+                    excludeCount = ($policy.excludes ?? @()).Count
+                    collectionTimestamp = $timestampFormatted
+                }
+
+                [void]$policiesJsonL.AppendLine(($policyObj | ConvertTo-Json -Compress -Depth 10))
+                $permissionGrantCount++
+            }
+
+            $results.PermissionGrant = @{
+                Success = $true
+                Count = $permissionGrantCount
+            }
+            Write-Verbose "Permission Grant Policies complete: $permissionGrantCount policies"
+        }
+        catch {
+            if ($_.Exception.Message -match '403|Forbidden|permission') {
+                Write-Warning "Permission Grant Policies requires Policy.Read.All permission - skipping"
+            } else {
+                Write-Warning "Failed to retrieve permission grant policies: $_"
+            }
+            $results.PermissionGrant = @{ Success = $false; Error = $_.Exception.Message }
+        }
+    }
+    catch {
+        Write-Warning "Permission Grant Policies collection failed: $_"
+        $results.PermissionGrant = @{ Success = $false; Error = $_.Exception.Message }
+    }
+    #endregion
+
+    #region 10. Collect Admin Consent Request Policy
+    Write-Verbose "=== Phase 10: Collecting Admin Consent Request Policy ==="
+
+    $adminConsentCount = 0
+
+    try {
+        $adminConsentUri = "https://graph.microsoft.com/v1.0/policies/adminConsentRequestPolicy"
+
+        try {
+            $adminConsentPolicy = Invoke-GraphWithRetry -Uri $adminConsentUri -AccessToken $graphToken
+
+            $policyObj = @{
+                id = "adminConsentRequestPolicy"
+                objectId = "adminConsentRequestPolicy"
+                policyType = "adminConsentRequestPolicy"
+                displayName = "Admin Consent Request Policy"
+                isEnabled = $adminConsentPolicy.isEnabled ?? $false
+                notifyReviewers = $adminConsentPolicy.notifyReviewers ?? $false
+                remindersEnabled = $adminConsentPolicy.remindersEnabled ?? $false
+                requestDurationInDays = $adminConsentPolicy.requestDurationInDays ?? 0
+                reviewers = $adminConsentPolicy.reviewers ?? @()
+                reviewerCount = ($adminConsentPolicy.reviewers ?? @()).Count
+                version = $adminConsentPolicy.version ?? 0
+                collectionTimestamp = $timestampFormatted
+            }
+
+            [void]$policiesJsonL.AppendLine(($policyObj | ConvertTo-Json -Compress -Depth 10))
+            $adminConsentCount++
+
+            $results.AdminConsentRequest = @{
+                Success = $true
+                Count = $adminConsentCount
+                IsEnabled = $adminConsentPolicy.isEnabled ?? $false
+            }
+            Write-Verbose "Admin Consent Request Policy complete: isEnabled=$($adminConsentPolicy.isEnabled)"
+        }
+        catch {
+            if ($_.Exception.Message -match '403|Forbidden|permission') {
+                Write-Warning "Admin Consent Request Policy requires Policy.Read.All permission - skipping"
+            } else {
+                Write-Warning "Failed to retrieve admin consent request policy: $_"
+            }
+            $results.AdminConsentRequest = @{ Success = $false; Error = $_.Exception.Message }
+        }
+    }
+    catch {
+        Write-Warning "Admin Consent Request Policy collection failed: $_"
+        $results.AdminConsentRequest = @{ Success = $false; Error = $_.Exception.Message }
+    }
+    #endregion
+
     #region Final Flush
     if ($policiesJsonL.Length -gt 0) {
         try {
@@ -839,12 +994,16 @@ try {
     [System.GC]::WaitForPendingFinalizers()
 
     # Determine overall success
-    $overallSuccess = $results.ConditionalAccess.Success -or $results.RoleManagementPolicies.Success -or $results.RoleManagementAssignments.Success -or $results.NamedLocations.Success -or $results.AuthenticationMethods.Success -or $results.SecurityDefaults.Success -or $results.Authorization.Success
+    $overallSuccess = $results.ConditionalAccess.Success -or $results.RoleManagementPolicies.Success -or $results.RoleManagementAssignments.Success -or $results.NamedLocations.Success -or $results.AuthenticationMethods.Success -or $results.SecurityDefaults.Success -or $results.Authorization.Success -or $results.CrossTenantAccess.Success -or $results.PermissionGrant.Success -or $results.AdminConsentRequest.Success
     $pimGroupCount = if ($results.PimGroupPolicies) { $results.PimGroupPolicies.Count } else { 0 }
     $authMethodsCount = if ($results.AuthenticationMethods) { $results.AuthenticationMethods.Count } else { 0 }
     $securityDefaultsCount = if ($results.SecurityDefaults) { $results.SecurityDefaults.Count } else { 0 }
     $authorizationCount = if ($results.Authorization) { $results.Authorization.Count } else { 0 }
-    $totalCount = $results.ConditionalAccess.Count + $results.RoleManagementPolicies.Count + $results.RoleManagementAssignments.Count + $results.NamedLocations.Count + $pimGroupCount + $authMethodsCount + $securityDefaultsCount + $authorizationCount
+    # Phase 2-3: B2B, Consent policies
+    $crossTenantCount = if ($results.CrossTenantAccess) { $results.CrossTenantAccess.Count } else { 0 }
+    $permissionGrantCount = if ($results.PermissionGrant) { $results.PermissionGrant.Count } else { 0 }
+    $adminConsentCount = if ($results.AdminConsentRequest) { $results.AdminConsentRequest.Count } else { 0 }
+    $totalCount = $results.ConditionalAccess.Count + $results.RoleManagementPolicies.Count + $results.RoleManagementAssignments.Count + $results.NamedLocations.Count + $pimGroupCount + $authMethodsCount + $securityDefaultsCount + $authorizationCount + $crossTenantCount + $permissionGrantCount + $adminConsentCount
 
     Write-Verbose "Combined policies collection complete: $totalCount total policies"
 
@@ -864,6 +1023,10 @@ try {
         AuthenticationMethodsPolicyCount = $authMethodsCount
         SecurityDefaultsPolicyCount = $securityDefaultsCount
         AuthorizationPolicyCount = $authorizationCount
+        # Phase 2-3: B2B, Consent policies
+        CrossTenantAccessPolicyCount = $crossTenantCount
+        PermissionGrantPolicyCount = $permissionGrantCount
+        AdminConsentRequestPolicyCount = $adminConsentCount
 
         # Detailed results
         Results = $results
@@ -893,6 +1056,13 @@ try {
                 authorization = $authorizationCount
                 securityDefaultsEnabled = $results.SecurityDefaults.IsEnabled
                 guestUserRole = $results.Authorization.GuestRole
+            }
+            # Phase 2-3: B2B, Consent policies
+            b2bAndConsent = @{
+                crossTenantAccess = $crossTenantCount
+                permissionGrant = $permissionGrantCount
+                adminConsentRequest = $adminConsentCount
+                adminConsentEnabled = $results.AdminConsentRequest.IsEnabled
             }
         }
     }

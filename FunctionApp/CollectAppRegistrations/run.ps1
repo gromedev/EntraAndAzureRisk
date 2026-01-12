@@ -93,7 +93,7 @@ try {
     $appsJsonL = New-Object System.Text.StringBuilder(1048576)  # 1MB initial capacity
     $appCount = 0
     $batchNumber = 0
-    $writeThreshold = 3000
+    $writeThreshold = 2000000  # 2MB before flush
 
     # Summary statistics for credentials
     $appsWithSecretsCount = 0

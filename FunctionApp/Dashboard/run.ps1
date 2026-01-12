@@ -1,6 +1,6 @@
 using namespace System.Net
 
-# V3.5 Dashboard - 5 Unified Containers + Derived Edges
+# Dashboard - 5 Unified Containers + Derived Edges
 # 1. principals (users, groups, SPs, devices)
 # 2. resources (applications + Azure resources + role definitions)
 # 3. edges (all relationships + derived edges)
@@ -26,7 +26,8 @@ Add-Type -AssemblyName System.Web
 
 function Format-Value {
     param($value, $maxLen = 200)
-    if ($null -eq $value) { return '<span style="color:#999">null</span>' }
+    if ($null -eq $value) { return '<span style="color:#999;font-style:italic">null</span>' }
+    if ($value -is [string] -and $value -eq '') { return '<span style="color:#999;font-style:italic">-</span>' }
     if ($value -is [bool]) { if ($value) { return '<span style="color:#107c10">true</span>' } else { return '<span style="color:#d13438">false</span>' } }
     if ($value -is [array]) {
         if ($value.Count -eq 0) { return '[]' }
@@ -81,8 +82,8 @@ function Get-AllColumns {
         $result += $col
         $propsWithValues.Remove($col)  # Remove from remaining to avoid duplicates
     }
-    # Add remaining columns alphabetically, excluding internal Cosmos fields and common noise
-    $excludeFields = @('_rid', '_self', '_etag', '_attachments', '_ts', 'id', 'principalType', 'resourceType', 'edgeType', 'policyType', 'eventType')
+    # Add remaining columns alphabetically, excluding internal Cosmos fields, common noise, and soft-delete implementation details
+    $excludeFields = @('_rid', '_self', '_etag', '_attachments', '_ts', 'id', 'principalType', 'resourceType', 'edgeType', 'policyType', 'eventType', 'deleted', 'deletedTimestamp', 'effectiveTo', 'ttl')
     $remaining = $propsWithValues.Keys | Where-Object { $_ -notin $excludeFields -and $_ -notin $priorityColumns } | Sort-Object
     $result += $remaining
 
@@ -91,22 +92,22 @@ function Get-AllColumns {
 
 function Build-Table {
     param($data, $tableId, $columns, $entityType = $null, $parentCount = $null)
+    # Build headers - always show column headers even for empty data
+    $headers = ($columns | ForEach-Object { "<th onclick=`"sortTable('$tableId', $($columns.IndexOf($_)))`">$_</th>" }) -join ""
+
     if ($null -eq $data -or $data.Count -eq 0) {
-        # Provide diagnostic information for empty data
-        $msg = if ($parentCount -eq 0) {
-            # Parent container has no data at all
-            '<p style="color:#999;padding:20px;font-size:0.85em;">No data in container - collection may not have run yet</p>'
+        # Show table with headers but empty message in body
+        $emptyMsg = if ($parentCount -eq 0) {
+            'No data in container - collection may not have run yet'
         } elseif ($parentCount -gt 0) {
-            # Parent has data but this filter returned nothing
-            "<p style='color:#666;padding:20px;font-size:0.85em;'>No $entityType found (0 of $parentCount in container)</p>"
+            "No $entityType found (0 of $parentCount in container)"
         } else {
-            # Fallback - no context provided
-            '<p style="color:#666;padding:20px;font-size:0.85em;">No data</p>'
+            'No data'
         }
-        return $msg
+        $emptyRow = "<tr><td colspan='$($columns.Count)' style='text-align:center;color:#666;padding:20px;font-size:0.85em;'>$emptyMsg</td></tr>"
+        return "<table id='$tableId'><thead><tr>$headers</tr></thead><tbody>$emptyRow</tbody></table>"
     }
 
-    $headers = ($columns | ForEach-Object { "<th onclick=`"sortTable('$tableId', $($columns.IndexOf($_)))`">$_</th>" }) -join ""
     $rows = ($data | ForEach-Object {
         $item = $_
         $cells = ($columns | ForEach-Object {
@@ -195,13 +196,13 @@ try {
     $functionApps = @($allResources | Where-Object { $_.resourceType -eq 'functionApp' })
     $logicApps = @($allResources | Where-Object { $_.resourceType -eq 'logicApp' })
     $webApps = @($allResources | Where-Object { $_.resourceType -eq 'webApp' })
-    # V3.5: Additional Azure resources
+    # Additional Azure resources
     $storageAccounts = @($allResources | Where-Object { $_.resourceType -eq 'storageAccount' })
     $aksClusters = @($allResources | Where-Object { $_.resourceType -eq 'aksCluster' })
     $containerRegistries = @($allResources | Where-Object { $_.resourceType -eq 'containerRegistry' })
     $vmScaleSets = @($allResources | Where-Object { $_.resourceType -eq 'vmScaleSet' })
     $dataFactories = @($allResources | Where-Object { $_.resourceType -eq 'dataFactory' })
-    # V3.5: Role definitions (consolidated)
+    # Role definitions
     $directoryRoleDefs = @($allResources | Where-Object { $_.resourceType -eq 'directoryRoleDefinition' })
     $azureRoleDefs = @($allResources | Where-Object { $_.resourceType -eq 'azureRoleDefinition' })
 
@@ -219,31 +220,35 @@ try {
     $kvAccess = @($allEdges | Where-Object { $_.edgeType -eq 'keyVaultAccess' })
     $managedIdentities = @($allEdges | Where-Object { $_.edgeType -eq 'hasManagedIdentity' })
     $auMembers = @($allEdges | Where-Object { $_.edgeType -eq 'auMember' })
-    # V3.5: Derived edges (from DeriveEdges function)
+    # Derived edges (from DeriveEdges function)
     $derivedEdges = @($allEdges | Where-Object { $_.edgeType -match '^can|^is|^azure' -and $_.derivedFrom })
-    # V3.5: CA policy edges (caPolicyTargetsPrincipal, caPolicyTargetsApplication, caPolicyExcludesPrincipal, etc.)
+    # CA policy edges (caPolicyTargetsPrincipal, caPolicyTargetsApplication, caPolicyExcludesPrincipal, etc.)
     $caPolicyEdges = @($allEdges | Where-Object { $_.edgeType -match '^caPolicy' })
-    # V3.5: Virtual edges (Intune policy targeting - compliancePolicyTargets, appProtectionPolicyTargets)
+    # Virtual edges (Intune policy targeting - compliancePolicyTargets, appProtectionPolicyTargets)
     $virtualEdges = @($allEdges | Where-Object { $_.edgeType -match 'compliancePolicy|appProtectionPolicy' })
 
     # ========== CONTAINER 4: POLICIES ==========
     $allPolicies = @($policiesIn | Where-Object { $_ })
     $caPolicies = @($allPolicies | Where-Object { $_.policyType -eq 'conditionalAccess' })
     $rolePolicies = @($allPolicies | Where-Object { $_.policyType -match 'roleManagement' })
-    # V3.5: Intune policies
+    # Intune policies
     $compliancePolicies = @($allPolicies | Where-Object { $_.policyType -eq 'compliancePolicy' })
     $appProtectionPolicies = @($allPolicies | Where-Object { $_.policyType -eq 'appProtectionPolicy' })
     $namedLocations = @($allPolicies | Where-Object { $_.policyType -eq 'namedLocation' })
-    # V3.5 Phase 1: Security policies (Auth Methods, Security Defaults, Authorization)
+    # Security policies (Auth Methods, Security Defaults, Authorization)
     $authMethodsPolicies = @($allPolicies | Where-Object { $_.policyType -eq 'authenticationMethodsPolicy' })
     $securityDefaultsPolicies = @($allPolicies | Where-Object { $_.policyType -eq 'securityDefaults' })
     $authorizationPolicies = @($allPolicies | Where-Object { $_.policyType -eq 'authorizationPolicy' })
+    # B2B, Consent, Token policies
+    $crossTenantPolicies = @($allPolicies | Where-Object { $_.policyType -eq 'crossTenantAccessPolicy' })
+    $permissionGrantPolicies = @($allPolicies | Where-Object { $_.policyType -eq 'permissionGrantPolicy' })
+    $adminConsentPolicies = @($allPolicies | Where-Object { $_.policyType -eq 'adminConsentRequestPolicy' })
 
     # ========== CONTAINER 5: AUDIT (Change Tracking) ==========
     $changes = @($auditIn | Where-Object { $_ })
 
     # Column definitions - priority columns shown first, then ALL other columns discovered dynamically
-    # V3.5: Dynamic column discovery ensures all collected properties are visible
+    # Dynamic column discovery ensures all collected properties are visible
     $userPriority = @('objectId', 'displayName', 'userPrincipalName', 'accountEnabled', 'userType', 'perUserMfaState', 'authMethodCount', 'riskLevel', 'riskState', 'riskLastUpdatedDateTime', 'isAtRisk', 'hasP2License', 'hasE5License', 'licenseCount', 'assignedLicenseSkus', 'mail', 'jobTitle', 'department', 'createdDateTime', 'lastPasswordChangeDateTime', 'onPremisesSyncEnabled')
     $groupPriority = @('objectId', 'displayName', 'securityEnabled', 'groupTypes', 'groupTypeCategory', 'memberCountDirect', 'memberCountIndirect', 'memberCountTotal', 'userMemberCount', 'groupMemberCount', 'servicePrincipalMemberCount', 'deviceMemberCount', 'nestingDepth', 'isAssignableToRole', 'mail', 'visibility', 'createdDateTime', 'onPremisesSyncEnabled')
     $spPriority = @('objectId', 'displayName', 'appId', 'servicePrincipalType', 'accountEnabled', 'secretCount', 'certificateCount', 'createdDateTime', 'appOwnerOrganizationId')
@@ -259,10 +264,14 @@ try {
     $policyPriority = @('objectId', 'displayName', 'policyType', 'state', 'createdDateTime', 'modifiedDateTime')
     $intunePolicyPriority = @('objectId', 'displayName', 'policyType', 'platform', 'createdDateTime', 'lastModifiedDateTime')
     $namedLocPriority = @('objectId', 'displayName', 'policyType', 'locationType', 'isTrusted', 'createdDateTime')
-    # V3.5 Phase 1: Security policy column priorities
+    # Security policy column priorities
     $authMethodsPriority = @('objectId', 'displayName', 'policyType', 'methodConfigurationCount', 'microsoftAuthenticatorEnabled', 'fido2Enabled', 'smsEnabled', 'temporaryAccessPassEnabled', 'policyMigrationState', 'lastModifiedDateTime')
     $securityDefaultsPriority = @('objectId', 'displayName', 'policyType', 'isEnabled', 'description')
     $authorizationPriority = @('objectId', 'displayName', 'policyType', 'guestUserRoleName', 'allowInvitesFrom', 'usersCanCreateApps', 'usersCanCreateGroups', 'usersCanCreateTenants', 'blockMsolPowerShell')
+    # B2B, Consent, Token policy column priorities
+    $crossTenantPriority = @('objectId', 'displayName', 'policyType', 'allowedCloudEndpoints', 'default')
+    $permissionGrantPriority = @('objectId', 'displayName', 'policyType', 'includeCount', 'excludeCount', 'includes', 'excludes')
+    $adminConsentPriority = @('objectId', 'displayName', 'policyType', 'isEnabled', 'notifyReviewers', 'remindersEnabled', 'requestDurationInDays', 'reviewerCount')
     $auditPriority = @('objectId', 'entityType', 'changeType', 'displayName', 'changeTimestamp', 'auditDate', 'changedFields', 'delta')
 
     # Dynamically get ALL columns from data, with priority columns first
@@ -283,17 +292,21 @@ try {
     $policyCols = Get-AllColumns $caPolicies $policyPriority
     $intunePolicyCols = Get-AllColumns (@($compliancePolicies + $appProtectionPolicies) | Where-Object { $_ }) $intunePolicyPriority
     $namedLocCols = Get-AllColumns $namedLocations $namedLocPriority
-    # V3.5 Phase 1: Security policy columns
+    # Security policy columns
     $authMethodsCols = Get-AllColumns $authMethodsPolicies $authMethodsPriority
     $securityDefaultsCols = Get-AllColumns $securityDefaultsPolicies $securityDefaultsPriority
     $authorizationCols = Get-AllColumns $authorizationPolicies $authorizationPriority
+    # B2B, Consent, Token policy columns
+    $crossTenantCols = Get-AllColumns $crossTenantPolicies $crossTenantPriority
+    $permissionGrantCols = Get-AllColumns $permissionGrantPolicies $permissionGrantPriority
+    $adminConsentCols = Get-AllColumns $adminConsentPolicies $adminConsentPriority
     $auditCols = Get-AllColumns $changes $auditPriority
 
     $html = @"
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Entra Risk Dashboard - V3.5</title>
+    <title>Entra Risk Dashboard</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 20px; background: #f0f2f5; }
@@ -354,9 +367,9 @@ try {
     </script>
 </head>
 <body>
-    <h1>Entra Risk Dashboard - V3.5</h1>
+    <h1>Entra Risk Dashboard</h1>
     <div class="summary">
-        <b>V3.5 Consolidated Architecture</b> |
+        <b>Consolidated Architecture</b> |
         Principals: <b>$($allPrincipals.Count)</b> |
         Resources: <b>$($allResources.Count)</b> |
         Edges: <b>$($allEdges.Count)</b> (Derived: $($derivedEdges.Count)) |
@@ -497,6 +510,9 @@ try {
                 <button class="tab" onclick="event.stopPropagation(); showTab('policies-section', 'authmethods-tab', this)">Auth Methods ($($authMethodsPolicies.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('policies-section', 'secdefaults-tab', this)">Security Defaults ($($securityDefaultsPolicies.Count))</button>
                 <button class="tab" onclick="event.stopPropagation(); showTab('policies-section', 'authz-tab', this)">Authorization ($($authorizationPolicies.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('policies-section', 'crosstenant-tab', this)">Cross-Tenant ($($crossTenantPolicies.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('policies-section', 'permgrant-tab', this)">Permission Grant ($($permissionGrantPolicies.Count))</button>
+                <button class="tab" onclick="event.stopPropagation(); showTab('policies-section', 'adminconsent-tab', this)">Admin Consent ($($adminConsentPolicies.Count))</button>
             </div>
             <div id="ca-tab" class="tab-content active">$(Build-Table $caPolicies 'ca-tbl' $policyCols 'CA policies' $allPolicies.Count)</div>
             <div id="rp-tab" class="tab-content">$(Build-Table $rolePolicies 'rp-tbl' $policyCols 'role policies' $allPolicies.Count)</div>
@@ -506,6 +522,9 @@ try {
             <div id="authmethods-tab" class="tab-content">$(Build-Table $authMethodsPolicies 'authmethods-tbl' $authMethodsCols 'authentication methods policy' $allPolicies.Count)</div>
             <div id="secdefaults-tab" class="tab-content">$(Build-Table $securityDefaultsPolicies 'secdefaults-tbl' $securityDefaultsCols 'security defaults policy' $allPolicies.Count)</div>
             <div id="authz-tab" class="tab-content">$(Build-Table $authorizationPolicies 'authz-tbl' $authorizationCols 'authorization policy' $allPolicies.Count)</div>
+            <div id="crosstenant-tab" class="tab-content">$(Build-Table $crossTenantPolicies 'crosstenant-tbl' $crossTenantCols 'cross-tenant access policy' $allPolicies.Count)</div>
+            <div id="permgrant-tab" class="tab-content">$(Build-Table $permissionGrantPolicies 'permgrant-tbl' $permissionGrantCols 'permission grant policies' $allPolicies.Count)</div>
+            <div id="adminconsent-tab" class="tab-content">$(Build-Table $adminConsentPolicies 'adminconsent-tbl' $adminConsentCols 'admin consent request policy' $allPolicies.Count)</div>
         </div>
     </div>
 

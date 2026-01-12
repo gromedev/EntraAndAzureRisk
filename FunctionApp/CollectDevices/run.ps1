@@ -92,7 +92,7 @@ try {
     $devicesJsonL = New-Object System.Text.StringBuilder(1048576)  # 1MB initial capacity
     $deviceCount = 0
     $batchNumber = 0
-    $writeThreshold = 5000
+    $writeThreshold = 2000000  # 2MB before flush
 
     # Summary statistics
     $enabledCount = 0

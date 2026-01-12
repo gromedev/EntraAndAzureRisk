@@ -271,12 +271,12 @@
             'membershipRuleProcessingState'
             'isMemberManagementRestricted'
             'visibility'
-            # V3.5: Member counts
+            # Member counts
             'memberCountTotal'
             'userMemberCount'
             'groupMemberCount'
             'deviceMemberCount'
-            # V3.5: Scoped role count (delegated admins)
+            # Scoped role count (delegated admins)
             'scopedRoleCount'
             'deleted'
         )
@@ -289,12 +289,12 @@
             membershipRuleProcessingState = 'membershipRuleProcessingState'
             isMemberManagementRestricted = 'isMemberManagementRestricted'
             visibility = 'visibility'
-            # V3.5: Member counts
+            # Member counts
             memberCountTotal = 'memberCountTotal'
             userMemberCount = 'userMemberCount'
             groupMemberCount = 'groupMemberCount'
             deviceMemberCount = 'deviceMemberCount'
-            # V3.5: Scoped role count (delegated admins)
+            # Scoped role count (delegated admins)
             scopedRoleCount = 'scopedRoleCount'
             collectionTimestamp = 'collectionTimestamp'
         }
@@ -664,7 +664,7 @@
             'hasSoftwareOath'
             'authMethodCount'
             'authMethodTypes'
-            # V3.5: User risk data (embedded from Identity Protection - from CollectUsers)
+            # User risk data (embedded from Identity Protection - from CollectUsers)
             'riskLevel'
             'riskState'
             'riskDetail'
@@ -833,7 +833,7 @@
             hasSoftwareOath = 'hasSoftwareOath'
             authMethodCount = 'authMethodCount'
             authMethodTypes = 'authMethodTypes'
-            # V3.5: User risk data (embedded from Identity Protection - from CollectUsers)
+            # User risk data (embedded from Identity Protection - from CollectUsers)
             riskLevel = 'riskLevel'
             riskState = 'riskState'
             riskDetail = 'riskDetail'
@@ -1038,7 +1038,7 @@
             'effectiveFrom'
             'effectiveTo'
 
-            # V3.5: Abuse Edge fields (derived edges)
+            # Abuse Edge fields (derived edges)
             'derivedFrom'
             'derivedFromEdgeId'
             'permissionName'
@@ -1049,18 +1049,18 @@
             'tier'
             'isRoleAssignableGroup'
 
-            # V3.5: Virtual Edge fields (Intune policy gates)
+            # Virtual Edge fields (Intune policy gates)
             'sourcePlatform'
             'assignmentFilterType'
             'protectedAppCount'
             'isExclusion'
 
-            # V3.5: Azure RBAC edge fields
+            # Azure RBAC edge fields
             'subscriptionId'
             'subscriptionName'
             'resourceGroup'
 
-            # V3.5: Administrative Unit scoped role edge fields
+            # Administrative Unit scoped role edge fields
             'roleId'
             # 'roleName' already defined in Abuse Edge fields above
         )
@@ -1161,7 +1161,7 @@
             effectiveFrom = 'effectiveFrom'
             effectiveTo = 'effectiveTo'
 
-            # V3.5: Abuse Edge fields (derived edges)
+            # Abuse Edge fields (derived edges)
             derivedFrom = 'derivedFrom'
             derivedFromEdgeId = 'derivedFromEdgeId'
             permissionName = 'permissionName'
@@ -1172,18 +1172,18 @@
             tier = 'tier'
             isRoleAssignableGroup = 'isRoleAssignableGroup'
 
-            # V3.5: Virtual Edge fields (Intune policy gates)
+            # Virtual Edge fields (Intune policy gates)
             sourcePlatform = 'sourcePlatform'
             assignmentFilterType = 'assignmentFilterType'
             protectedAppCount = 'protectedAppCount'
             isExclusion = 'isExclusion'
 
-            # V3.5: Azure RBAC edge fields
+            # Azure RBAC edge fields
             subscriptionId = 'subscriptionId'
             subscriptionName = 'subscriptionName'
             resourceGroup = 'resourceGroup'
 
-            # V3.5: Administrative Unit scoped role edge fields
+            # Administrative Unit scoped role edge fields
             roleId = 'roleId'
             # roleName already defined in Abuse Edge fields above
         }
@@ -1228,7 +1228,7 @@
             'countryLookupMethod'
             'includeUnknownCountriesAndRegions'
 
-            # V3.5: Intune Policy fields (compliancePolicy, appProtectionPolicy)
+            # Intune Policy fields (compliancePolicy, appProtectionPolicy)
             'platform'
             'odataType'
             'version'
@@ -1253,7 +1253,7 @@
             'periodOfflineBeforeAccessCheck'
             'periodOnlineBeforeAccessCheck'
 
-            # V3.5 Phase 1: Authentication Methods Policy
+            # Authentication Methods Policy
             'policyVersion'
             'policyMigrationState'
             'reconfirmationInDays'
@@ -1270,10 +1270,10 @@
             'softwareOathEnabled'
             'voiceEnabled'
 
-            # V3.5 Phase 1: Security Defaults Policy
+            # Security Defaults Policy
             'isEnabled'
 
-            # V3.5 Phase 1: Authorization Policy
+            # Authorization Policy
             'allowInvitesFrom'
             'guestUserRoleId'
             'guestUserRoleName'
@@ -1286,6 +1286,27 @@
             'usersCanCreateGroups'
             'usersCanCreateTenants'
             'usersCanReadOtherUsers'
+
+            # Cross-Tenant Access Policy
+            'allowedCloudEndpoints'
+            'default'
+
+            # Permission Grant Policy
+            'includes'
+            'excludes'
+            'includeCount'
+            'excludeCount'
+
+            # Admin Consent Request Policy
+            'notifyReviewers'
+            'remindersEnabled'
+            'requestDurationInDays'
+            'reviewers'
+            'reviewerCount'
+
+            # Token Lifetime Policy
+            'isOrganizationDefault'
+            'definition'
         )
         ArrayFields = @(
             'conditions'
@@ -1295,12 +1316,17 @@
             'effectiveRules'
             'ipRanges'
             'countriesAndRegions'
-            # V3.5: Intune policy arrays
+            # Intune policy arrays
             'assignments'
             'protectedApps'
-            # V3.5 Phase 1: Authentication Methods Policy arrays
+            # Authentication Methods Policy arrays
             'authenticationMethodConfigurations'
             'permissionGrantPoliciesAssigned'
+            # Cross-Tenant Access, Permission Grant, Admin Consent arrays
+            'allowedCloudEndpoints'
+            'includes'
+            'excludes'
+            'reviewers'
         )
         EmbeddedObjectFields = @(
             'conditions'
@@ -1338,7 +1364,7 @@
             countryLookupMethod = 'countryLookupMethod'
             includeUnknownCountriesAndRegions = 'includeUnknownCountriesAndRegions'
 
-            # V3.5: Intune Policy fields (compliancePolicy, appProtectionPolicy)
+            # Intune Policy fields (compliancePolicy, appProtectionPolicy)
             platform = 'platform'
             odataType = 'odataType'
             version = 'version'
@@ -1363,7 +1389,7 @@
             periodOfflineBeforeAccessCheck = 'periodOfflineBeforeAccessCheck'
             periodOnlineBeforeAccessCheck = 'periodOnlineBeforeAccessCheck'
 
-            # V3.5 Phase 1: Authentication Methods Policy fields
+            # Authentication Methods Policy fields
             policyVersion = 'policyVersion'
             policyMigrationState = 'policyMigrationState'
             reconfirmationInDays = 'reconfirmationInDays'
@@ -1380,10 +1406,10 @@
             softwareOathEnabled = 'softwareOathEnabled'
             voiceEnabled = 'voiceEnabled'
 
-            # V3.5 Phase 1: Security Defaults Policy fields
+            # Security Defaults Policy fields
             isEnabled = 'isEnabled'
 
-            # V3.5 Phase 1: Authorization Policy fields
+            # Authorization Policy fields
             allowInvitesFrom = 'allowInvitesFrom'
             guestUserRoleId = 'guestUserRoleId'
             guestUserRoleName = 'guestUserRoleName'
@@ -1396,6 +1422,27 @@
             usersCanCreateGroups = 'usersCanCreateGroups'
             usersCanCreateTenants = 'usersCanCreateTenants'
             usersCanReadOtherUsers = 'usersCanReadOtherUsers'
+
+            # Cross-Tenant Access Policy fields
+            allowedCloudEndpoints = 'allowedCloudEndpoints'
+            default = 'default'
+
+            # Permission Grant Policy fields
+            includes = 'includes'
+            excludes = 'excludes'
+            includeCount = 'includeCount'
+            excludeCount = 'excludeCount'
+
+            # Admin Consent Request Policy fields
+            notifyReviewers = 'notifyReviewers'
+            remindersEnabled = 'remindersEnabled'
+            requestDurationInDays = 'requestDurationInDays'
+            reviewers = 'reviewers'
+            reviewerCount = 'reviewerCount'
+
+            # Token Lifetime Policy fields
+            isOrganizationDefault = 'isOrganizationDefault'
+            definition = 'definition'
         }
         WriteDeletes = $true
         IncludeDeleteMarkers = $true

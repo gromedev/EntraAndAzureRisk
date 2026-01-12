@@ -1,10 +1,10 @@
 
-#region Durable Functions Orchestrator - V3.5 CONSOLIDATED ARCHITECTURE
+#region Durable Functions Orchestrator
 <#
 .SYNOPSIS
     Orchestrates comprehensive Entra and Azure data collection with unified containers
 .DESCRIPTION
-    V3.5 Architecture: Consolidated Collectors with Unified Containers
+    Consolidated Collectors with Unified Containers
 
     6 Cosmos DB Containers:
     - principals (users, groups, servicePrincipals, devices) - partition: /principalType
@@ -46,7 +46,7 @@
       - DeriveEdges -> edges container (attack path capabilities)
       - DeriveVirtualEdges -> edges container (policy gate edges)
 
-    V3.5 Benefits:
+    Benefits:
     - Consolidated collectors: 17 -> 12 collectors
     - Configuration-driven Azure resource collection (AzureResourceTypes.psd1)
     - Embedded risk data in users (no separate risky users collection)
@@ -59,7 +59,7 @@
 param($Context)
 
 try {
-    Write-Verbose "Starting Entra data collection orchestration (V3.5 - Consolidated Architecture)"
+    Write-Verbose "Starting Entra data collection orchestration"
     Write-Verbose "Instance ID: $($Context.InstanceId)"
 
     # Single Get-Date call to prevent race condition
@@ -114,13 +114,13 @@ try {
         -Input $collectionInput `
         -NoWait
 
-    # V3.5 CONSOLIDATED: Azure Resources (keyVault, virtualMachine, storageAccount, etc.)
+    # CONSOLIDATED: Azure Resources (keyVault, virtualMachine, storageAccount, etc.)
     $azureResourcesTask = Invoke-DurableActivity `
         -FunctionName 'CollectAzureResources' `
         -Input $collectionInput `
         -NoWait
 
-    # V3.5 CONSOLIDATED: Role Definitions (directory + Azure)
+    # CONSOLIDATED: Role Definitions (directory + Azure)
     $roleDefinitionsTask = Invoke-DurableActivity `
         -FunctionName 'CollectRoleDefinitions' `
         -Input $collectionInput `
@@ -132,7 +132,7 @@ try {
         -Input $collectionInput `
         -NoWait
 
-    # V3.5: Consolidated Intune Policies (compliance + app protection)
+    # Consolidated Intune Policies (compliance + app protection)
     $intunePoliciesTask = Invoke-DurableActivity `
         -FunctionName 'CollectIntunePolicies' `
         -Input $collectionInput `
@@ -229,13 +229,13 @@ try {
         $azureHierarchyResult = @{ Success = $false; ResourceCount = 0; ResourcesBlobName = $null; EdgesBlobName = $null }
     }
 
-    # V3.5 CONSOLIDATED: Azure Resources (replaces individual collectors)
+    # CONSOLIDATED: Azure Resources (replaces individual collectors)
     if (-not $azureResourcesResult.Success) {
         Write-Warning "Azure Resources collection failed: $($azureResourcesResult.Error)"
         $azureResourcesResult = @{ Success = $false; ResourceCount = 0; ResourcesBlobName = $null; EdgesBlobName = $null; Statistics = @{} }
     }
 
-    # V3.5 CONSOLIDATED: Role Definitions
+    # CONSOLIDATED: Role Definitions
     if (-not $roleDefinitionsResult.Success) {
         Write-Warning "Role Definitions collection failed: $($roleDefinitionsResult.Error)"
         $roleDefinitionsResult = @{ Success = $false; RoleDefinitionCount = 0; ResourcesBlobName = $null; Statistics = @{} }
@@ -246,7 +246,7 @@ try {
         $policiesResult = @{ Success = $false; PolicyCount = 0; BlobName = $null }
     }
 
-    # V3.5: Intune Policies (non-critical - requires Intune license)
+    # Intune Policies (non-critical - requires Intune license)
     if (-not $intunePoliciesResult.Success) {
         Write-Warning "Intune Policies collection failed: $($intunePoliciesResult.Error)"
         $intunePoliciesResult = @{ Success = $false; PolicyCount = 0; BlobName = $null; Statistics = @{} }
@@ -389,7 +389,7 @@ try {
         }
     }
 
-    # V3.5 CONSOLIDATED: Index Azure Resources (all resource types from AzureResourceTypes.psd1)
+    # CONSOLIDATED: Index Azure Resources (all resource types from AzureResourceTypes.psd1)
     if ($azureResourcesResult.Success -and $azureResourcesResult.ResourcesBlobName) {
         $indexInput = @{ Timestamp = $timestamp; BlobName = $azureResourcesResult.ResourcesBlobName }
         $indexResult = Invoke-DurableActivity -FunctionName 'IndexResourcesInCosmosDB' -Input $indexInput
@@ -404,7 +404,7 @@ try {
         }
     }
 
-    # V3.5 CONSOLIDATED: Index Role Definitions
+    # CONSOLIDATED: Index Role Definitions
     if ($roleDefinitionsResult.Success -and $roleDefinitionsResult.ResourcesBlobName) {
         $indexInput = @{ Timestamp = $timestamp; BlobName = $roleDefinitionsResult.ResourcesBlobName }
         $indexResult = Invoke-DurableActivity -FunctionName 'IndexResourcesInCosmosDB' -Input $indexInput
@@ -449,7 +449,7 @@ try {
         }
     }
 
-    # V3.5 CONSOLIDATED: Index Azure Resources edges (managed identity associations)
+    # CONSOLIDATED: Index Azure Resources edges (managed identity associations)
     if ($azureResourcesResult.Success -and $azureResourcesResult.EdgesBlobName) {
         $indexInput = @{ Timestamp = $timestamp; BlobName = $azureResourcesResult.EdgesBlobName }
         $indexResult = Invoke-DurableActivity -FunctionName 'IndexEdgesInCosmosDB' -Input $indexInput
@@ -491,7 +491,7 @@ try {
         }
     }
 
-    # V3.5: Index Intune Policies
+    # Index Intune Policies
     $intunePoliciesIndexResult = @{ Success = $false; TotalPolicies = 0; NewPolicies = 0; ModifiedPolicies = 0; CosmosWriteCount = 0 }
     if ($intunePoliciesResult.Success -and $intunePoliciesResult.BlobName) {
         $intunePoliciesIndexInput = @{ Timestamp = $timestamp; BlobName = $intunePoliciesResult.BlobName }
@@ -543,7 +543,7 @@ try {
         $derivedEdgesResult = @{ Success = $false; DerivedEdgeCount = 0; Error = $_.Exception.Message }
     }
 
-    # V3.5: Derive Virtual Edges (policy gate edges from Intune policies)
+    # Derive Virtual Edges (policy gate edges from Intune policies)
     $virtualEdgesResult = @{ Success = $false; DerivedEdgeCount = 0; Statistics = @{} }
     try {
         $virtualEdgesInput = @{ Timestamp = $timestamp }
@@ -567,7 +567,7 @@ try {
         OrchestrationId = $Context.InstanceId
         Timestamp = $timestampFormatted
         Status = 'Completed'
-        Architecture = 'V3.5-Consolidated'
+        Architecture = 'Consolidated'
 
         Collection = @{
             # Principals
@@ -612,7 +612,6 @@ try {
                 ResourcesBlobPath = $azureHierarchyResult.ResourcesBlobName
                 EdgesBlobPath = $azureHierarchyResult.EdgesBlobName
             }
-            # V3.5 CONSOLIDATED
             AzureResources = @{
                 Success = $azureResourcesResult.Success
                 Count = $azureResourcesResult.ResourceCount ?? 0
@@ -800,7 +799,7 @@ try {
         }
     }
 
-    Write-Verbose "Orchestration complete successfully (V3.5 - Consolidated)"
+    Write-Verbose "Orchestration complete successfully"
     Write-Verbose "Principals: $($finalResult.Summary.TotalPrincipals) indexed"
     Write-Verbose "Resources: $($finalResult.Summary.TotalResources) indexed"
     Write-Verbose "Edges: $($finalResult.Summary.TotalEdges) indexed"

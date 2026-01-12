@@ -980,7 +980,7 @@ function Write-CosmosParallelBatch {
         [Parameter(Mandatory)]
         [string]$AccessToken,
         
-        [int]$ParallelThrottle = 10
+        [int]$ParallelThrottle = 25
     )
     
     $totalDocs = $Documents.Count
@@ -1635,7 +1635,7 @@ function Invoke-DeltaIndexingWithBinding {
         Write-Verbose "Indexing complete for $($config.EntityNamePlural)"
 
         # DEBUG: Log delta detection statistics
-        Write-Host "DEBUG-DELTA-STATS[$EntityType]: Total=$($result.Statistics.Total), New=$($result.Statistics.New), Modified=$($result.Statistics.Modified), Deleted=$($result.Statistics.Deleted), Unchanged=$($result.Statistics.Unchanged), ChangeLogEntries=$($result.ChangeDocuments.Count)"
+        Write-Information "[DEBUG-DELTA-STATS] $EntityType : Total=$($result.Statistics.Total), New=$($result.Statistics.New), Modified=$($result.Statistics.Modified), Deleted=$($result.Statistics.Deleted), Unchanged=$($result.Statistics.Unchanged), ChangeLogEntries=$($result.ChangeDocuments.Count)" -InformationAction Continue
 
         # Return standardized statistics with entity-specific property names
         $entityPlural = $config.EntityNamePlural
@@ -2244,6 +2244,140 @@ function Sync-GraphFromAudit {
 
 #endregion
 
+#region Performance Timing Helpers
+
+function Measure-Phase {
+    <#
+    .SYNOPSIS
+        Measures execution time of a script block and logs the result
+
+    .DESCRIPTION
+        Wraps a script block with timing and logs the duration using Write-Information.
+        Returns the result of the script block.
+        Useful for identifying performance bottlenecks in collectors.
+
+    .PARAMETER Name
+        Name of the phase being measured (e.g., "Fetch Users", "Build Risk Lookup")
+
+    .PARAMETER ScriptBlock
+        The code to execute and measure
+
+    .EXAMPLE
+        $users = Measure-Phase -Name "Fetch Users" -ScriptBlock { Get-Users }
+
+    .EXAMPLE
+        Measure-Phase -Name "Write to Blob" -ScriptBlock { Add-BlobContent ... }
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$ScriptBlock
+    )
+
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    try {
+        $result = & $ScriptBlock
+        $stopwatch.Stop()
+        $duration = $stopwatch.Elapsed
+        $formatted = if ($duration.TotalMinutes -ge 1) {
+            "{0:N1} min" -f $duration.TotalMinutes
+        } elseif ($duration.TotalSeconds -ge 1) {
+            "{0:N1} sec" -f $duration.TotalSeconds
+        } else {
+            "{0:N0} ms" -f $duration.TotalMilliseconds
+        }
+        Write-Information "[TIMING] $Name completed in $formatted" -InformationAction Continue
+        return $result
+    }
+    catch {
+        $stopwatch.Stop()
+        Write-Warning "[TIMING] $Name failed after $($stopwatch.Elapsed.TotalSeconds.ToString('N1')) sec: $_"
+        throw
+    }
+}
+
+function New-PerformanceTimer {
+    <#
+    .SYNOPSIS
+        Creates a performance timer object for tracking multiple phases
+
+    .DESCRIPTION
+        Creates a hashtable-based timer that tracks multiple phases and can output a summary.
+
+    .EXAMPLE
+        $timer = New-PerformanceTimer
+        $timer.Start("Fetch Users")
+        # ... do work ...
+        $timer.Stop("Fetch Users")
+        $timer.Summary()  # Returns hashtable of phase durations
+    #>
+    [CmdletBinding()]
+    param()
+
+    $timer = @{
+        Phases = @{}
+        _running = @{}
+    }
+
+    # Start a phase timer
+    $timer | Add-Member -MemberType ScriptMethod -Name 'Start' -Value {
+        param([string]$PhaseName)
+        $this._running[$PhaseName] = [System.Diagnostics.Stopwatch]::StartNew()
+    }
+
+    # Stop a phase timer and record duration
+    $timer | Add-Member -MemberType ScriptMethod -Name 'Stop' -Value {
+        param([string]$PhaseName)
+        if ($this._running.ContainsKey($PhaseName)) {
+            $this._running[$PhaseName].Stop()
+            $this.Phases[$PhaseName] = $this._running[$PhaseName].Elapsed.TotalSeconds
+            $this._running.Remove($PhaseName)
+        }
+    }
+
+    # Get summary of all phases
+    $timer | Add-Member -MemberType ScriptMethod -Name 'Summary' -Value {
+        $summary = @{}
+        foreach ($phase in $this.Phases.Keys) {
+            $seconds = $this.Phases[$phase]
+            $summary[$phase] = if ($seconds -ge 60) {
+                "{0:N1} min" -f ($seconds / 60)
+            } elseif ($seconds -ge 1) {
+                "{0:N1} sec" -f $seconds
+            } else {
+                "{0:N0} ms" -f ($seconds * 1000)
+            }
+        }
+        return $summary
+    }
+
+    # Get raw seconds for a phase
+    $timer | Add-Member -MemberType ScriptMethod -Name 'GetSeconds' -Value {
+        param([string]$PhaseName)
+        return $this.Phases[$PhaseName]
+    }
+
+    # Log all phases
+    $timer | Add-Member -MemberType ScriptMethod -Name 'LogSummary' -Value {
+        param([string]$CollectorName = "Collector")
+        $total = ($this.Phases.Values | Measure-Object -Sum).Sum
+        Write-Information "[TIMING] $CollectorName Performance Summary:" -InformationAction Continue
+        foreach ($phase in $this.Phases.Keys | Sort-Object) {
+            $formatted = $this.Summary()[$phase]
+            Write-Information "[TIMING]   $phase : $formatted" -InformationAction Continue
+        }
+        $totalFormatted = if ($total -ge 60) { "{0:N1} min" -f ($total / 60) } else { "{0:N1} sec" -f $total }
+        Write-Information "[TIMING]   TOTAL: $totalFormatted" -InformationAction Continue
+    }
+
+    return $timer
+}
+
+#endregion
+
 Export-ModuleMember -Function @(
     # Token management
     'Get-ManagedIdentityToken',
@@ -2274,5 +2408,8 @@ Export-ModuleMember -Function @(
     'Add-GraphEdge',
     'Remove-GraphVertex',
     'Remove-GraphEdge',
-    'Sync-GraphFromAudit'
+    'Sync-GraphFromAudit',
+    # Performance Timing
+    'Measure-Phase',
+    'New-PerformanceTimer'
 )

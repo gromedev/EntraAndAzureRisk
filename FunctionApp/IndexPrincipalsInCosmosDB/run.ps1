@@ -16,7 +16,7 @@ Import-Module $modulePath -Force -ErrorAction Stop
 
 # DEBUG: Log the input binding data count
 $existingCount = if ($principalsRawIn) { @($principalsRawIn).Count } else { 0 }
-Write-Host "DEBUG-DELTA: principalsRawIn contains $existingCount existing documents from Cosmos DB input binding"
+Write-Information "[DEBUG-DELTA] principalsRawIn contains $existingCount existing documents from Cosmos DB input binding" -InformationAction Continue
 if ($existingCount -eq 0) {
     Write-Warning "DEBUG-DELTA: No existing data from input binding - all entities will appear as NEW"
 }

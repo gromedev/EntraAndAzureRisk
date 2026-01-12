@@ -2,7 +2,7 @@
 .SYNOPSIS
     Collects user data with EMBEDDED authentication methods, risk data, and license info from Microsoft Entra ID
 .DESCRIPTION
-    V3.5 Unified User Collector:
+    Unified User Collector:
     - Queries Graph API for users with pagination
     - For each user, queries authentication methods (N+1 pattern)
     - EMBEDS auth method summary directly in user object (denormalized for Power BI)
@@ -160,7 +160,7 @@ try {
 
     # Initialize buffers
     $usersJsonL = New-Object System.Text.StringBuilder(2097152)  # 2MB initial (larger for embedded auth)
-    $writeThreshold = 5000
+    $writeThreshold = 2000000  # 2MB before flush
 
     # User counters
     $userCount = 0
@@ -356,7 +356,7 @@ try {
             if ($hasE5License) { $usersWithE5Count++ }
             if ($licenseCount -eq 0) { $unlicensedCount++ }
 
-            # Transform to consistent structure WITH EMBEDDED AUTH METHODS + RISK DATA + LICENSES (V3.5)
+            # Transform to consistent structure with embedded auth methods, risk data, and licenses
             $userObj = @{
                 # Core identifiers
                 objectId                         = $userId

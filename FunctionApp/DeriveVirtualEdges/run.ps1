@@ -2,7 +2,7 @@
 .SYNOPSIS
     Derives virtual "gate" edges from Intune policies to their targeted groups
 .DESCRIPTION
-    V3.5 Feature: Virtual Edge Derivation
+    Virtual Edge Derivation
 
     Reads Intune policies from Cosmos DB and derives gate edges showing
     which groups are targeted by compliance and app protection policies:
@@ -210,11 +210,11 @@ try {
                             edgeType = "compliancePolicyTargets"
                             sourceId = $policy.objectId
                             sourceType = "compliancePolicy"
-                            sourceDisplayName = $policy.displayName
-                            sourcePlatform = $policy.platform
+                            sourceDisplayName = $policy.displayName ?? ""
+                            sourcePlatform = $policy.platform ?? ""
                             targetId = $assignment.groupId
                             targetType = "group"
-                            targetDisplayName = $null  # Would need group lookup
+                            targetDisplayName = ""  # Would need group lookup
                             deleted = $false
                             assignmentFilterType = $assignment.deviceAndAppManagementAssignmentFilterType
                             collectionTimestamp = $timestampFormatted
@@ -233,8 +233,8 @@ try {
                         edgeType = "compliancePolicyTargets"
                         sourceId = $policy.objectId
                         sourceType = "compliancePolicy"
-                        sourceDisplayName = $policy.displayName
-                        sourcePlatform = $policy.platform
+                        sourceDisplayName = $policy.displayName ?? ""
+                        sourcePlatform = $policy.platform ?? ""
                         targetId = "allUsers"
                         targetType = "virtual"
                         targetDisplayName = "All Licensed Users"
@@ -255,8 +255,8 @@ try {
                         edgeType = "compliancePolicyTargets"
                         sourceId = $policy.objectId
                         sourceType = "compliancePolicy"
-                        sourceDisplayName = $policy.displayName
-                        sourcePlatform = $policy.platform
+                        sourceDisplayName = $policy.displayName ?? ""
+                        sourcePlatform = $policy.platform ?? ""
                         targetId = "allDevices"
                         targetType = "virtual"
                         targetDisplayName = "All Devices"
@@ -278,11 +278,11 @@ try {
                             edgeType = "compliancePolicyExcludes"
                             sourceId = $policy.objectId
                             sourceType = "compliancePolicy"
-                            sourceDisplayName = $policy.displayName
-                            sourcePlatform = $policy.platform
+                            sourceDisplayName = $policy.displayName ?? ""
+                            sourcePlatform = $policy.platform ?? ""
                             targetId = $assignment.groupId
                             targetType = "group"
-                            targetDisplayName = $null
+                            targetDisplayName = ""
                             deleted = $false
                             isExclusion = $true
                             collectionTimestamp = $timestampFormatted
@@ -320,11 +320,11 @@ try {
                             edgeType = "appProtectionPolicyTargets"
                             sourceId = $policy.objectId
                             sourceType = "appProtectionPolicy"
-                            sourceDisplayName = $policy.displayName
-                            sourcePlatform = $policy.platform
+                            sourceDisplayName = $policy.displayName ?? ""
+                            sourcePlatform = $policy.platform ?? ""
                             targetId = $assignment.groupId
                             targetType = "group"
-                            targetDisplayName = $null
+                            targetDisplayName = ""
                             deleted = $false
                             protectedAppCount = $policy.protectedAppCount
                             collectionTimestamp = $timestampFormatted
@@ -342,8 +342,8 @@ try {
                         edgeType = "appProtectionPolicyTargets"
                         sourceId = $policy.objectId
                         sourceType = "appProtectionPolicy"
-                        sourceDisplayName = $policy.displayName
-                        sourcePlatform = $policy.platform
+                        sourceDisplayName = $policy.displayName ?? ""
+                        sourcePlatform = $policy.platform ?? ""
                         targetId = "allUsers"
                         targetType = "virtual"
                         targetDisplayName = "All Licensed Users"
@@ -365,11 +365,11 @@ try {
                             edgeType = "appProtectionPolicyExcludes"
                             sourceId = $policy.objectId
                             sourceType = "appProtectionPolicy"
-                            sourceDisplayName = $policy.displayName
-                            sourcePlatform = $policy.platform
+                            sourceDisplayName = $policy.displayName ?? ""
+                            sourcePlatform = $policy.platform ?? ""
                             targetId = $assignment.groupId
                             targetType = "group"
-                            targetDisplayName = $null
+                            targetDisplayName = ""
                             deleted = $false
                             isExclusion = $true
                             collectionTimestamp = $timestampFormatted

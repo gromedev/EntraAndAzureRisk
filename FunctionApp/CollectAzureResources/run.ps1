@@ -2,7 +2,7 @@
 .SYNOPSIS
     Collects Azure resources across all subscriptions using configuration-driven approach
 .DESCRIPTION
-    V3.5 Consolidated Azure Resource Collector:
+    Consolidated Azure Resource Collector:
     - Configuration-driven via AzureResourceTypes.psd1
     - Collects all Azure resource types in a single activity
     - Creates resources.jsonl entries with resourceType discriminator

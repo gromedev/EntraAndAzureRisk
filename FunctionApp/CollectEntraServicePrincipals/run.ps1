@@ -95,7 +95,7 @@ try {
     $servicePrincipalsJsonL = New-Object System.Text.StringBuilder(1048576)  # 1MB initial capacity
     $servicePrincipalCount = 0
     $batchNumber = 0
-    $writeThreshold = 5000
+    $writeThreshold = 2000000  # 2MB before flush
 
     # Summary statistics
     $accountEnabledCount = 0

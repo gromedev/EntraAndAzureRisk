@@ -2,7 +2,7 @@
 .SYNOPSIS
     Collects Intune policies (Compliance + App Protection) for virtual edge derivation
 .DESCRIPTION
-    V3.5 Consolidated Intune Policy Collector:
+    Consolidated Intune Policy Collector:
     - Compliance Policies (deviceCompliancePolicies API)
     - App Protection Policies / MAM (iosManagedAppProtections, androidManagedAppProtections, etc.)
 

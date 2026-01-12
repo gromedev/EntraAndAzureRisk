@@ -1,3 +1,9 @@
+# User Questions
+1) What would the risk be if we allowed the function app to access "Script fetches from GitHub: https://raw.githubusercontent.com/microsoftgraph/microsoft-graph-devx-content/.../permissions.json" so we wouldnt need to manually update the script?
+
+2) After we implement the following, test, and make sure it works... can we integrate it more into the solution? Or should it remain seperate from "DangerousPermissions.psd1"?
+
+
 # MSGraphPermissions Integration Plan
 
 > **Version:** 1.0

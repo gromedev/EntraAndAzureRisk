@@ -95,7 +95,7 @@ try {
     $groupsJsonL = New-Object System.Text.StringBuilder(1048576)  # 1MB initial capacity
     $groupCount = 0
     $batchNumber = 0
-    $writeThreshold = 5000
+    $writeThreshold = 2000000  # 2MB before flush
 
     # Summary statistics
     $securityEnabledCount = 0

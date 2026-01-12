@@ -141,7 +141,7 @@ try {
 
     # Reusable buffer
     $jsonL = New-Object System.Text.StringBuilder(2097152)
-    $writeThreshold = 5000
+    $writeThreshold = 2000000  # 2MB before flush
 
     # Splatting params for Write-BlobBuffer (consolidates Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams pattern)
     $flushParams = @{

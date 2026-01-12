@@ -2,7 +2,7 @@
 .SYNOPSIS
     Collects Role Definitions from both Entra ID and Azure Resource Manager
 .DESCRIPTION
-    V3.5 Consolidated Role Definitions Collector:
+    Consolidated Role Definitions Collector:
     - Directory Role Definitions (Graph API /roleManagement/directory/roleDefinitions)
     - Azure Role Definitions (ARM API /providers/Microsoft.Authorization/roleDefinitions)
 
@@ -49,41 +49,72 @@ try {
     $storageAccountName = $env:STORAGE_ACCOUNT_NAME
     $containerName = if ($env:STORAGE_CONTAINER_RAW_DATA) { $env:STORAGE_CONTAINER_RAW_DATA } else { 'raw-data' }
 
-    # Privileged Entra ID role template IDs
-    $privilegedDirectoryRoles = @(
-        '62e90394-69f5-4237-9190-012177145e10'  # Global Administrator
-        'e8611ab8-c189-46e8-94e1-60213ab1f814'  # Privileged Role Administrator
-        '194ae4cb-b126-40b2-bd5b-6091b380977d'  # Security Administrator
-        '9b895d92-2cd3-44c7-9d02-a6ac2d5ea5c3'  # Application Administrator
-        '158c047a-c907-4556-b7ef-446551a6b5f7'  # Cloud Application Administrator
-        '7be44c8a-adaf-4e2a-84d6-ab2649e08a13'  # Privileged Authentication Administrator
-        'fe930be7-5e62-47db-91af-98c3a49a38b1'  # User Administrator
-        '29232cdf-9323-42fd-ade2-1d097af3e4de'  # Exchange Administrator
-        'f28a1f50-f6e7-4571-818b-6a12f2af6b6c'  # SharePoint Administrator
-        '966707d0-3269-4727-9be2-8c3a10f19b9d'  # Password Administrator
-        'b1be1c3e-b65d-4f19-8427-f6fa0d97feb9'  # Conditional Access Administrator
-        'c4e39bd9-1100-46d3-8c65-fb160da0071f'  # Authentication Administrator
-        '8ac3fc64-6eca-42ea-9e69-59f4c7b60eb2'  # Hybrid Identity Administrator
+    # Dangerous action patterns for dynamic privileged role detection
+    # These patterns indicate a role can perform security-sensitive operations
+    $dangerousDirectoryActionPatterns = @(
+        'microsoft.directory/*/allTasks'                          # Full tenant admin
+        'microsoft.directory/applications/credentials/*'           # App secret manipulation
+        'microsoft.directory/servicePrincipals/credentials/*'      # SP secret manipulation
+        'microsoft.directory/users/password/*'                     # Password resets
+        'microsoft.directory/users/authenticationMethods/*'        # MFA bypass
+        'microsoft.directory/roleAssignments/*'                    # Role assignment
+        'microsoft.directory/roleDefinitions/*'                    # Role definition changes
+        'microsoft.directory/conditionalAccessPolicies/*'          # CA policy changes
+        'microsoft.directory/groups/members/*'                     # Group membership (could be role-assignable)
+        'microsoft.directory/deviceManagementPolicies/*'           # Device policies
+        'microsoft.directory/authorizationPolicy/*'                # Tenant authorization
+        'microsoft.directory/entitlementManagement/*'              # Access packages
+        'microsoft.directory/permissionGrantPolicies/*'            # Consent policies
     )
 
-    # Privileged Azure role names
-    $privilegedAzureRoles = @(
-        'Owner'
-        'Contributor'
-        'User Access Administrator'
-        'Virtual Machine Contributor'
-        'Key Vault Administrator'
-        'Key Vault Secrets Officer'
-        'Key Vault Secrets User'
-        'Storage Account Contributor'
-        'Storage Blob Data Owner'
-        'Storage Blob Data Contributor'
-        'Automation Contributor'
-        'Managed Identity Contributor'
-        'Managed Identity Operator'
-        'Azure Kubernetes Service Cluster Admin Role'
-        'Azure Kubernetes Service RBAC Admin'
+    # Function to check if a directory role is privileged based on its permissions
+    function Test-DirectoryRolePrivileged {
+        param([array]$RolePermissions)
+        foreach ($perm in $RolePermissions) {
+            foreach ($action in ($perm.allowedResourceActions ?? @())) {
+                foreach ($pattern in $dangerousDirectoryActionPatterns) {
+                    # Convert pattern to regex (replace * with .*)
+                    $regex = '^' + ($pattern -replace '\*', '.*') + '$'
+                    if ($action -match $regex) { return $true }
+                }
+            }
+        }
+        return $false
+    }
+
+    # Dangerous action patterns for Azure RBAC roles
+    $dangerousAzureActionPatterns = @(
+        '*'                                                        # Full control (Owner)
+        '*/write'                                                  # Write access to everything
+        'Microsoft.Authorization/*'                                # RBAC manipulation
+        'Microsoft.Authorization/roleAssignments/*'                # Role assignment
+        'Microsoft.KeyVault/vaults/secrets/*'                      # Key Vault secrets
+        'Microsoft.KeyVault/vaults/keys/*'                         # Key Vault keys
+        'Microsoft.Compute/virtualMachines/*'                      # VM control
+        'Microsoft.Compute/virtualMachineScaleSets/*'              # VMSS control
+        'Microsoft.ContainerService/managedClusters/*'             # AKS control
+        'Microsoft.Storage/storageAccounts/blobServices/containers/*' # Blob access
+        'Microsoft.Web/sites/config/*'                             # App Service config (secrets)
+        'Microsoft.Automation/automationAccounts/runbooks/*'       # Automation runbooks
+        'Microsoft.ManagedIdentity/userAssignedIdentities/*'       # Managed identity control
     )
+
+    # Function to check if an Azure role is privileged based on its permissions
+    function Test-AzureRolePrivileged {
+        param([array]$Permissions)
+        foreach ($perm in $Permissions) {
+            $allActions = @()
+            $allActions += ($perm.actions ?? @())
+            $allActions += ($perm.dataActions ?? @())
+            foreach ($action in $allActions) {
+                foreach ($pattern in $dangerousAzureActionPatterns) {
+                    $regex = '^' + ($pattern -replace '\*', '.*') + '$'
+                    if ($action -match $regex) { return $true }
+                }
+            }
+        }
+        return $false
+    }
 
     # Initialize buffer and stats
     $resourcesJsonL = New-Object System.Text.StringBuilder(2097152)
@@ -121,7 +152,8 @@ try {
             foreach ($roleDef in $response.value) {
                 $roleTemplateId = $roleDef.templateId ?? $roleDef.id
                 $isBuiltIn = $roleDef.isBuiltIn ?? $true
-                $isPrivileged = $privilegedDirectoryRoles -contains $roleTemplateId
+                # Dynamic privileged detection based on role permissions
+                $isPrivileged = Test-DirectoryRolePrivileged -RolePermissions ($roleDef.rolePermissions ?? @())
 
                 if ($isBuiltIn) { $stats.DirectoryBuiltIn++ } else { $stats.DirectoryCustom++ }
                 if ($isPrivileged) { $stats.DirectoryPrivileged++ }
@@ -180,7 +212,8 @@ try {
                 $roleName = $roleDef.properties.roleName ?? ""
                 $roleType = $roleDef.properties.type ?? "BuiltInRole"
                 $isBuiltIn = $roleType -eq "BuiltInRole"
-                $isPrivileged = $privilegedAzureRoles -contains $roleName
+                # Dynamic privileged detection based on role permissions
+                $isPrivileged = Test-AzureRolePrivileged -Permissions ($roleDef.properties.permissions ?? @())
 
                 if ($isBuiltIn) { $stats.AzureBuiltIn++ } else { $stats.AzureCustom++ }
                 if ($isPrivileged) { $stats.AzurePrivileged++ }

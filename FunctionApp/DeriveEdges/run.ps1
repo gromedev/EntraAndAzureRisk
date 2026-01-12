@@ -2,7 +2,7 @@
 .SYNOPSIS
     Derives abuse capability edges from raw permission/role/ownership edges
 .DESCRIPTION
-    V3.5 Feature: Abuse Edge Derivation
+    Abuse Edge Derivation
 
     Reads raw edges from Cosmos DB (via input binding) and derives high-level abuse capabilities:
     - appRoleAssignment edges with dangerous Graph permissions → canAddSecretToAnyApp, etc.
@@ -113,11 +113,11 @@ try {
                     objectId = "$($edge.sourceId)_$($permInfo.TargetType)_$($permInfo.AbuseEdge)"
                     edgeType = $permInfo.AbuseEdge
                     sourceId = $edge.sourceId
-                    sourceType = $edge.sourceType
-                    sourceDisplayName = $edge.sourceDisplayName
+                    sourceType = $edge.sourceType ?? ""
+                    sourceDisplayName = $edge.sourceDisplayName ?? ""
                     targetId = $permInfo.TargetType  # e.g., "allApps", "allGroups"
                     targetType = "virtual"
-                    targetDisplayName = $permInfo.TargetType
+                    targetDisplayName = $permInfo.TargetType ?? ""
                     deleted = $false
                     derivedFrom = "appRoleAssignment"
                     derivedFromEdgeId = $edge.objectId
@@ -175,8 +175,8 @@ try {
                         objectId = "$($edge.sourceId)_tenant_$abuseType"
                         edgeType = $abuseType
                         sourceId = $edge.sourceId
-                        sourceType = $edge.sourceType
-                        sourceDisplayName = $edge.sourceDisplayName
+                        sourceType = $edge.sourceType ?? ""
+                        sourceDisplayName = $edge.sourceDisplayName ?? ""
                         targetId = "tenant"
                         targetType = "virtual"
                         targetDisplayName = "Tenant"
@@ -229,11 +229,11 @@ try {
                     objectId = "$($edge.sourceId)_$($edge.targetId)_$($ownerAbuse.AbuseEdge)"
                     edgeType = $ownerAbuse.AbuseEdge
                     sourceId = $edge.sourceId
-                    sourceType = $edge.sourceType
-                    sourceDisplayName = $edge.sourceDisplayName
+                    sourceType = $edge.sourceType ?? ""
+                    sourceDisplayName = $edge.sourceDisplayName ?? ""
                     targetId = $edge.targetId
-                    targetType = $edge.targetType
-                    targetDisplayName = $edge.targetDisplayName
+                    targetType = $edge.targetType ?? ""
+                    targetDisplayName = $edge.targetDisplayName ?? ""
                     deleted = $false
                     derivedFrom = $ownerType
                     derivedFromEdgeId = $edge.objectId
@@ -277,11 +277,11 @@ try {
                 objectId = "$($edge.sourceId)_$($edge.targetId)_$($groupOwnerAbuse.AbuseEdge)"
                 edgeType = $groupOwnerAbuse.AbuseEdge
                 sourceId = $edge.sourceId
-                sourceType = $edge.sourceType
-                sourceDisplayName = $edge.sourceDisplayName
+                sourceType = $edge.sourceType ?? ""
+                sourceDisplayName = $edge.sourceDisplayName ?? ""
                 targetId = $edge.targetId
-                targetType = $edge.targetType
-                targetDisplayName = $edge.targetDisplayName
+                targetType = $edge.targetType ?? ""
+                targetDisplayName = $edge.targetDisplayName ?? ""
                 deleted = $false
                 derivedFrom = "groupOwner"
                 derivedFromEdgeId = $edge.objectId
@@ -305,11 +305,11 @@ try {
                     objectId = "$($edge.sourceId)_$($edge.targetId)_$($roleAssignableAbuse.AbuseEdge)"
                     edgeType = $roleAssignableAbuse.AbuseEdge
                     sourceId = $edge.sourceId
-                    sourceType = $edge.sourceType
-                    sourceDisplayName = $edge.sourceDisplayName
+                    sourceType = $edge.sourceType ?? ""
+                    sourceDisplayName = $edge.sourceDisplayName ?? ""
                     targetId = $edge.targetId
-                    targetType = $edge.targetType
-                    targetDisplayName = $edge.targetDisplayName
+                    targetType = $edge.targetType ?? ""
+                    targetDisplayName = $edge.targetDisplayName ?? ""
                     deleted = $false
                     derivedFrom = "groupOwner"
                     derivedFromEdgeId = $edge.objectId
@@ -360,13 +360,13 @@ try {
                         objectId = "$($edge.sourceId)_$($edge.scope)_$($rbacInfo.AbuseEdge)"
                         edgeType = $rbacInfo.AbuseEdge
                         sourceId = $edge.sourceId
-                        sourceType = $edge.sourceType
-                        sourceDisplayName = $edge.sourceDisplayName
+                        sourceType = $edge.sourceType ?? ""
+                        sourceDisplayName = $edge.sourceDisplayName ?? ""
                         targetId = $edge.scope
                         targetType = "azureScope"
-                        targetDisplayName = $edge.scopeDisplayName
-                        scope = $edge.scope
-                        scopeType = $edge.scopeType
+                        targetDisplayName = $edge.scopeDisplayName ?? ""
+                        scope = $edge.scope ?? ""
+                        scopeType = $edge.scopeType ?? ""
                         deleted = $false
                         derivedFrom = "azureRoleAssignment"
                         derivedFromEdgeId = $edge.objectId

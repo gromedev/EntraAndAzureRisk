@@ -17,7 +17,7 @@ Import-Module $modulePath -Force -ErrorAction Stop
 
 # DEBUG: Log the input binding data count
 $existingCount = if ($edgesRawIn) { @($edgesRawIn).Count } else { 0 }
-Write-Host "DEBUG-DELTA: edgesRawIn contains $existingCount existing edge documents from Cosmos DB input binding"
+Write-Information "[DEBUG-DELTA] edgesRawIn contains $existingCount existing edge documents from Cosmos DB input binding" -InformationAction Continue
 if ($existingCount -eq 0) {
     Write-Warning "DEBUG-DELTA: No existing edge data from input binding - all edges will appear as NEW"
 }
