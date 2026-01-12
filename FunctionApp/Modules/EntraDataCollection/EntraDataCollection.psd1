@@ -10,20 +10,42 @@
     PowerShellVersion = '7.4'
     
     FunctionsToExport = @(
+        # Token management
         'Get-ManagedIdentityToken',
         'Get-CachedManagedIdentityToken',
+        # Azure Management API
         'Get-AzureManagementPagedResult',
-        'Get-GraphPagedResult',
+        # Graph API
         'Invoke-GraphWithRetry',
+        'Invoke-GraphBatch',
+        'Get-GraphPagedResult',
+        # Blob Storage
         'Initialize-AppendBlob',
         'Add-BlobContent',
         'Write-BlobBuffer',
+        'Write-BlobContent',
+        # Cosmos DB SQL API
         'Write-CosmosDocument',
         'Write-CosmosBatch',
         'Write-CosmosParallelBatch',
         'Get-CosmosDocument',
+        # Delta Indexing
         'Invoke-DeltaIndexing',
-        'Invoke-DeltaIndexingWithBinding'
+        'Invoke-DeltaIndexingWithBinding',
+        # V3.1 Gremlin Graph Functions
+        'Get-GremlinConnection',
+        'Get-GremlinAuthHeader',
+        'Submit-GremlinQuery',
+        'Add-GraphVertex',
+        'Add-GraphEdge',
+        'Remove-GraphVertex',
+        'Remove-GraphEdge',
+        'Sync-GraphFromAudit',
+        # Performance Timing
+        'Measure-Phase',
+        'New-PerformanceTimer',
+        # JSON Optimization
+        'ConvertTo-CompactJson'
     )
     
     CmdletsToExport = @()

@@ -138,8 +138,8 @@ try {
     }
 
     # Query service principals with field selection (including credentials)
-    # Phase 1b: Added appOwnerOrganizationId, preferredSingleSignOnMode, signInAudience, verifiedPublisher, homepage, loginUrl, logoutUrl, replyUrls
-    $selectFields = "id,appDisplayName,accountEnabled,addIns,displayName,appId,appRoleAssignmentRequired,deletedDateTime,description,oauth2PermissionScopes,resourceSpecificApplicationPermissions,servicePrincipalNames,servicePrincipalType,tags,notes,keyCredentials,passwordCredentials,appOwnerOrganizationId,preferredSingleSignOnMode,signInAudience,verifiedPublisher,homepage,loginUrl,logoutUrl,replyUrls"
+    # Removed rarely-populated fields: addIns, loginUrl, notes, preferredSingleSignOnMode
+    $selectFields = "id,appDisplayName,accountEnabled,displayName,appId,appRoleAssignmentRequired,deletedDateTime,description,oauth2PermissionScopes,resourceSpecificApplicationPermissions,servicePrincipalNames,servicePrincipalType,tags,keyCredentials,passwordCredentials,appOwnerOrganizationId,signInAudience,verifiedPublisher,homepage,logoutUrl,replyUrls"
     $nextLink = "https://graph.microsoft.com/v1.0/servicePrincipals?`$select=$selectFields&`$top=$batchSize"
 
     Write-Verbose "Starting batch processing with streaming writes"

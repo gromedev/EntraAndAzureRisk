@@ -202,7 +202,8 @@ try {
     }
 
     # Query groups with field selection (beta endpoint for isAssignableToRole)
-    $selectFields = "displayName,id,classification,deletedDateTime,description,groupTypes,mailEnabled,membershipRule,securityEnabled,isAssignableToRole,createdDateTime,visibility,onPremisesSyncEnabled,onPremisesSecurityIdentifier,mail,expirationDateTime,renewedDateTime,resourceProvisioningOptions,resourceBehaviorOptions,onPremisesSamAccountName,onPremisesLastSyncDateTime,preferredDataLocation"
+    # Removed rarely-populated fields: classification, preferredDataLocation
+    $selectFields = "displayName,id,deletedDateTime,description,groupTypes,mailEnabled,membershipRule,securityEnabled,isAssignableToRole,createdDateTime,visibility,onPremisesSyncEnabled,onPremisesSecurityIdentifier,mail,expirationDateTime,renewedDateTime,resourceProvisioningOptions,resourceBehaviorOptions,onPremisesSamAccountName,onPremisesLastSyncDateTime"
     $nextLink = "https://graph.microsoft.com/beta/groups?`$select=$selectFields&`$top=$batchSize"
 
     Write-Verbose "Starting batch processing with streaming writes (including member counts)"

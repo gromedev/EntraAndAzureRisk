@@ -123,31 +123,38 @@ try {
 
         if ($aus.Count -eq 0) { break }
 
+        # --- BATCH: Get members and scopedRoleMembers for all AUs in this batch ---
+        $membersBatchRequests = @($aus | ForEach-Object {
+            @{
+                id = $_.id
+                method = "GET"
+                url = "/directory/administrativeUnits/$($_.id)/members"
+            }
+        })
+        $scopedRolesBatchRequests = @($aus | ForEach-Object {
+            @{
+                id = $_.id
+                method = "GET"
+                url = "/directory/administrativeUnits/$($_.id)/scopedRoleMembers"
+            }
+        })
+
+        # Execute batch requests
+        $membersBatchResponses = Invoke-GraphBatch -Requests $membersBatchRequests -AccessToken $graphToken
+        $scopedRolesBatchResponses = Invoke-GraphBatch -Requests $scopedRolesBatchRequests -AccessToken $graphToken
+
         foreach ($au in $aus) {
             # Track member counts per AU
             $auUserCount = 0
             $auGroupCount = 0
             $auDeviceCount = 0
             $auScopedRoleCount = 0
-
-            # Collect AU members first to get counts
-            $membersNextLink = "https://graph.microsoft.com/v1.0/directory/administrativeUnits/$($au.id)/members"
             $memberCount = 0
 
-            while ($membersNextLink) {
-                try {
-                    $membersResponse = Invoke-GraphWithRetry -Uri $membersNextLink -AccessToken $graphToken
-                    $members = $membersResponse.value
-                    $membersNextLink = $membersResponse.'@odata.nextLink'
-                }
-                catch {
-                    Write-Warning "Failed to get members for AU $($au.displayName): $_"
-                    break
-                }
-
-                if ($members.Count -eq 0) { break }
-
-                foreach ($member in $members) {
+            # Get members from batch result
+            $membersResponse = $membersBatchResponses[$au.id]
+            if ($null -ne $membersResponse -and $membersResponse.value) {
+                foreach ($member in $membersResponse.value) {
                     $odataType = $member.'@odata.type' -replace '#microsoft.graph.', ''
                     $memberType = switch ($odataType) {
                         'user' { $auUserCount++; $stats.UserMemberCount++; 'user' }
@@ -179,30 +186,74 @@ try {
                     $memberCount++
                     $stats.TotalMembers++
                 }
+
+                # Handle pagination for AUs with many members (follow nextLink if present)
+                $membersNextLink = $membersResponse.'@odata.nextLink'
+                while ($membersNextLink) {
+                    try {
+                        $moreMembers = Invoke-GraphWithRetry -Uri $membersNextLink -AccessToken $graphToken
+                        $membersNextLink = $moreMembers.'@odata.nextLink'
+
+                        foreach ($member in $moreMembers.value) {
+                            $odataType = $member.'@odata.type' -replace '#microsoft.graph.', ''
+                            $memberType = switch ($odataType) {
+                                'user' { $auUserCount++; $stats.UserMemberCount++; 'user' }
+                                'group' { $auGroupCount++; $stats.GroupMemberCount++; 'group' }
+                                'device' { $auDeviceCount++; $stats.DeviceMemberCount++; 'device' }
+                                default { $odataType }
+                            }
+
+                            $edgeObj = @{
+                                objectId = "$($member.id)_$($au.id)_auMember"
+                                edgeType = "auMember"
+                                sourceId = $member.id
+                                sourceType = $memberType
+                                sourceDisplayName = $member.displayName ?? ""
+                                targetId = $au.id
+                                targetType = "administrativeUnit"
+                                targetDisplayName = $au.displayName ?? ""
+                                deleted = $false
+                                collectionTimestamp = $timestampFormatted
+                            }
+
+                            if ($memberType -eq 'user') {
+                                $edgeObj.sourceUserPrincipalName = $member.userPrincipalName ?? $null
+                                $edgeObj.sourceAccountEnabled = $member.accountEnabled ?? $null
+                            }
+
+                            [void]$edgesJsonL.AppendLine(($edgeObj | ConvertTo-Json -Compress -Depth 10))
+                            $memberCount++
+                            $stats.TotalMembers++
+                        }
+                    }
+                    catch {
+                        Write-Warning "Failed to get additional members for AU $($au.displayName): $_"
+                        break
+                    }
+                }
             }
 
             $stats.MembersPerAU[$au.displayName] = $memberCount
 
-            # Collect scoped role members (delegated admin assignments)
-            $scopedRolesNextLink = "https://graph.microsoft.com/v1.0/directory/administrativeUnits/$($au.id)/scopedRoleMembers"
+            # Get scoped role members from batch result
             $scopedRoles = @()
+            $scopedResponse = $scopedRolesBatchResponses[$au.id]
+            if ($null -ne $scopedResponse -and $scopedResponse.value) {
+                $scopedRoles = $scopedResponse.value
 
-            while ($scopedRolesNextLink) {
-                try {
-                    $scopedResponse = Invoke-GraphWithRetry -Uri $scopedRolesNextLink -AccessToken $graphToken
-                    $scopedRoles += $scopedResponse.value
-                    $scopedRolesNextLink = $scopedResponse.'@odata.nextLink'
-                }
-                catch {
-                    if ($_.Exception.Message -match '403|Forbidden|permission') {
-                        Write-Warning "Scoped role members requires RoleManagement.Read.Directory permission - skipping"
-                    } else {
-                        Write-Warning "Failed to get scoped role members for AU $($au.displayName): $_"
+                # Handle pagination for AUs with many scoped roles
+                $scopedRolesNextLink = $scopedResponse.'@odata.nextLink'
+                while ($scopedRolesNextLink) {
+                    try {
+                        $moreScopedRoles = Invoke-GraphWithRetry -Uri $scopedRolesNextLink -AccessToken $graphToken
+                        $scopedRoles += $moreScopedRoles.value
+                        $scopedRolesNextLink = $moreScopedRoles.'@odata.nextLink'
                     }
-                    break
+                    catch {
+                        Write-Warning "Failed to get additional scoped roles for AU $($au.displayName): $_"
+                        break
+                    }
                 }
-
-                if (-not $scopedResponse.value -or $scopedResponse.value.Count -eq 0) { break }
             }
 
             # Create edges for scoped role assignments

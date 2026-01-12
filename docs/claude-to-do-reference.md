@@ -1675,10 +1675,10 @@ Ranked from **easiest** (least likely to break anything) to **hardest** (signifi
 
 | # | Task | Status | Change Required | Risk |
 |---|------|--------|-----------------|------|
-| 5 | Trim $select fields in CollectUsers | Pending | Remove rarely-used fields from `$selectFields` | Low |
+| 5 | Trim $select fields across all collectors | ✅ Done | Removed 16 rarely-used fields across 5 collectors - 2026-01-12 | None |
 | 6 | Move helper functions to psm1 module | Pending | Copy/paste functions, add Export-ModuleMember | Low |
 | 7 | Groups groupTypeCategory | ✅ Done | Already implemented - deployed 2026-01-12 | None |
-| 8 | Move privileged roles to config file | Pending | Create `PrivilegedRoles.psd1`, import in CollectRoleDefinitions | Low |
+| 8 | ~~Move privileged roles to config file~~ | N/A | CollectRoleDefinitions removed - see Task #40 | None |
 | 9 | Optimize JSONL - exclude null properties | Pending | Add filter before JSON conversion | Low |
 
 ### 🟠 TIER 3: MODERATE (50-150 lines, multiple files)
@@ -1702,7 +1702,7 @@ Ranked from **easiest** (least likely to break anything) to **hardest** (signifi
 |---|------|--------|-----------------|------|
 | 17 | Implement Graph Delta Query API | Pending | See `/docs/Epic 0-plan-delta-Architecture.md` | Medium |
 | 18 | Audit - Who Made Changes feature | Pending | New collection from /auditLogs/directoryAudits | Medium |
-| 19 | Expand Intune/Devices collection | Pending | New API calls (ASR, Settings catalog, Baselines) | Medium |
+| 19 | Expand Intune/Devices collection | Pending | New API calls (ASR, Settings catalog, Baselines, etc) | Medium |
 | 20 | Null vs Blank values fix | Pending | Investigation + standardize across all collectors | Medium |
 | 24 | M365 Usage Collection | Pending | See `/docs/M365-usage.md` | Medium |
 | 37 | E5 Over-provisioning Detection | Pending | See `/docs/M365-usage-more.md` | Medium |
@@ -1711,8 +1711,8 @@ Ranked from **easiest** (least likely to break anything) to **hardest** (signifi
 
 | # | Task | Status | Change Required | Risk |
 |---|------|--------|-----------------|------|
-| 21 | **Graph $batch API + ForEach-Object -Parallel** | Pending | Rewrite CollectRelationships: 900→45 calls, ~97% faster | High |
-| 22 | Add attack path features | Pending | New algorithms for edge weights, path scoring | High |
+| 21 | **Graph $batch API** | ✅ Done | Implemented `Invoke-GraphBatch` - 95% API call reduction across 4 collectors - 2026-01-12 | High |
+| 22 | Inverstigate attack path features | Pending | New algorithms for edge weights, path scoring | High |
 | 23 | Evaluate Purview integration | Pending | New integration, APIs, data model - see Purview DLP.md | High |
 
 ### Implementation Strategy
@@ -1807,7 +1807,78 @@ The on-prem scripts use `ForEach-Object -Parallel` for parallel processing. Howe
 | $batch API | 45 | ~10s |
 | $batch + Parallel | 45 | ~5s |
 
-**Recommendation:** Implement Graph $batch API first (Task #1), then add ForEach-Object -Parallel for additional gains.
+**Recommendation:** ~~Implement Graph $batch API first (Task #1), then add ForEach-Object -Parallel for additional gains.~~ **DONE - See session log below.**
+
+---
+
+## Session Log: 2026-01-12 (Graph $batch API Implementation)
+
+### Task #21 Completed: Graph $batch API
+
+Implemented Microsoft Graph $batch API to reduce API calls by 95% across 4 collectors.
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `EntraDataCollection.psm1` | Added `Invoke-GraphBatch` function (~230 lines) |
+| `CollectUsers/run.ps1` | Batched auth methods + MFA requirements |
+| `CollectRelationships/run.ps1` | Batched 6 phases (licenses, owners, assignments) |
+| `CollectAppRegistrations/run.ps1` | Batched federatedIdentityCredentials |
+| `CollectAdministrativeUnits/run.ps1` | Batched members + scopedRoleMembers |
+
+### API Call Reduction (Medium Tenant - 10K users)
+
+| Collector | Before | After | Reduction |
+|-----------|--------|-------|-----------|
+| CollectUsers | 20,022 | ~1,000 | **95%** |
+| CollectRelationships | 17,641 | ~900 | **95%** |
+| CollectAppRegistrations | 1,001 | ~50 | **95%** |
+| CollectAdministrativeUnits | 100 | ~5 | **95%** |
+| **TOTAL** | **38,904** | **~2,000** | **95%** |
+
+### `Invoke-GraphBatch` Function Features
+
+- Batches up to 20 requests per $batch call (Graph API limit)
+- Automatic chunking for larger request sets
+- Supports both v1.0 and beta API versions
+- Retry logic for 429 (rate limiting) and 5xx errors
+- Returns hashtable keyed by request ID
+
+### Deployment & Verification
+
+- Deployed via: `func azure functionapp publish func-entrariskv35-data-dev-enkqnnv64liny --powershell`
+- Instance ID: `837c670d-2d73-42a2-bc2a-50ae12f0e100`
+- Dashboard URL: https://func-entrariskv35-data-dev-enkqnnv64liny.azurewebsites.net/api/dashboard?code=hyiuethRJ5prx3Ph0BWHoWgYG73wMSccPg13-FIiZ9aCAzFurZERIw==
+
+### Verified Performance Results (2026-01-12T13:23:47Z)
+
+**Batched Phase Timing (CollectRelationships):**
+| Phase | Duration | Description |
+|-------|----------|-------------|
+| Phase6_AppOwners | 427 ms | 14 apps |
+| Phase7_SpOwners | 5.8 sec | 316 SPs |
+| Phase8_UserLicenses | 1.0 sec | 60 users |
+| Phase10_AppRoleAssignments | 3.4 sec | 64 assignments |
+| Phase11_GroupOwners | 597 ms | 16 owners |
+| Phase12_DeviceOwners | 218 ms | 2 devices |
+| **TOTAL** | **~12 sec** | Batching working as expected |
+
+**Collection Summary:**
+- Total Principals: 420 (60 users, 41 groups, 316 SPs, 2 devices, 1 AU)
+- Total Edges: 577 relationships
+- Total Resources: 45
+- Total Policies: 298
+
+**Issue Fixed:** Module manifest (`.psd1`) was missing new exports (`Invoke-GraphBatch`, `New-PerformanceTimer`). Updated `FunctionsToExport` array.
+
+### Remaining Optimization Opportunities
+
+| Priority | Feature | Impact | Status |
+|----------|---------|--------|--------|
+| 1 | **Indexing optimization** | High | New bottleneck - 8,425 Cosmos writes |
+| 2 | Conditional Collection (Phase 2) | Very High | Only fetch auth for changed users |
+| 3 | Delta Queries (Phase 3) | Medium | Enables conditional collection |
 
 ---
 

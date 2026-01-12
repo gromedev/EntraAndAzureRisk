@@ -130,8 +130,8 @@ try {
     # Note: Requires Application.Read.All permission
     # Note: There's a throttling limit of 150 requests per minute for keyCredentials
     # Added: requiredResourceAccess (API permissions), verifiedPublisher
-    # Phase 1b: Added identifierUris, web, publicClient, spa, optionalClaims, groupMembershipClaims
-    $selectFields = "id,appId,displayName,createdDateTime,signInAudience,publisherDomain,keyCredentials,passwordCredentials,requiredResourceAccess,verifiedPublisher,identifierUris,web,publicClient,spa,optionalClaims,groupMembershipClaims"
+    # Removed rarely-populated fields: optionalClaims, groupMembershipClaims
+    $selectFields = "id,appId,displayName,createdDateTime,signInAudience,publisherDomain,keyCredentials,passwordCredentials,requiredResourceAccess,verifiedPublisher,identifierUris,web,publicClient,spa"
     $nextLink = "https://graph.microsoft.com/v1.0/applications?`$select=$selectFields&`$top=$batchSize"
 
     Write-Verbose "Starting batch processing with streaming writes"
@@ -158,6 +158,18 @@ try {
         }
 
         if ($appBatch.Count -eq 0) { break }
+
+        # --- BATCH: Get federated identity credentials for all apps in this batch ---
+        $batchRequests = @($appBatch | ForEach-Object {
+            @{
+                id = $_.id
+                method = "GET"
+                url = "/applications/$($_.id)/federatedIdentityCredentials"
+            }
+        })
+
+        # Execute batch request for FICs
+        $ficBatchResponses = Invoke-GraphBatch -Requests $batchRequests -AccessToken $graphToken
 
         # Process batch
         foreach ($app in $appBatch) {
@@ -255,29 +267,23 @@ try {
                 }
             }
 
-            # Get federated identity credentials (separate API call)
+            # Get federated identity credentials from batch results
             $federatedCredentials = @()
             $hasFederatedCredentials = $false
-            try {
-                $fedCredsUri = "https://graph.microsoft.com/v1.0/applications/$($app.id)/federatedIdentityCredentials"
-                $fedCredsResponse = Invoke-GraphWithRetry -Uri $fedCredsUri -AccessToken $graphToken
-                if ($fedCredsResponse.value -and $fedCredsResponse.value.Count -gt 0) {
-                    $hasFederatedCredentials = $true
-                    $appsWithFederatedCredentialsCount++
-                    foreach ($fedCred in $fedCredsResponse.value) {
-                        $federatedCredentials += @{
-                            id = $fedCred.id ?? ""
-                            name = $fedCred.name ?? ""
-                            issuer = $fedCred.issuer ?? ""
-                            subject = $fedCred.subject ?? ""
-                            audiences = $fedCred.audiences ?? @()
-                            description = $fedCred.description ?? ""
-                        }
+            $fedCredsResponse = $ficBatchResponses[$app.id]
+            if ($null -ne $fedCredsResponse -and $fedCredsResponse.value -and $fedCredsResponse.value.Count -gt 0) {
+                $hasFederatedCredentials = $true
+                $appsWithFederatedCredentialsCount++
+                foreach ($fedCred in $fedCredsResponse.value) {
+                    $federatedCredentials += @{
+                        id = $fedCred.id ?? ""
+                        name = $fedCred.name ?? ""
+                        issuer = $fedCred.issuer ?? ""
+                        subject = $fedCred.subject ?? ""
+                        audiences = $fedCred.audiences ?? @()
+                        description = $fedCred.description ?? ""
                     }
                 }
-            }
-            catch {
-                Write-Warning "Failed to get federated credentials for app $($app.displayName): $_"
             }
 
             # Transform to V3 structure with resourceType discriminator

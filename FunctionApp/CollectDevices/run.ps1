@@ -124,8 +124,8 @@ try {
 
     # Query devices with field selection
     # Note: Requires Device.Read.All permission
-    # Phase 1b: Added extensionAttributes, onPremisesSyncEnabled, onPremisesLastSyncDateTime, mdmAppId, managementType, systemLabels
-    $selectFields = "id,displayName,accountEnabled,deviceId,operatingSystem,operatingSystemVersion,isCompliant,isManaged,trustType,approximateLastSignInDateTime,createdDateTime,deviceVersion,manufacturer,model,profileType,registrationDateTime,extensionAttributes,onPremisesSyncEnabled,onPremisesLastSyncDateTime,mdmAppId,managementType,systemLabels"
+    # Removed rarely-populated fields: mdmAppId, systemLabels
+    $selectFields = "id,displayName,accountEnabled,deviceId,operatingSystem,operatingSystemVersion,isCompliant,isManaged,trustType,approximateLastSignInDateTime,createdDateTime,deviceVersion,manufacturer,model,profileType,registrationDateTime,extensionAttributes,onPremisesSyncEnabled,onPremisesLastSyncDateTime,managementType"
     $nextLink = "https://graph.microsoft.com/v1.0/devices?`$select=$selectFields&`$top=$batchSize"
 
     Write-Verbose "Starting batch processing with streaming writes"

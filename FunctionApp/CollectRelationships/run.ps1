@@ -119,6 +119,9 @@ try {
         RolePolicyEdges = 0
     }
 
+    # Performance timer to measure batch optimization impact
+    $perfTimer = New-PerformanceTimer
+
     # Track direct memberships for transitive comparison
     $directMembershipKeys = [System.Collections.Generic.HashSet[string]]::new()
     # Track group nesting (which groups contain which groups)
@@ -786,8 +789,9 @@ try {
     Write-Verbose "Azure RBAC complete: $($stats.AzureRbac)"
     #endregion
 
-    #region Phase 6: Application Owners
-    Write-Verbose "=== Phase 6: Application Owners ==="
+    #region Phase 6: Application Owners (BATCHED)
+    Write-Verbose "=== Phase 6: Application Owners (using Graph $batch API) ==="
+    $perfTimer.Start("Phase6_AppOwners")
 
     # Get all applications
     $appSelectFields = "id,displayName,appId,signInAudience,publisherDomain"
@@ -798,37 +802,51 @@ try {
             $appsResponse = Invoke-GraphWithRetry -Uri $appsNextLink -AccessToken $graphToken
             $appsNextLink = $appsResponse.'@odata.nextLink'
 
-            foreach ($app in $appsResponse.value) {
-                try {
-                    # Get owners for this application
-                    $ownersUri = "https://graph.microsoft.com/v1.0/applications/$($app.id)/owners?`$select=id,displayName,userPrincipalName,mail"
-                    $ownersResponse = Invoke-GraphWithRetry -Uri $ownersUri -AccessToken $graphToken
-
-                    foreach ($owner in $ownersResponse.value) {
-                        $ownerType = ($owner.'@odata.type' -replace '#microsoft.graph.', '')
-
-                        $relationship = @{
-                            id = "$($owner.id)_$($app.id)_appOwner"
-                            objectId = "$($owner.id)_$($app.id)_appOwner"
-                            edgeType = "appOwner"
-                            sourceId = $owner.id
-                            sourceType = $ownerType
-                            sourceDisplayName = $owner.displayName ?? ""
-                            sourceUserPrincipalName = if ($ownerType -eq 'user') { $owner.userPrincipalName ?? $null } else { $null }
-                            targetId = $app.id
-                            targetType = "application"
-                            targetDisplayName = $app.displayName ?? ""
-                            targetAppId = $app.appId ?? ""
-                            targetSignInAudience = $app.signInAudience ?? ""
-                            targetPublisherDomain = $app.publisherDomain ?? ""
-                            collectionTimestamp = $timestampFormatted
-                        }
-
-                        [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress))
-                        $stats.AppOwners++
-                    }
+            # Build batch requests for all apps in this page
+            $batchRequests = @($appsResponse.value | ForEach-Object {
+                @{
+                    id = $_.id
+                    method = "GET"
+                    url = "/applications/$($_.id)/owners?`$select=id,displayName,userPrincipalName,mail"
                 }
-                catch { Write-Warning "Failed to get owners for app $($app.displayName): $_" }
+            })
+
+            # Execute batch request
+            $batchResponses = Invoke-GraphBatch -Requests $batchRequests -AccessToken $graphToken
+
+            # Process results
+            foreach ($app in $appsResponse.value) {
+                $ownersResponse = $batchResponses[$app.id]
+
+                # Skip if batch request failed for this app
+                if ($null -eq $ownersResponse) {
+                    Write-Warning "Batch request failed for app $($app.displayName)"
+                    continue
+                }
+
+                foreach ($owner in $ownersResponse.value) {
+                    $ownerType = ($owner.'@odata.type' -replace '#microsoft.graph.', '')
+
+                    $relationship = @{
+                        id = "$($owner.id)_$($app.id)_appOwner"
+                        objectId = "$($owner.id)_$($app.id)_appOwner"
+                        edgeType = "appOwner"
+                        sourceId = $owner.id
+                        sourceType = $ownerType
+                        sourceDisplayName = $owner.displayName ?? ""
+                        sourceUserPrincipalName = if ($ownerType -eq 'user') { $owner.userPrincipalName ?? $null } else { $null }
+                        targetId = $app.id
+                        targetType = "application"
+                        targetDisplayName = $app.displayName ?? ""
+                        targetAppId = $app.appId ?? ""
+                        targetSignInAudience = $app.signInAudience ?? ""
+                        targetPublisherDomain = $app.publisherDomain ?? ""
+                        collectionTimestamp = $timestampFormatted
+                    }
+
+                    [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress))
+                    $stats.AppOwners++
+                }
             }
 
             # Periodic flush
@@ -842,10 +860,12 @@ try {
 
     Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
     Write-Verbose "Application owners complete: $($stats.AppOwners)"
+    $perfTimer.Stop("Phase6_AppOwners")
     #endregion
 
-    #region Phase 7: Service Principal Owners
-    Write-Verbose "=== Phase 7: Service Principal Owners ==="
+    #region Phase 7: Service Principal Owners (BATCHED)
+    Write-Verbose "=== Phase 7: Service Principal Owners (using Graph $batch API) ==="
+    $perfTimer.Start("Phase7_SpOwners")
 
     # Get all service principals
     $spSelectFields = "id,displayName,appId,appDisplayName,servicePrincipalType,accountEnabled"
@@ -856,38 +876,52 @@ try {
             $spsResponse = Invoke-GraphWithRetry -Uri $spsNextLink -AccessToken $graphToken
             $spsNextLink = $spsResponse.'@odata.nextLink'
 
-            foreach ($sp in $spsResponse.value) {
-                try {
-                    # Get owners for this service principal
-                    $ownersUri = "https://graph.microsoft.com/v1.0/servicePrincipals/$($sp.id)/owners?`$select=id,displayName,userPrincipalName,mail"
-                    $ownersResponse = Invoke-GraphWithRetry -Uri $ownersUri -AccessToken $graphToken
-
-                    foreach ($owner in $ownersResponse.value) {
-                        $ownerType = ($owner.'@odata.type' -replace '#microsoft.graph.', '')
-
-                        $relationship = @{
-                            id = "$($owner.id)_$($sp.id)_spOwner"
-                            objectId = "$($owner.id)_$($sp.id)_spOwner"
-                            edgeType = "spOwner"
-                            sourceId = $owner.id
-                            sourceType = $ownerType
-                            sourceDisplayName = $owner.displayName ?? ""
-                            sourceUserPrincipalName = if ($ownerType -eq 'user') { $owner.userPrincipalName ?? $null } else { $null }
-                            targetId = $sp.id
-                            targetType = "servicePrincipal"
-                            targetDisplayName = $sp.displayName ?? ""
-                            targetAppId = $sp.appId ?? ""
-                            targetAppDisplayName = $sp.appDisplayName ?? ""
-                            targetServicePrincipalType = $sp.servicePrincipalType ?? ""
-                            targetAccountEnabled = if ($null -ne $sp.accountEnabled) { $sp.accountEnabled } else { $null }
-                            collectionTimestamp = $timestampFormatted
-                        }
-
-                        [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress))
-                        $stats.SpOwners++
-                    }
+            # Build batch requests for all SPs in this page
+            $batchRequests = @($spsResponse.value | ForEach-Object {
+                @{
+                    id = $_.id
+                    method = "GET"
+                    url = "/servicePrincipals/$($_.id)/owners?`$select=id,displayName,userPrincipalName,mail"
                 }
-                catch { Write-Warning "Failed to get owners for SP $($sp.displayName): $_" }
+            })
+
+            # Execute batch request
+            $batchResponses = Invoke-GraphBatch -Requests $batchRequests -AccessToken $graphToken
+
+            # Process results
+            foreach ($sp in $spsResponse.value) {
+                $ownersResponse = $batchResponses[$sp.id]
+
+                # Skip if batch request failed for this SP
+                if ($null -eq $ownersResponse) {
+                    Write-Warning "Batch request failed for SP $($sp.displayName)"
+                    continue
+                }
+
+                foreach ($owner in $ownersResponse.value) {
+                    $ownerType = ($owner.'@odata.type' -replace '#microsoft.graph.', '')
+
+                    $relationship = @{
+                        id = "$($owner.id)_$($sp.id)_spOwner"
+                        objectId = "$($owner.id)_$($sp.id)_spOwner"
+                        edgeType = "spOwner"
+                        sourceId = $owner.id
+                        sourceType = $ownerType
+                        sourceDisplayName = $owner.displayName ?? ""
+                        sourceUserPrincipalName = if ($ownerType -eq 'user') { $owner.userPrincipalName ?? $null } else { $null }
+                        targetId = $sp.id
+                        targetType = "servicePrincipal"
+                        targetDisplayName = $sp.displayName ?? ""
+                        targetAppId = $sp.appId ?? ""
+                        targetAppDisplayName = $sp.appDisplayName ?? ""
+                        targetServicePrincipalType = $sp.servicePrincipalType ?? ""
+                        targetAccountEnabled = if ($null -ne $sp.accountEnabled) { $sp.accountEnabled } else { $null }
+                        collectionTimestamp = $timestampFormatted
+                    }
+
+                    [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress))
+                    $stats.SpOwners++
+                }
             }
 
             # Periodic flush
@@ -901,10 +935,12 @@ try {
 
     Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
     Write-Verbose "Service principal owners complete: $($stats.SpOwners)"
+    $perfTimer.Stop("Phase7_SpOwners")
     #endregion
 
-    #region Phase 8: User License Assignments
-    Write-Verbose "=== Phase 8: User License Assignments ==="
+    #region Phase 8: User License Assignments (BATCHED)
+    Write-Verbose "=== Phase 8: User License Assignments (using Graph $batch API) ==="
+    $perfTimer.Start("Phase8_UserLicenses")
 
     # First, get the subscribed SKUs for name lookup
     $skuLookup = @{}
@@ -935,53 +971,67 @@ try {
             $usersResponse = Invoke-GraphWithRetry -Uri $usersNextLink -AccessToken $graphToken
             $usersNextLink = $usersResponse.'@odata.nextLink'
 
-            foreach ($user in $usersResponse.value) {
-                try {
-                    # Get license details for this user
-                    $licenseUri = "https://graph.microsoft.com/v1.0/users/$($user.id)/licenseDetails"
-                    $licenseResponse = Invoke-GraphWithRetry -Uri $licenseUri -AccessToken $graphToken
-
-                    foreach ($license in $licenseResponse.value) {
-                        $skuId = $license.skuId ?? ""
-                        $skuInfo = $skuLookup[$skuId]
-                        $skuPartNumber = if ($skuInfo) { $skuInfo.SkuPartNumber } else { $skuId }
-
-                        # Determine assignment source (direct vs inherited)
-                        # If assignedByGroup is empty, it's direct; otherwise inherited
-                        $assignmentSource = "direct"
-                        $inheritedFromGroupId = $null
-                        $inheritedFromGroupName = $null
-
-                        # Check servicePlans for assignment info if available
-                        # Note: Graph API v1.0 licenseDetails doesn't expose assignedByGroup directly
-                        # We need to use /users/{id}/licenseAssignmentStates for detailed info
-
-                        $relationship = @{
-                            id = "$($user.id)_$($skuId)_license"
-                            objectId = "$($user.id)_$($skuId)_license"
-                            edgeType = "license"
-                            sourceId = $user.id
-                            sourceType = "user"
-                            sourceDisplayName = $user.displayName ?? ""
-                            sourceUserPrincipalName = $user.userPrincipalName ?? ""
-                            sourceAccountEnabled = if ($null -ne $user.accountEnabled) { $user.accountEnabled } else { $null }
-                            sourceUserType = $user.userType ?? ""
-                            targetId = $skuId
-                            targetType = "license"
-                            targetDisplayName = $skuPartNumber
-                            targetSkuId = $skuId
-                            targetSkuPartNumber = $skuPartNumber
-                            assignmentSource = $assignmentSource
-                            inheritedFromGroupId = $inheritedFromGroupId
-                            inheritedFromGroupName = $inheritedFromGroupName
-                            collectionTimestamp = $timestampFormatted
-                        }
-
-                        [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress))
-                        $stats.Licenses++
-                    }
+            # Build batch requests for all users in this page
+            $batchRequests = @($usersResponse.value | ForEach-Object {
+                @{
+                    id = $_.id
+                    method = "GET"
+                    url = "/users/$($_.id)/licenseDetails"
                 }
-                catch { Write-Warning "Failed to get licenses for user $($user.userPrincipalName): $_" }
+            })
+
+            # Execute batch request (up to 20 at a time, handled internally)
+            $batchResponses = Invoke-GraphBatch -Requests $batchRequests -AccessToken $graphToken
+
+            # Process results
+            foreach ($user in $usersResponse.value) {
+                $licenseResponse = $batchResponses[$user.id]
+
+                # Skip if batch request failed for this user
+                if ($null -eq $licenseResponse) {
+                    Write-Warning "Batch request failed for user $($user.userPrincipalName)"
+                    continue
+                }
+
+                foreach ($license in $licenseResponse.value) {
+                    $skuId = $license.skuId ?? ""
+                    $skuInfo = $skuLookup[$skuId]
+                    $skuPartNumber = if ($skuInfo) { $skuInfo.SkuPartNumber } else { $skuId }
+
+                    # Determine assignment source (direct vs inherited)
+                    # If assignedByGroup is empty, it's direct; otherwise inherited
+                    $assignmentSource = "direct"
+                    $inheritedFromGroupId = $null
+                    $inheritedFromGroupName = $null
+
+                    # Check servicePlans for assignment info if available
+                    # Note: Graph API v1.0 licenseDetails doesn't expose assignedByGroup directly
+                    # We need to use /users/{id}/licenseAssignmentStates for detailed info
+
+                    $relationship = @{
+                        id = "$($user.id)_$($skuId)_license"
+                        objectId = "$($user.id)_$($skuId)_license"
+                        edgeType = "license"
+                        sourceId = $user.id
+                        sourceType = "user"
+                        sourceDisplayName = $user.displayName ?? ""
+                        sourceUserPrincipalName = $user.userPrincipalName ?? ""
+                        sourceAccountEnabled = if ($null -ne $user.accountEnabled) { $user.accountEnabled } else { $null }
+                        sourceUserType = $user.userType ?? ""
+                        targetId = $skuId
+                        targetType = "license"
+                        targetDisplayName = $skuPartNumber
+                        targetSkuId = $skuId
+                        targetSkuPartNumber = $skuPartNumber
+                        assignmentSource = $assignmentSource
+                        inheritedFromGroupId = $inheritedFromGroupId
+                        inheritedFromGroupName = $inheritedFromGroupName
+                        collectionTimestamp = $timestampFormatted
+                    }
+
+                    [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress))
+                    $stats.Licenses++
+                }
             }
 
             # Periodic flush
@@ -995,6 +1045,7 @@ try {
 
     Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
     Write-Verbose "User licenses complete: $($stats.Licenses)"
+    $perfTimer.Stop("Phase8_UserLicenses")
     #endregion
 
     #region Phase 9: OAuth2 Permission Grants (Consents)
@@ -1068,8 +1119,9 @@ try {
     Write-Verbose "OAuth2 permission grants complete: $($stats.OAuth2PermissionGrants)"
     #endregion
 
-    #region Phase 10: App Role Assignments
-    Write-Verbose "=== Phase 10: App Role Assignments ==="
+    #region Phase 10: App Role Assignments (BATCHED)
+    Write-Verbose "=== Phase 10: App Role Assignments (using Graph $batch API) ==="
+    $perfTimer.Start("Phase10_AppRoleAssignments")
 
     # Get all service principals and their app role assignments
     $spsForRolesUri = "https://graph.microsoft.com/v1.0/servicePrincipals?`$select=id,displayName,appId,appRoles&`$top=$batchSize"
@@ -1079,27 +1131,77 @@ try {
             $spsResponse = Invoke-GraphWithRetry -Uri $spsForRolesUri -AccessToken $graphToken
             $spsForRolesUri = $spsResponse.'@odata.nextLink'
 
+            # Build app role lookups for all SPs in this page
+            $appRoleLookups = @{}
             foreach ($sp in $spsResponse.value) {
-                # Build app role lookup for this SP
-                $appRoleLookup = @{}
+                $lookup = @{}
                 foreach ($role in $sp.appRoles) {
-                    $appRoleLookup[$role.id] = @{
+                    $lookup[$role.id] = @{
                         displayName = $role.displayName
                         value = $role.value
                         description = $role.description
                     }
                 }
+                $appRoleLookups[$sp.id] = $lookup
+            }
 
-                try {
-                    # Get assignments TO this service principal (who has access to it)
-                    $assignmentsUri = "https://graph.microsoft.com/v1.0/servicePrincipals/$($sp.id)/appRoleAssignedTo?`$top=$batchSize"
-                    $assignmentsNextLink = $assignmentsUri
+            # Build batch requests for all SPs in this page
+            $batchRequests = @($spsResponse.value | ForEach-Object {
+                @{
+                    id = $_.id
+                    method = "GET"
+                    url = "/servicePrincipals/$($_.id)/appRoleAssignedTo?`$top=$batchSize"
+                }
+            })
 
-                    while ($assignmentsNextLink) {
-                        $assignmentsResponse = Invoke-GraphWithRetry -Uri $assignmentsNextLink -AccessToken $graphToken
-                        $assignmentsNextLink = $assignmentsResponse.'@odata.nextLink'
+            # Execute batch request
+            $batchResponses = Invoke-GraphBatch -Requests $batchRequests -AccessToken $graphToken
 
-                        foreach ($assignment in $assignmentsResponse.value) {
+            # Process results
+            foreach ($sp in $spsResponse.value) {
+                $assignmentsResponse = $batchResponses[$sp.id]
+                $appRoleLookup = $appRoleLookups[$sp.id]
+
+                # Skip if batch request failed for this SP
+                if ($null -eq $assignmentsResponse) {
+                    Write-Warning "Batch request failed for SP $($sp.displayName)"
+                    continue
+                }
+
+                foreach ($assignment in $assignmentsResponse.value) {
+                    $appRoleId = $assignment.appRoleId ?? ""
+                    $roleInfo = $appRoleLookup[$appRoleId]
+
+                    $relationship = @{
+                        id = $assignment.id
+                        objectId = $assignment.id
+                        edgeType = "appRoleAssignment"
+                        sourceId = $assignment.principalId ?? ""
+                        sourceType = ($assignment.principalType ?? "").ToLower()
+                        sourceDisplayName = $assignment.principalDisplayName ?? ""
+                        targetId = $assignment.resourceId ?? ""
+                        targetType = "servicePrincipal"
+                        targetDisplayName = $assignment.resourceDisplayName ?? ""
+                        targetAppId = $sp.appId ?? ""
+                        appRoleId = $appRoleId
+                        appRoleDisplayName = if ($roleInfo) { $roleInfo.displayName } else { "" }
+                        appRoleValue = if ($roleInfo) { $roleInfo.value } else { "" }
+                        createdDateTime = $assignment.createdDateTime ?? $null
+                        collectionTimestamp = $timestampFormatted
+                    }
+
+                    [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress))
+                    $stats.AppRoleAssignments++
+                }
+
+                # Handle pagination for SPs with many assignments (>$batchSize)
+                $nextLink = $assignmentsResponse.'@odata.nextLink'
+                while ($nextLink) {
+                    try {
+                        $moreResponse = Invoke-GraphWithRetry -Uri $nextLink -AccessToken $graphToken
+                        $nextLink = $moreResponse.'@odata.nextLink'
+
+                        foreach ($assignment in $moreResponse.value) {
                             $appRoleId = $assignment.appRoleId ?? ""
                             $roleInfo = $appRoleLookup[$appRoleId]
 
@@ -1125,8 +1227,8 @@ try {
                             $stats.AppRoleAssignments++
                         }
                     }
+                    catch { Write-Warning "Failed to get additional app role assignments for SP $($sp.displayName): $_"; break }
                 }
-                catch { Write-Warning "Failed to get app role assignments for SP $($sp.displayName): $_" }
             }
 
             # Periodic flush
@@ -1140,23 +1242,74 @@ try {
 
     Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
     Write-Verbose "App role assignments complete: $($stats.AppRoleAssignments)"
+    $perfTimer.Stop("Phase10_AppRoleAssignments")
     #endregion
 
-    #region Phase 11: Group Owners
-    Write-Verbose "=== Phase 11: Group Owners ==="
+    #region Phase 11: Group Owners (BATCHED)
+    Write-Verbose "=== Phase 11: Group Owners (using Graph $batch API) ==="
+    $perfTimer.Start("Phase11_GroupOwners")
 
     # Use the groups we already fetched in Phase 1
-    foreach ($group in $groups) {
-        try {
-            $ownersUri = "https://graph.microsoft.com/v1.0/groups/$($group.id)/owners?`$select=id,displayName,userPrincipalName,mail"
-            $ownersNextLink = $ownersUri
+    # Process in chunks of batchSize (to match page size)
+    $groupBatchSize = [Math]::Min($batchSize, 999)
+    for ($i = 0; $i -lt $groups.Count; $i += $groupBatchSize) {
+        $groupBatch = $groups[$i..([Math]::Min($i + $groupBatchSize - 1, $groups.Count - 1))]
 
-            while ($ownersNextLink) {
+        # Build batch requests for all groups in this batch
+        $batchRequests = @($groupBatch | ForEach-Object {
+            @{
+                id = $_.id
+                method = "GET"
+                url = "/groups/$($_.id)/owners?`$select=id,displayName,userPrincipalName,mail"
+            }
+        })
+
+        # Execute batch request
+        $batchResponses = Invoke-GraphBatch -Requests $batchRequests -AccessToken $graphToken
+
+        # Process results
+        foreach ($group in $groupBatch) {
+            $ownersResponse = $batchResponses[$group.id]
+
+            # Skip if batch request failed for this group
+            if ($null -eq $ownersResponse) {
+                Write-Warning "Batch request failed for group $($group.displayName)"
+                continue
+            }
+
+            foreach ($owner in $ownersResponse.value) {
+                $ownerType = ($owner.'@odata.type' -replace '#microsoft.graph.', '')
+
+                $relationship = @{
+                    id = "$($owner.id)_$($group.id)_groupOwner"
+                    objectId = "$($owner.id)_$($group.id)_groupOwner"
+                    edgeType = "groupOwner"
+                    sourceId = $owner.id
+                    sourceType = $ownerType
+                    sourceDisplayName = $owner.displayName ?? ""
+                    sourceUserPrincipalName = if ($ownerType -eq 'user') { $owner.userPrincipalName ?? $null } else { $null }
+                    targetId = $group.id
+                    targetType = "group"
+                    targetDisplayName = $group.displayName ?? ""
+                    targetSecurityEnabled = if ($null -ne $group.securityEnabled) { $group.securityEnabled } else { $null }
+                    targetMailEnabled = if ($null -ne $group.mailEnabled) { $group.mailEnabled } else { $null }
+                    targetIsAssignableToRole = if ($null -ne $group.isAssignableToRole) { $group.isAssignableToRole } else { $null }
+                    targetVisibility = $group.visibility ?? $null
+                    collectionTimestamp = $timestampFormatted
+                }
+
+                [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress))
+                $stats.GroupOwners++
+            }
+
+            # Handle pagination for groups with many owners (rare but possible)
+            $nextLink = $ownersResponse.'@odata.nextLink'
+            while ($nextLink) {
                 try {
-                    $ownersResponse = Invoke-GraphWithRetry -Uri $ownersNextLink -AccessToken $graphToken
-                    $ownersNextLink = $ownersResponse.'@odata.nextLink'
+                    $moreResponse = Invoke-GraphWithRetry -Uri $nextLink -AccessToken $graphToken
+                    $nextLink = $moreResponse.'@odata.nextLink'
 
-                    foreach ($owner in $ownersResponse.value) {
+                    foreach ($owner in $moreResponse.value) {
                         $ownerType = ($owner.'@odata.type' -replace '#microsoft.graph.', '')
 
                         $relationship = @{
@@ -1181,10 +1334,9 @@ try {
                         $stats.GroupOwners++
                     }
                 }
-                catch { Write-Warning "Failed to get owners for group $($group.displayName): $_"; break }
+                catch { Write-Warning "Failed to get additional owners for group $($group.displayName): $_"; break }
             }
         }
-        catch { Write-Warning "Error processing owners for group $($group.displayName): $_" }
 
         # Periodic flush
         if ($jsonL.Length -ge ($writeThreshold * 300)) {
@@ -1195,10 +1347,12 @@ try {
 
     Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
     Write-Verbose "Group owners complete: $($stats.GroupOwners)"
+    $perfTimer.Stop("Phase11_GroupOwners")
     #endregion
 
-    #region Phase 12: Device Owners
-    Write-Verbose "=== Phase 12: Device Owners ==="
+    #region Phase 12: Device Owners (BATCHED)
+    Write-Verbose "=== Phase 12: Device Owners (using Graph $batch API) ==="
+    $perfTimer.Start("Phase12_DeviceOwners")
 
     # Get all devices
     $devicesUri = "https://graph.microsoft.com/v1.0/devices?`$select=id,displayName,deviceId,operatingSystem,trustType&`$top=$batchSize"
@@ -1208,36 +1362,51 @@ try {
             $devicesResponse = Invoke-GraphWithRetry -Uri $devicesUri -AccessToken $graphToken
             $devicesUri = $devicesResponse.'@odata.nextLink'
 
-            foreach ($device in $devicesResponse.value) {
-                try {
-                    $ownersUri = "https://graph.microsoft.com/v1.0/devices/$($device.id)/registeredOwners?`$select=id,displayName,userPrincipalName"
-                    $ownersResponse = Invoke-GraphWithRetry -Uri $ownersUri -AccessToken $graphToken
-
-                    foreach ($owner in $ownersResponse.value) {
-                        $ownerType = ($owner.'@odata.type' -replace '#microsoft.graph.', '')
-
-                        $relationship = @{
-                            id = "$($owner.id)_$($device.id)_deviceOwner"
-                            objectId = "$($owner.id)_$($device.id)_deviceOwner"
-                            edgeType = "deviceOwner"
-                            sourceId = $owner.id
-                            sourceType = $ownerType
-                            sourceDisplayName = $owner.displayName ?? ""
-                            sourceUserPrincipalName = if ($ownerType -eq 'user') { $owner.userPrincipalName ?? $null } else { $null }
-                            targetId = $device.id
-                            targetType = "device"
-                            targetDisplayName = $device.displayName ?? ""
-                            targetDeviceId = $device.deviceId ?? ""
-                            targetOperatingSystem = $device.operatingSystem ?? ""
-                            targetTrustType = $device.trustType ?? ""
-                            collectionTimestamp = $timestampFormatted
-                        }
-
-                        [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress))
-                        $stats.DeviceOwners++
-                    }
+            # Build batch requests for all devices in this page
+            $batchRequests = @($devicesResponse.value | ForEach-Object {
+                @{
+                    id = $_.id
+                    method = "GET"
+                    url = "/devices/$($_.id)/registeredOwners?`$select=id,displayName,userPrincipalName"
                 }
-                catch { Write-Warning "Failed to get owners for device $($device.displayName): $_" }
+            })
+
+            # Execute batch request
+            $batchResponses = Invoke-GraphBatch -Requests $batchRequests -AccessToken $graphToken
+
+            # Process results
+            foreach ($device in $devicesResponse.value) {
+                $ownersResponse = $batchResponses[$device.id]
+
+                # Skip if batch request failed for this device
+                if ($null -eq $ownersResponse) {
+                    Write-Warning "Batch request failed for device $($device.displayName)"
+                    continue
+                }
+
+                foreach ($owner in $ownersResponse.value) {
+                    $ownerType = ($owner.'@odata.type' -replace '#microsoft.graph.', '')
+
+                    $relationship = @{
+                        id = "$($owner.id)_$($device.id)_deviceOwner"
+                        objectId = "$($owner.id)_$($device.id)_deviceOwner"
+                        edgeType = "deviceOwner"
+                        sourceId = $owner.id
+                        sourceType = $ownerType
+                        sourceDisplayName = $owner.displayName ?? ""
+                        sourceUserPrincipalName = if ($ownerType -eq 'user') { $owner.userPrincipalName ?? $null } else { $null }
+                        targetId = $device.id
+                        targetType = "device"
+                        targetDisplayName = $device.displayName ?? ""
+                        targetDeviceId = $device.deviceId ?? ""
+                        targetOperatingSystem = $device.operatingSystem ?? ""
+                        targetTrustType = $device.trustType ?? ""
+                        collectionTimestamp = $timestampFormatted
+                    }
+
+                    [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress))
+                    $stats.DeviceOwners++
+                }
             }
 
             # Periodic flush
@@ -1251,6 +1420,7 @@ try {
 
     Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
     Write-Verbose "Device owners complete: $($stats.DeviceOwners)"
+    $perfTimer.Stop("Phase12_DeviceOwners")
     #endregion
 
     #region Phase 13: Conditional Access Policy Edges
@@ -1601,6 +1771,10 @@ try {
     $pimRequestCount = if ($stats.PimRequests) { $stats.PimRequests } else { 0 }
     $totalRelationships = $stats.GroupMembershipsDirect + $stats.GroupMembershipsTransitive + $stats.DirectoryRoles + $stats.PimEligible + $stats.PimActive + $pimRequestCount + $stats.PimGroupEligible + $stats.PimGroupActive + $stats.AzureRbac + $stats.AppOwners + $stats.SpOwners + $stats.Licenses + $stats.OAuth2PermissionGrants + $stats.AppRoleAssignments + $stats.GroupOwners + $stats.DeviceOwners + $stats.CaPolicyEdges + $stats.RolePolicyEdges
 
+    # Log performance timing for batch optimization analysis
+    $perfTimer.LogSummary("CollectRelationships")
+    $phaseTiming = $perfTimer.Summary()
+
     Write-Verbose "Combined relationships collection complete: $totalRelationships total"
 
     return @{
@@ -1608,7 +1782,9 @@ try {
         Timestamp = $timestamp
         EdgesBlobName = $edgesBlobName
         RelationshipCount = $totalRelationships
+        EdgeCount = $totalRelationships
         Stats = $stats
+        PhaseTiming = $phaseTiming
         Summary = @{
             timestamp = $timestampFormatted
             totalRelationships = $totalRelationships
@@ -1630,6 +1806,7 @@ try {
             deviceOwners = $stats.DeviceOwners
             caPolicyEdges = $stats.CaPolicyEdges
             rolePolicyEdges = $stats.RolePolicyEdges
+            phaseTiming = $phaseTiming
         }
     }
 }

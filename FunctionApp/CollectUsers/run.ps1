@@ -108,6 +108,9 @@ try {
 
     Write-Verbose "Configuration: Batch=$batchSize, SkipDisabledForAuth=$skipDisabledForAuthMethods"
 
+    # Performance timer to measure batch optimization impact
+    $perfTimer = New-PerformanceTimer
+
     #region Build Risky Users Lookup (Identity Protection - requires P2 license)
     Write-Verbose "Building risky users lookup from Identity Protection..."
     $riskyUsersLookup = @{}
@@ -211,9 +214,8 @@ try {
     }
 
     # Query users with field selection
-    # Added: lastPasswordChangeDateTime, signInSessionsValidFromDateTime, refreshTokensValidFromDateTime, onPremisesExtensionAttributes
-    # Phase 1b: Added mail, mailNickname, proxyAddresses, employeeId, employeeHireDate, employeeType, companyName, mobilePhone, businessPhones, department, jobTitle
-    $selectFields = "userPrincipalName,id,accountEnabled,userType,createdDateTime,signInActivity,displayName,passwordPolicies,usageLocation,externalUserState,externalUserStateChangeDateTime,onPremisesSyncEnabled,onPremisesSamAccountName,onPremisesUserPrincipalName,onPremisesSecurityIdentifier,lastPasswordChangeDateTime,signInSessionsValidFromDateTime,refreshTokensValidFromDateTime,onPremisesExtensionAttributes,mail,mailNickname,proxyAddresses,employeeId,employeeHireDate,employeeType,companyName,mobilePhone,businessPhones,department,jobTitle,assignedLicenses"
+    # Removed rarely-populated fields: passwordPolicies, employeeId, employeeHireDate, employeeType, companyName, mobilePhone
+    $selectFields = "userPrincipalName,id,accountEnabled,userType,createdDateTime,signInActivity,displayName,usageLocation,externalUserState,externalUserStateChangeDateTime,onPremisesSyncEnabled,onPremisesSamAccountName,onPremisesUserPrincipalName,onPremisesSecurityIdentifier,lastPasswordChangeDateTime,signInSessionsValidFromDateTime,refreshTokensValidFromDateTime,onPremisesExtensionAttributes,mail,mailNickname,proxyAddresses,businessPhones,department,jobTitle,assignedLicenses"
     $nextLink = "https://graph.microsoft.com/v1.0/users?`$select=$selectFields&`$top=$batchSize"
 
     Write-Verbose "Starting batch processing with streaming writes"
@@ -237,13 +239,53 @@ try {
 
         if ($userBatch.Count -eq 0) { break }
 
+        # --- BATCH: Collect Auth Methods for all users in this batch (using Graph $batch API) ---
+        # Build list of users that need auth methods collected
+        $usersForAuth = @($userBatch | Where-Object {
+            $acctEnabled = if ($null -ne $_.accountEnabled) { $_.accountEnabled } else { $null }
+            -not ($skipDisabledForAuthMethods -and $acctEnabled -eq $false)
+        })
+
+        # Initialize results hashtables
+        $authMethodsResults = @{}
+        $mfaRequirementsResults = @{}
+
+        if ($usersForAuth.Count -gt 0) {
+            # Time the batch auth methods calls
+            $perfTimer.Start("AuthMethodsBatch_$batchNumber")
+
+            # Build batch requests for auth methods (beta API)
+            $authBatchRequests = @($usersForAuth | ForEach-Object {
+                @{
+                    id = $_.id
+                    method = "GET"
+                    url = "/users/$($_.id)/authentication/methods"
+                }
+            })
+
+            # Build batch requests for MFA requirements (beta API)
+            $mfaBatchRequests = @($usersForAuth | ForEach-Object {
+                @{
+                    id = $_.id
+                    method = "GET"
+                    url = "/users/$($_.id)/authentication/requirements"
+                }
+            })
+
+            # Execute batch requests (beta API for auth methods)
+            $authMethodsResults = Invoke-GraphBatch -Requests $authBatchRequests -AccessToken $graphToken -ApiVersion "beta"
+            $mfaRequirementsResults = Invoke-GraphBatch -Requests $mfaBatchRequests -AccessToken $graphToken -ApiVersion "beta"
+
+            $perfTimer.Stop("AuthMethodsBatch_$batchNumber")
+        }
+
         # Process each user
         foreach ($user in $userBatch) {
             $userId = $user.id ?? ""
             $upn = $user.userPrincipalName ?? ""
             $accountEnabled = if ($null -ne $user.accountEnabled) { $user.accountEnabled } else { $null }
 
-            # Initialize auth methods fields (will be populated if we can fetch them)
+            # Initialize auth methods fields (will be populated from batch results)
             $perUserMfaState = $null
             $hasAuthenticator = $false
             $hasPhone = $false
@@ -256,68 +298,53 @@ try {
             $methodCount = 0
             $authMethodTypes = @()
 
-            # --- Collect Auth Methods for this user (embedded) ---
-            # Skip disabled accounts if configured
+            # --- Process Auth Methods from batch results ---
             $shouldCollectAuth = -not ($skipDisabledForAuthMethods -and $accountEnabled -eq $false)
 
             if ($shouldCollectAuth) {
-                try {
-                    # Get authentication methods
-                    $authMethodsUri = "https://graph.microsoft.com/beta/users/$userId/authentication/methods"
-                    try {
-                        $authMethodsResponse = Invoke-GraphWithRetry -Uri $authMethodsUri -AccessToken $graphToken
-                        if ($authMethodsResponse -and $authMethodsResponse.value) {
-                            foreach ($method in $authMethodsResponse.value) {
-                                $methodType = $method.'@odata.type' -replace '#microsoft.graph.', ''
-                                $authMethodTypes += $methodType
-                                $methodCount++
+                # Process auth methods from batch result
+                $authMethodsResponse = $authMethodsResults[$userId]
+                if ($null -ne $authMethodsResponse -and $authMethodsResponse.value) {
+                    foreach ($method in $authMethodsResponse.value) {
+                        $methodType = $method.'@odata.type' -replace '#microsoft.graph.', ''
+                        $authMethodTypes += $methodType
+                        $methodCount++
 
-                                switch ($methodType) {
-                                    'microsoftAuthenticatorAuthenticationMethod' { $hasAuthenticator = $true }
-                                    'phoneAuthenticationMethod' { $hasPhone = $true }
-                                    'fido2AuthenticationMethod' { $hasFido2 = $true }
-                                    'emailAuthenticationMethod' { $hasEmail = $true }
-                                    'passwordAuthenticationMethod' { $hasPassword = $true }
-                                    'temporaryAccessPassAuthenticationMethod' { $hasTap = $true }
-                                    'windowsHelloForBusinessAuthenticationMethod' { $hasWindowsHello = $true }
-                                    'softwareOathAuthenticationMethod' { $hasSoftwareOath = $true }
-                                }
-                            }
+                        switch ($methodType) {
+                            'microsoftAuthenticatorAuthenticationMethod' { $hasAuthenticator = $true }
+                            'phoneAuthenticationMethod' { $hasPhone = $true }
+                            'fido2AuthenticationMethod' { $hasFido2 = $true }
+                            'emailAuthenticationMethod' { $hasEmail = $true }
+                            'passwordAuthenticationMethod' { $hasPassword = $true }
+                            'temporaryAccessPassAuthenticationMethod' { $hasTap = $true }
+                            'windowsHelloForBusinessAuthenticationMethod' { $hasWindowsHello = $true }
+                            'softwareOathAuthenticationMethod' { $hasSoftwareOath = $true }
                         }
                     }
-                    catch {
-                        Write-Warning "Failed to get auth methods for user $upn`: $_"
-                        $authMethodsErrorCount++
-                    }
-
-                    # Get MFA requirements (per-user MFA state)
-                    $mfaRequirementsUri = "https://graph.microsoft.com/beta/users/$userId/authentication/requirements"
-                    try {
-                        $mfaResponse = Invoke-GraphWithRetry -Uri $mfaRequirementsUri -AccessToken $graphToken
-                        $perUserMfaState = $mfaResponse.perUserMfaState ?? $null
-                    }
-                    catch {
-                        Write-Warning "Failed to get MFA requirements for user $upn`: $_"
-                    }
-
-                    # Track MFA statistics
-                    switch ($perUserMfaState) {
-                        'enabled' { $mfaEnabledCount++ }
-                        'enforced' { $mfaEnforcedCount++ }
-                        'disabled' { $mfaDisabledCount++ }
-                    }
-
-                    if ($hasAuthenticator) { $usersWithAuthenticatorCount++ }
-                    if ($hasPhone) { $usersWithPhoneCount++ }
-                    if ($hasFido2) { $usersWithFido2Count++ }
-                    if ($hasWindowsHello) { $usersWithWindowsHelloCount++ }
-
-                    $authMethodsProcessedCount++
                 }
-                catch {
-                    Write-Warning "Error processing auth methods for user $upn`: $_"
+                elseif ($null -eq $authMethodsResponse) {
                     $authMethodsErrorCount++
                 }
+
+                # Process MFA requirements from batch result
+                $mfaResponse = $mfaRequirementsResults[$userId]
+                if ($null -ne $mfaResponse) {
+                    $perUserMfaState = $mfaResponse.perUserMfaState ?? $null
+                }
+
+                # Track MFA statistics
+                switch ($perUserMfaState) {
+                    'enabled' { $mfaEnabledCount++ }
+                    'enforced' { $mfaEnforcedCount++ }
+                    'disabled' { $mfaDisabledCount++ }
+                }
+
+                if ($hasAuthenticator) { $usersWithAuthenticatorCount++ }
+                if ($hasPhone) { $usersWithPhoneCount++ }
+                if ($hasFido2) { $usersWithFido2Count++ }
+                if ($hasWindowsHello) { $usersWithWindowsHelloCount++ }
+
+                $authMethodsProcessedCount++
             }
 
             # --- Look up risk data for this user (embedded) ---
@@ -541,6 +568,10 @@ try {
     [System.GC]::WaitForPendingFinalizers()
     [System.GC]::Collect()
 
+    # Log performance timing for batch optimization analysis
+    $perfTimer.LogSummary("CollectUsers")
+    $phaseTiming = $perfTimer.Summary()
+
     Write-Verbose "Collection activity completed successfully!"
 
     return @{
@@ -559,6 +590,7 @@ try {
         Summary                   = $summary
         Timestamp                 = $timestamp
         PrincipalsBlobName        = $principalsBlobName
+        PhaseTiming               = $phaseTiming
     }
 }
 catch {

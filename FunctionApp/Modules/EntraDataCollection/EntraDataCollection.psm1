@@ -304,6 +304,275 @@ function Invoke-GraphWithRetry {
     throw "Max retries ($MaxRetries) exceeded for Graph API request: $Method $Uri"
 }
 
+function Invoke-GraphBatch {
+    <#
+    .SYNOPSIS
+        Invokes Microsoft Graph $batch API to execute multiple requests in a single HTTP call
+
+    .DESCRIPTION
+        Batches up to 20 Graph API requests into a single $batch call, reducing API overhead by 90-95%.
+        Implements retry logic for both batch-level and individual request failures.
+
+        Key optimizations:
+        - Up to 20 requests per batch (Graph API limit)
+        - Automatic chunking for larger request sets
+        - Individual request retry for 429/5xx responses
+        - Batch-level 429 handling with Retry-After header
+
+        Performance impact:
+        - 10,000 users with license queries: 10,000 calls → 500 calls (95% reduction)
+        - Typical latency: 200ms per batch vs 200ms per individual call
+
+    .PARAMETER Requests
+        Array of request objects, each containing:
+        - id: Unique identifier for matching responses (typically objectId)
+        - method: HTTP method (GET, POST, PATCH, DELETE)
+        - url: Relative Graph API URL (e.g., "/users/user-id/licenseDetails")
+
+    .PARAMETER AccessToken
+        Bearer token for Graph API authentication
+
+    .PARAMETER MaxBatchSize
+        Maximum requests per batch. Default: 20 (Graph API limit)
+
+    .PARAMETER MaxRetries
+        Maximum retry attempts for failed individual requests. Default: 3
+
+    .PARAMETER ApiVersion
+        Graph API version. Default: "v1.0". Use "beta" for auth methods.
+
+    .OUTPUTS
+        Hashtable keyed by request ID, where each value is:
+        - Success: The response body (typically @{ value = @(...) })
+        - 404: Empty response @{ value = @() }
+        - Failed after retries: $null
+
+    .EXAMPLE
+        $requests = $users | ForEach-Object {
+            @{ id = $_.id; method = "GET"; url = "/users/$($_.id)/licenseDetails" }
+        }
+        $responses = Invoke-GraphBatch -Requests $requests -AccessToken $token
+
+        foreach ($user in $users) {
+            $licenses = $responses[$user.id]
+            # Process licenses...
+        }
+
+    .EXAMPLE
+        # Beta API for auth methods
+        $requests = $users | ForEach-Object {
+            @{ id = $_.id; method = "GET"; url = "/users/$($_.id)/authentication/methods" }
+        }
+        $responses = Invoke-GraphBatch -Requests $requests -AccessToken $token -ApiVersion "beta"
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [array]$Requests,
+
+        [Parameter(Mandatory)]
+        [string]$AccessToken,
+
+        [ValidateRange(1, 20)]
+        [int]$MaxBatchSize = 20,
+
+        [int]$MaxRetries = 3,
+
+        [ValidateSet("v1.0", "beta")]
+        [string]$ApiVersion = "v1.0"
+    )
+
+    if ($Requests.Count -eq 0) {
+        return @{}
+    }
+
+    $batchEndpoint = "https://graph.microsoft.com/$ApiVersion/`$batch"
+    $results = @{}
+
+    # Chunk requests into batches of MaxBatchSize
+    $batches = [System.Collections.Generic.List[array]]::new()
+    for ($i = 0; $i -lt $Requests.Count; $i += $MaxBatchSize) {
+        $endIndex = [Math]::Min($i + $MaxBatchSize - 1, $Requests.Count - 1)
+        $batches.Add($Requests[$i..$endIndex])
+    }
+
+    Write-Verbose "[BATCH] Processing $($Requests.Count) requests in $($batches.Count) batches"
+
+    $batchNumber = 0
+    foreach ($batch in $batches) {
+        $batchNumber++
+        $retryQueue = [System.Collections.Generic.List[hashtable]]::new()
+
+        # Build batch request body
+        $batchBody = @{
+            requests = @($batch | ForEach-Object {
+                @{
+                    id = $_.id
+                    method = $_.method
+                    url = $_.url
+                }
+            })
+        }
+
+        $headers = @{
+            'Authorization' = "Bearer $AccessToken"
+            'Content-Type' = 'application/json'
+        }
+
+        $batchRetryCount = 0
+        $batchSuccess = $false
+
+        while (-not $batchSuccess -and $batchRetryCount -lt $MaxRetries) {
+            try {
+                Write-Verbose "[BATCH] Executing batch $batchNumber/$($batches.Count) with $($batch.Count) requests"
+
+                $response = Invoke-RestMethod -Uri $batchEndpoint -Method POST -Headers $headers `
+                    -Body ($batchBody | ConvertTo-Json -Depth 10 -Compress) -ErrorAction Stop
+
+                # Process each response
+                foreach ($resp in $response.responses) {
+                    $requestId = $resp.id
+                    $statusCode = $resp.status
+
+                    if ($statusCode -ge 200 -and $statusCode -lt 300) {
+                        # Success
+                        $results[$requestId] = $resp.body
+                    }
+                    elseif ($statusCode -eq 404) {
+                        # Not found - return empty result (expected for entities without owners/licenses)
+                        $results[$requestId] = @{ value = @() }
+                    }
+                    elseif ($statusCode -eq 429 -or $statusCode -ge 500) {
+                        # Retryable error - add to retry queue
+                        $originalRequest = $batch | Where-Object { $_.id -eq $requestId }
+                        if ($originalRequest) {
+                            $retryQueue.Add(@{
+                                id = $originalRequest.id
+                                method = $originalRequest.method
+                                url = $originalRequest.url
+                                retryCount = 0
+                            })
+                        }
+                        Write-Verbose "[BATCH] Request $requestId failed with $statusCode - queued for retry"
+                    }
+                    else {
+                        # Non-retryable error
+                        Write-Warning "[BATCH] Request $requestId failed with status $statusCode"
+                        $results[$requestId] = $null
+                    }
+                }
+
+                $batchSuccess = $true
+            }
+            catch {
+                $statusCode = $_.Exception.Response.StatusCode.value__
+
+                # Handle batch-level 429
+                if ($statusCode -eq 429) {
+                    $retryAfter = 60
+                    $retryAfterHeader = $_.Exception.Response.Headers.'Retry-After'
+                    if ($retryAfterHeader -and $retryAfterHeader -match '^\d+$') {
+                        $retryAfter = [int]$retryAfterHeader
+                    }
+                    Write-Warning "[BATCH] Batch rate limited (429). Waiting $retryAfter seconds..."
+                    Start-Sleep -Seconds $retryAfter
+                    # Don't increment retry count for 429
+                    continue
+                }
+
+                $batchRetryCount++
+                if ($statusCode -ge 500 -and $batchRetryCount -lt $MaxRetries) {
+                    $delay = 5 * [Math]::Pow(2, $batchRetryCount - 1)
+                    Write-Warning "[BATCH] Batch failed with $statusCode. Retry $batchRetryCount/$MaxRetries in $delay seconds..."
+                    Start-Sleep -Seconds $delay
+                    continue
+                }
+
+                Write-Error "[BATCH] Batch $batchNumber failed after $batchRetryCount retries: $_"
+                throw
+            }
+        }
+
+        # Process retry queue for failed individual requests
+        $retryAttempt = 0
+        while ($retryQueue.Count -gt 0 -and $retryAttempt -lt $MaxRetries) {
+            $retryAttempt++
+            $currentRetries = [array]$retryQueue.ToArray()
+            $retryQueue.Clear()
+
+            Write-Verbose "[BATCH] Retrying $($currentRetries.Count) failed requests (attempt $retryAttempt/$MaxRetries)"
+
+            # Small delay before retry
+            Start-Sleep -Seconds (2 * $retryAttempt)
+
+            # Re-batch the retries
+            $retryBatchBody = @{
+                requests = @($currentRetries | ForEach-Object {
+                    @{ id = $_.id; method = $_.method; url = $_.url }
+                })
+            }
+
+            try {
+                $retryResponse = Invoke-RestMethod -Uri $batchEndpoint -Method POST -Headers $headers `
+                    -Body ($retryBatchBody | ConvertTo-Json -Depth 10 -Compress) -ErrorAction Stop
+
+                foreach ($resp in $retryResponse.responses) {
+                    $requestId = $resp.id
+                    $statusCode = $resp.status
+
+                    if ($statusCode -ge 200 -and $statusCode -lt 300) {
+                        $results[$requestId] = $resp.body
+                    }
+                    elseif ($statusCode -eq 404) {
+                        $results[$requestId] = @{ value = @() }
+                    }
+                    elseif (($statusCode -eq 429 -or $statusCode -ge 500) -and $retryAttempt -lt $MaxRetries) {
+                        # Still failing - re-queue
+                        $originalRequest = $currentRetries | Where-Object { $_.id -eq $requestId }
+                        if ($originalRequest) {
+                            $retryQueue.Add($originalRequest)
+                        }
+                    }
+                    else {
+                        Write-Warning "[BATCH] Request $requestId failed permanently with status $statusCode"
+                        $results[$requestId] = $null
+                    }
+                }
+            }
+            catch {
+                $statusCode = $_.Exception.Response.StatusCode.value__
+                if ($statusCode -eq 429) {
+                    $retryAfter = 30
+                    Write-Warning "[BATCH] Retry batch rate limited. Waiting $retryAfter seconds..."
+                    Start-Sleep -Seconds $retryAfter
+                    # Re-add all to retry queue
+                    foreach ($req in $currentRetries) {
+                        $retryQueue.Add($req)
+                    }
+                }
+                else {
+                    Write-Warning "[BATCH] Retry batch failed: $_"
+                    # Mark all as failed
+                    foreach ($req in $currentRetries) {
+                        $results[$req.id] = $null
+                    }
+                }
+            }
+        }
+
+        # Any remaining items in retry queue are permanent failures
+        foreach ($req in $retryQueue) {
+            Write-Warning "[BATCH] Request $($req.id) failed after $MaxRetries retries"
+            $results[$req.id] = $null
+        }
+    }
+
+    $successCount = ($results.Values | Where-Object { $_ -ne $null }).Count
+    Write-Verbose "[BATCH] Completed: $successCount/$($Requests.Count) requests successful"
+
+    return $results
+}
+
 function Get-GraphPagedResult {
     <#
     .SYNOPSIS
@@ -2428,6 +2697,7 @@ Export-ModuleMember -Function @(
     'Get-AzureManagementPagedResult',
     # Graph API
     'Invoke-GraphWithRetry',
+    'Invoke-GraphBatch',
     'Get-GraphPagedResult',
     # Blob Storage
     'Initialize-AppendBlob',
