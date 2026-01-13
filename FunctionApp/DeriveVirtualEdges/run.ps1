@@ -17,7 +17,7 @@
     Output: Derived gate edges written to edges container
 #>
 
-param($ActivityInput)
+param($ActivityInput, $compliancePoliciesIn, $appProtectionPoliciesIn)
 
 #region Import Module
 try {
@@ -32,76 +32,13 @@ catch {
 }
 #endregion
 
-#region Helper Function - Invoke-CosmosDbQuery (must be defined before use)
-function Invoke-CosmosDbQuery {
-    param(
-        [string]$Endpoint,
-        [string]$Key,
-        [string]$DatabaseName,
-        [string]$ContainerName,
-        [string]$Query,
-        [string]$PartitionKey
-    )
-
-    $resourceLink = "dbs/$DatabaseName/colls/$ContainerName"
-    $uri = "$Endpoint$resourceLink/docs"
-
-    $dateString = [DateTime]::UtcNow.ToString("r")
-
-    # Generate auth signature - Cosmos DB REST API format:
-    # StringToSign = verb + "\n" + resourceType + "\n" + resourceLink + "\n" + date + "\n" + ""
-    # For POST /dbs/{db}/colls/{coll}/docs: resourceType = "docs", resourceLink = "dbs/{db}/colls/{coll}"
-    $keyBytes = [Convert]::FromBase64String($Key)
-    $stringToSign = "post`ndocs`n$($resourceLink.ToLower())`n$($dateString.ToLower())`n`n"
-    $hmac = New-Object System.Security.Cryptography.HMACSHA256
-    $hmac.Key = $keyBytes
-    $hashBytes = $hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($stringToSign))
-    $signature = [Convert]::ToBase64String($hashBytes)
-    $authHeader = [Uri]::EscapeDataString("type=master&ver=1.0&sig=$signature")
-
-    $headers = @{
-        "Authorization" = $authHeader
-        "x-ms-date" = $dateString
-        "x-ms-version" = "2018-12-31"
-        "Content-Type" = "application/query+json"
-        "x-ms-documentdb-isquery" = "true"
-        "x-ms-documentdb-query-enablecrosspartition" = "true"
-    }
-
-    if ($PartitionKey) {
-        $headers["x-ms-documentdb-partitionkey"] = "[`"$PartitionKey`"]"
-    }
-
-    $body = @{
-        query = $Query
-    } | ConvertTo-Json
-
-    $results = @()
-    $continuationToken = $null
-
-    do {
-        if ($continuationToken) {
-            $headers["x-ms-continuation"] = $continuationToken
-        }
-
-        try {
-            $response = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body $body
-            $results += $response.Documents
-            $continuationToken = $response.Headers["x-ms-continuation"]
-        }
-        catch {
-            Write-Warning "Cosmos DB query failed: $_"
-            break
-        }
-    } while ($continuationToken)
-
-    return $results
-}
-#endregion
+# NOTE: This function uses Cosmos DB input bindings defined in function.json
+# - compliancePoliciesIn: Compliance policies from Cosmos
+# - appProtectionPoliciesIn: App protection policies from Cosmos
 
 #region Function Logic
 try {
-    Write-Verbose "Starting virtual edge derivation from Intune policies"
+    Write-Information "DERIVE-VIRTUAL-DEBUG: === Starting DeriveVirtualEdges ===" -InformationAction Continue
 
     # Get timestamp from orchestrator
     if ($ActivityInput -and $ActivityInput.Timestamp) {
@@ -112,23 +49,6 @@ try {
         Write-Warning "No orchestrator timestamp - using local: $timestamp"
     }
     $timestampFormatted = $timestamp -replace 'T(\d{2})-(\d{2})-(\d{2})Z', 'T$1:$2:$3Z'
-
-    # Get Cosmos DB connection info
-    $cosmosConnectionString = $env:CosmosDbConnectionString
-    if (-not $cosmosConnectionString) {
-        throw "CosmosDbConnectionString environment variable not set"
-    }
-
-    # Parse connection string
-    $connParts = @{}
-    $cosmosConnectionString.Split(';') | ForEach-Object {
-        if ($_ -match '(.+?)=(.+)') {
-            $connParts[$matches[1]] = $matches[2]
-        }
-    }
-    $cosmosEndpoint = $connParts['AccountEndpoint']
-    $cosmosKey = $connParts['AccountKey']
-    $databaseName = "EntraData"
 
     # Stats tracking
     $stats = @{
@@ -145,47 +65,13 @@ try {
     # Collected virtual edges
     $virtualEdges = [System.Collections.Generic.List[object]]::new()
 
-    #region Query Policies from Cosmos DB
-    Write-Verbose "=== Querying Intune Policies from Cosmos DB ==="
+    # Use input bindings from function.json instead of REST API queries
+    # These are already filtered by policyType and deleted status
+    $compliancePolicies = if ($compliancePoliciesIn) { @($compliancePoliciesIn) } else { @() }
+    $appProtectionPolicies = if ($appProtectionPoliciesIn) { @($appProtectionPoliciesIn) } else { @() }
 
-    # Query compliance policies - use same deleted check pattern as Dashboard
-    # In Cosmos DB, c.deleted != true doesn't match when deleted is undefined/null
-    $complianceQuery = "SELECT * FROM c WHERE c.policyType = 'compliancePolicy' AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
-    $appProtectionQuery = "SELECT * FROM c WHERE c.policyType = 'appProtectionPolicy' AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
-
-    $compliancePolicies = @()
-    $appProtectionPolicies = @()
-
-    try {
-        $compliancePolicies = Invoke-CosmosDbQuery -Endpoint $cosmosEndpoint `
-                                                     -Key $cosmosKey `
-                                                     -DatabaseName $databaseName `
-                                                     -ContainerName "policies" `
-                                                     -Query $complianceQuery `
-                                                     -PartitionKey "compliancePolicy"
-
-        Write-Verbose "Found $($compliancePolicies.Count) compliance policies"
-    }
-    catch {
-        Write-Warning "Error querying compliance policies: $_"
-        $stats.Errors++
-    }
-
-    try {
-        $appProtectionPolicies = Invoke-CosmosDbQuery -Endpoint $cosmosEndpoint `
-                                                        -Key $cosmosKey `
-                                                        -DatabaseName $databaseName `
-                                                        -ContainerName "policies" `
-                                                        -Query $appProtectionQuery `
-                                                        -PartitionKey "appProtectionPolicy"
-
-        Write-Verbose "Found $($appProtectionPolicies.Count) app protection policies"
-    }
-    catch {
-        Write-Warning "Error querying app protection policies: $_"
-        $stats.Errors++
-    }
-    #endregion
+    Write-Information "DERIVE-VIRTUAL-DEBUG: Input binding: $($compliancePolicies.Count) compliance policies" -InformationAction Continue
+    Write-Information "DERIVE-VIRTUAL-DEBUG: Input binding: $($appProtectionPolicies.Count) app protection policies" -InformationAction Continue
 
     #region Phase 1: Derive Compliance Policy Target Edges
     Write-Verbose "=== Phase 1: Deriving Compliance Policy Target Edges ==="
@@ -401,16 +287,20 @@ try {
     #endregion
 
     $stats.TotalDerived = $virtualEdges.Count
-    Write-Verbose "Derived $($stats.TotalDerived) virtual edges total"
-    Write-Verbose "  Compliance policy targets: $($stats.CompliancePolicyTargetEdges)"
-    Write-Verbose "  App protection policy targets: $($stats.AppProtectionPolicyTargetEdges)"
+    Write-Information "DERIVE-VIRTUAL-DEBUG: Derived $($stats.TotalDerived) virtual edges total" -InformationAction Continue
+    Write-Information "DERIVE-VIRTUAL-DEBUG: Compliance policy targets: $($stats.CompliancePolicyTargetEdges)" -InformationAction Continue
+    Write-Information "DERIVE-VIRTUAL-DEBUG: App protection policy targets: $($stats.AppProtectionPolicyTargetEdges)" -InformationAction Continue
 
     # Output to Cosmos DB via output binding
     if ($virtualEdges.Count -gt 0) {
+        Write-Information "DERIVE-VIRTUAL-DEBUG: Pushing $($virtualEdges.Count) edges to Cosmos output binding" -InformationAction Continue
         Push-OutputBinding -Name edgesOut -Value $virtualEdges
-        Write-Verbose "Pushed $($virtualEdges.Count) virtual edges to Cosmos DB"
+        Write-Information "DERIVE-VIRTUAL-DEBUG: Push complete!" -InformationAction Continue
+    } else {
+        Write-Warning "DERIVE-VIRTUAL-WARNING: No virtual edges to push - check if policies have assignments"
     }
 
+    Write-Information "DERIVE-VIRTUAL-DEBUG: === DeriveVirtualEdges Complete ===" -InformationAction Continue
     return @{
         Success = $true
         Statistics = $stats
@@ -420,8 +310,8 @@ try {
 }
 catch {
     $errorMsg = "DeriveVirtualEdges failed: $($_.Exception.Message)"
-    Write-Error $errorMsg
-    Write-Error $_.ScriptStackTrace
+    Write-Error "DERIVE-VIRTUAL-ERROR: $errorMsg"
+    Write-Error "DERIVE-VIRTUAL-ERROR: Stack: $($_.ScriptStackTrace)"
     return @{
         Success = $false
         Error = $errorMsg

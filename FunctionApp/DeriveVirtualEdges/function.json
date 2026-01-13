@@ -6,6 +6,24 @@
       "direction": "in"
     },
     {
+      "name": "compliancePoliciesIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "policies",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT * FROM c WHERE c.policyType = 'compliancePolicy' AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+    },
+    {
+      "name": "appProtectionPoliciesIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "policies",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT * FROM c WHERE c.policyType = 'appProtectionPolicy' AND (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+    },
+    {
       "name": "edgesOut",
       "type": "cosmosDB",
       "direction": "out",

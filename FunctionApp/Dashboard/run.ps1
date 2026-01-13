@@ -312,7 +312,7 @@ try {
     $userPriority = @('objectId', 'displayName', 'userPrincipalName', 'accountEnabled', 'userType', 'perUserMfaState', 'authMethodCount', 'riskLevel', 'riskState', 'riskLastUpdatedDateTime', 'isAtRisk', 'hasP2License', 'hasE5License', 'licenseCount', 'assignedLicenseSkus', 'mail', 'jobTitle', 'department', 'createdDateTime', 'lastPasswordChangeDateTime', 'onPremisesSyncEnabled')
     $groupPriority = @('objectId', 'displayName', 'securityEnabled', 'groupTypes', 'groupTypeCategory', 'memberCountDirect', 'memberCountIndirect', 'memberCountTotal', 'userMemberCount', 'groupMemberCount', 'servicePrincipalMemberCount', 'deviceMemberCount', 'nestingDepth', 'isAssignableToRole', 'mail', 'visibility', 'createdDateTime', 'onPremisesSyncEnabled')
     $spPriority = @('objectId', 'displayName', 'appId', 'servicePrincipalType', 'accountEnabled', 'secretCount', 'certificateCount', 'createdDateTime', 'appOwnerOrganizationId')
-    $devicePriority = @('objectId', 'displayName', 'deviceId', 'operatingSystem', 'operatingSystemVersion', 'isCompliant', 'isManaged', 'trustType', 'registrationDateTime', 'approximateLastSignInDateTime')
+    $devicePriority = @('objectId', 'displayName', 'deviceId', 'operatingSystem', 'operatingSystemVersion', 'isCompliant', 'isManaged', 'trustType', 'intunePrimaryUser', 'usersLoggedOn', 'registrationDateTime', 'approximateLastSignInDateTime')
     $adminUnitPriority = @('objectId', 'displayName', 'description', 'membershipType', 'memberCountTotal', 'userMemberCount', 'groupMemberCount', 'deviceMemberCount', 'scopedRoleCount', 'membershipRule', 'isMemberManagementRestricted', 'visibility')
     $appPriority = @('objectId', 'displayName', 'appId', 'signInAudience', 'secretCount', 'certificateCount', 'createdDateTime', 'publisherDomain')
     $azureResPriority = @('objectId', 'displayName', 'resourceType', 'owners', 'location', 'subscriptionId', 'resourceGroup', 'kind', 'sku')
@@ -364,7 +364,7 @@ try {
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Entra Risk Debug Dashboard</title>
+    <title>Debug Dashboard - Entra Risk</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 20px; background: #f0f2f5; }
@@ -471,7 +471,7 @@ try {
     </script>
 </head>
 <body>
-    <h1>Entra Risk Debug Dashboard</h1>
+    <h1>Debug Dashboard <small style="font-size:0.5em;color:#666;">(Entra Risk v3.5)</small></h1>
     <div class="summary">
         <b>Container Counts</b> |
         Principals: <b>$($allPrincipals.Count)</b> (U:$($users.Count) G:$($groups.Count) SP:$($sps.Count) D:$($devices.Count) AU:$($adminUnits.Count)) |

@@ -1664,61 +1664,62 @@ Ranked from **easiest** (least likely to break anything) to **hardest** (signifi
 
 ### 🟢 TIER 1: TRIVIAL (< 10 lines, config changes only)
 
-| # | Task | Status | Change Required | Risk |
-|---|------|--------|-----------------|------|
-| 1 | Increase Cosmos parallelism to 25 | ✅ Done | `$ParallelThrottle = 25` in EntraDataCollection.psm1 | None |
-| 2 | Increase blob buffer to 2MB | ✅ Done | `$writeThreshold = 2000000` in 6 collectors | None |
-| 3 | Hide isDeleted column | ✅ Done | Already in `$excludeFields` array | None |
-| 4 | Remove V3.5/AI-generated comments | ✅ Done | Removed 60+ references | None |
+| # | Task | Status | Change Required | Risk | Verified |
+|---|------|--------|-----------------|------|----------|
+| 1 | Increase Cosmos parallelism to 25 | ✅ Done | `$ParallelThrottle = 25` in EntraDataCollection.psm1 | None | Yes |
+| 2 | Increase blob buffer to 2MB | ✅ Done | `$writeThreshold = 2000000` in 6 collectors | None | Yes |
+| 3 | Hide isDeleted column | ✅ Done | Already in `$excludeFields` array | None | Yes |
+| 4 | Remove V3.5/AI-generated comments | ✅ Done | Removed 60+ references | None | Yes |
 
 ### 🟡 TIER 2: EASY (10-50 lines, isolated changes)
 
-| # | Task | Status | Change Required | Risk |
-|---|------|--------|-----------------|------|
-| 5 | Trim $select fields across all collectors | ✅ Done | Removed 16 rarely-used fields across 5 collectors - 2026-01-12 | None |
-| 6 | Move helper functions to psm1 module | Pending | Copy/paste functions, add Export-ModuleMember | Low |
-| 7 | Groups groupTypeCategory | ✅ Done | Already implemented - deployed 2026-01-12 | None |
-| 8 | ~~Move privileged roles to config file~~ | N/A | CollectRoleDefinitions removed - see Task #40 | None |
-| 9 | Optimize JSONL - exclude null properties | Pending | Add filter before JSON conversion | Low |
+| # | Task | Status | Change Required | Risk | Verified |
+|---|------|--------|-----------------|------|----------|
+| 5 | Trim $select fields across all collectors | ✅ Done | Removed 16 rarely-used fields across 5 collectors - 2026-01-12 | None | Yes |
+| 6 | Move helper functions to psm1 module | N/A | Investigation: Helper functions are collector-specific (Dashboard UI, Graph DOT, Cosmos master key). No benefit to centralizing - 2026-01-13 | None | Yes |
+| 7 | Groups groupTypeCategory | ✅ Done | Dashboard shows groupTypeCategory column with "Assigned" values - VERIFIED 2026-01-13 | None | Yes |
+| 8 | ~~Move privileged roles to config file~~ | N/A | CollectRoleDefinitions removed - see Task #40 | None | Yes |
+| 9 | Optimize JSONL - exclude null properties | Deferred | `ConvertTo-CompactJson` exists in module but unused. 310+ occurrences of `ConvertTo-Json -Compress` - risky to change without thorough testing. Consider for v3.6 | Low | Yes |
 
 ### 🟠 TIER 3: MODERATE (50-150 lines, multiple files)
 
-| # | Task | Status | Change Required | Risk |
-|---|------|--------|-----------------|------|
-| 10 | Add usersLoggedOn to device tracking | Pending | Add field to CollectDevices, IndexerConfigs, Dashboard | Low |
-| 11 | Enhance Historical Changes tab | ✅ Done | Added sub-tabs: All, Principals, Policies, Resources, Edges - 2026-01-12 | Medium |
-| 12 | Rename Dashboard + add debug metrics | ✅ Done | Renamed + added debug metrics (data age, newest/oldest timestamps, change breakdown, data quality checks) - 2026-01-13 | Medium |
-| 13 | Investigate Dashboard > Role Policies | ✅ Done | Investigation: Working as designed, filters roleManagement* policyTypes - 2026-01-12 | None |
-| 14 | Audit edges and data points | ✅ Done | Investigation: Dynamic columns already filter empty values via Get-AllColumns - 2026-01-12 | None |
-| 15 | ~~Investigate Dashboard > Azure Roles~~ | ✅ Done | Removed entirely - see Task #40 | None |
-| 16 | Investigate Edges > Intune Policies | ✅ Done | BUG FIXED: DeriveVirtualEdges query used `c.deleted != true` which doesn't match undefined. Changed to `(NOT IS_DEFINED(c.deleted) OR c.deleted = false)` - 2026-01-13 | None |
-| 38 | Review collector frequencies | Pending | Depends on #17 (Delta Query) - see consistency risks | Low |
-| 39 | Investigate risky sign-ins vs risky users | Pending | Does `/auditLogs/signIns` add value over existing `riskLevel` field? | Low |
-| 40 | ~~Replace CollectRoleDefinitions with static file~~ | ✅ Done | **REMOVED ENTIRELY** - Role definitions are static reference data, nothing depends on them. Saves API calls, Cosmos writes, 5MB dashboard payload. 2026-01-12 | None |
+| # | Task | Status | Change Required | Risk | Verified |
+|---|------|--------|-----------------|------|----------|
+| 10 | Add usersLoggedOn to device tracking | ✅ Done | Code deployed, columns visible in Dashboard. Devices show null because tenant has no Intune-managed devices (isManaged=null) - VERIFIED 2026-01-13 | Low | Yes |
+| 11 | Enhance Historical Changes tab | ✅ Done | Added sub-tabs: All, Principals, Policies, Resources, Edges - 2026-01-12 | Medium | Yes |
+| 12 | Rename Dashboard + add debug metrics | ✅ Done | Renamed + added debug metrics (data age, newest/oldest timestamps, change breakdown, data quality checks) - 2026-01-13 | Medium | Yes |
+| 13 | Investigate Dashboard > Role Policies | ✅ Done | Investigation: Working as designed, filters roleManagement* policyTypes - 2026-01-12 | None | Yes |
+| 14 | Audit edges and data points | ✅ Done | Investigation: Dynamic columns already filter empty values via Get-AllColumns - 2026-01-12 | None | Yes |
+| 15 | ~~Investigate Dashboard > Azure Roles~~ | ✅ Done | Removed entirely - see Task #40 | None | Yes |
+| 16 | Investigate Edges > Intune Policies | ✅ FIXED | BUG FIXED: Changed to input bindings instead of REST API. Dashboard now shows **15 Intune Policy edges** - VERIFIED 2026-01-13 | None | Yes |
+| 38 | Review collector frequencies | Pending | Depends on #17 (Delta Query) - see consistency risks | Low | No |
+| 39 | Investigate risky sign-ins vs risky users | Pending | Does `/auditLogs/signIns` add value over existing `riskLevel` field? | Low | No |
+| 40 | ~~Replace CollectRoleDefinitions with static file~~ | ✅ Done | **REMOVED ENTIRELY** - Role definitions are static reference data, nothing depends on them. Saves API calls, Cosmos writes, 5MB dashboard payload. 2026-01-12 | None | Yes |
 
 ### 🔴 TIER 4: SIGNIFICANT (150-500 lines, architectural changes)
 
-| # | Task | Status | Change Required | Risk |
-|---|------|--------|-----------------|------|
-| 17 | Implement Graph Delta Query API. Investigate using e.g. /users/delta instead of /users to get only changed entities. The devices Graph API also has delta capabilities. What else in the solution can use delta endpoints? | Pending | See `/docs/Epic 0-plan-delta-Architecture.md` | Medium |
-| 18 | Audit - Who Made Changes feature | Pending | New collection from /auditLogs/directoryAudits | Medium |
-| 19 | Expand Intune/Devices collection | Pending | New API calls (ASR, Settings catalog, Baselines, etc) | Medium |
-| 20 | Null vs Blank values fix | ✅ Done | INVESTIGATION COMPLETE: Dashboard shows 0 empty cells, 0 quality issues. `?? ""` pattern (310 occurrences) is intentional for clean display. Enrichment logic working for RBAC edges. No action needed - 2026-01-13 | None |
+| # | Task | Status | Change Required | Risk | Verified |
+|---|------|--------|-----------------|------|----------|
+| 17 | Implement Graph Delta Query API. Investigate using e.g. /users/delta instead of /users to get only changed entities. The devices Graph API also has delta capabilities. What else in the solution can use delta endpoints? | Pending | See `/docs/Epic 0-plan-delta-Architecture.md` | Medium | No |
+| 18 | Audit - Who Made Changes feature | Pending | New collection from /auditLogs/directoryAudits | Medium | No |
+| 19 | Expand Intune/Devices collection | Pending | New API calls (ASR, Settings catalog, Baselines, etc) | Medium | No |
+| 20 | Null vs Blank values fix | ✅ Done | INVESTIGATION COMPLETE: Dashboard shows 0 empty cells, 0 quality issues. `?? ""` pattern (310 occurrences) is intentional for clean display. Enrichment logic working for RBAC edges. No action needed - 2026-01-13 | None | Yes |
 
 ### ⛔ TIER 5: MAJOR (500+ lines, refactoring required)
 
-| # | Task | Status | Change Required | Risk |
-|---|------|--------|-----------------|------|
-| 21 | **Graph $batch API** | ✅ Done | Implemented `Invoke-GraphBatch` - 95% API call reduction across 4 collectors - 2026-01-12 | High |
-| 22 | Inverstigate attack path features | Pending | New algorithms for edge weights, path scoring | High |
-| 23 | Evaluate Purview integration | Pending | New integration, APIs, data model - see Epic 3-Purview DLP 2.md | High |
+| # | Task | Status | Change Required | Risk | Verified |
+|---|------|--------|-----------------|------|----------|
+| 21 | **Graph $batch API** | ✅ Done | Implemented `Invoke-GraphBatch` - 94.4% API call reduction (826→46 calls) - RUNTIME VERIFIED 2026-01-13 | High | **Yes** |
+| 22 | Inverstigate attack path features | Pending | New algorithms for edge weights, path scoring | High | No |
+| 23 | Evaluate Purview integration | Pending | New integration, APIs, data model - see Epic 3-Purview DLP 2.md | High | No |
 
 ### 📤 TIER 2.5: DASHBOARD EXPORT FEATURE
 
-| # | Task | Status | Change Required | Risk |
-|---|------|--------|-----------------|------|
-| 41 | **Dashboard Export to CSV/JSON** | ✅ Done | Added CSV/JSON export buttons to all 5 sections, filenames include tab name (e.g., principals-users.csv) - 2026-01-12 | Low |
-| 42 | **Audit completed tasks for accuracy** | ✅ Done | **AUDIT COMPLETED 2026-01-13** - See findings below | High |
+| # | Task | Status | Change Required | Risk | Verified |
+|---|------|--------|-----------------|------|----------|
+| 41 | **Dashboard Export to CSV/JSON** | ✅ Done | Added CSV/JSON export buttons to all 5 sections - VERIFIED 2026-01-13 | Low | Yes |
+| 42 | **Audit completed tasks for accuracy** | ✅ Done | **AUDIT COMPLETED 2026-01-13** - See findings below | High | Yes |
+| 43 | **Dashboard Pagination** | Pending | User requested: Dashboard takes too long to load. Implement top 50/100 results per section | Low | No |
 
 ### Task 42 Audit Findings (2026-01-13)
 
@@ -1765,7 +1766,7 @@ curl -s "DASHBOARD_URL" | grep -E "AU Scoped|OAuth2|PIM Requests|Role Policy"
 | 7 - groupTypeCategory | `curl ... \| grep 'Assigned\|Dynamic\|Microsoft 365'` | ✅ 41 Assigned, 5 Dynamic, 6 M365 |
 | 11 - Historical sub-tabs | `curl ... \| grep 'audit-section' -A 30` | ✅ All(500), Principals(23), Policies(17), Resources(1), Edges(459) |
 | 12 - Debug metrics | `curl ... \| grep 'Debug Metrics'` | ✅ Data Age: 59.8 min, realistic timestamps, +0/~60/-440 |
-| 21 - Invoke-GraphBatch | `grep 'Invoke-GraphBatch'` across FunctionApp | ✅ 11+ calls in 4 collectors |
+| 21 - Invoke-GraphBatch | App Insights: `traces \| where message contains 'BATCH'` | ✅ 826→46 calls (94.4% reduction) - RUNTIME VERIFIED 2026-01-13 |
 | 40 - CollectRoleDefinitions | `ls FunctionApp/ \| grep role` | ✅ Folder does not exist |
 | 41 - CSV/JSON export | `curl ... \| grep 'exportTo'` | ✅ Functions and buttons present |
 
@@ -1825,30 +1826,30 @@ A new "Alpenglow Dashboard" will be created as a separate Function App 2 with:
 
 ### Dashboard Separation Tasks
 
-| # | Task | Status | Notes |
-|---|------|--------|-------|
-| 25 | Rename current Dashboard to "Debug Dashboard" in UI | Pending | Update HTML title and header |
-| 26 | Create Function App 2 infrastructure (Bicep/ARM) | Pending | Separate Function App for Alpenglow Dashboard |
-| 27 | Extract Dashboard function to new Function App | Pending | Copy Dashboard folder + dependencies |
-| 28 | Configure Managed Identity with read-only Cosmos access | Pending | No Graph API permissions |
-| 29 | Update deployment scripts for multi-Function App deploy | Pending | deploy.ps1 modifications |
+| # | Task | Status | Notes | Verified |
+|---|------|--------|-------|----------|
+| 25 | Rename current Dashboard to "Debug Dashboard" in UI | ✅ Done | Title: "Debug Dashboard - Entra Risk", Header: "Debug Dashboard (Entra Risk v3.5)" - 2026-01-13 | Yes |
+| 26 | Create Function App 2 infrastructure (Bicep/ARM) | Pending | Separate Function App for Alpenglow Dashboard | No |
+| 27 | Extract Dashboard function to new Function App | Pending | Copy Dashboard folder + dependencies | No |
+| 28 | Configure Managed Identity with read-only Cosmos access | Pending | No Graph API permissions | No |
+| 29 | Update deployment scripts for multi-Function App deploy | Pending | deploy.ps1 modifications | No |
 
 ### Design Refinement Tasks
 
-| # | Task | Status | Notes |
-|---|------|--------|-------|
-| 30 | Design relationship visualization strategy | Pending | How to show edges without Gremlin - tables, matrix, mini-graphs? |
-| 31 | Define historical trends implementation | Pending | Chart.js/SVG, data sources, 90-day trend storage |
-| 32 | Finalize landing page security posture cards | Pending | 5 cards: Privileged Access, Auth, CA, Azure, Apps |
-| 33 | Design detail panel interactions | Pending | Slide-in panels, entity drill-down |
-| 34 | Create static demo site specification | Pending | Synthetic data, tech stack, GitHub Pages hosting |
+| # | Task | Status | Notes | Verified |
+|---|------|--------|-------|----------|
+| 30 | Design relationship visualization strategy | Pending | How to show edges without Gremlin - tables, matrix, mini-graphs? | No |
+| 31 | Define historical trends implementation | Pending | Chart.js/SVG, data sources, 90-day trend storage | No |
+| 32 | Finalize landing page security posture cards | Pending | 5 cards: Privileged Access, Auth, CA, Azure, Apps | No |
+| 33 | Design detail panel interactions | Pending | Slide-in panels, entity drill-down | No |
+| 34 | Create static demo site specification | Pending | Synthetic data, tech stack, GitHub Pages hosting | No |
 
 ### Future Components (V4+)
 
-| # | Task | Status | Notes |
-|---|------|--------|-------|
-| 35 | Plan Function App 3 (Graph Operations) | Deferred | Gremlin projection + snapshot generation |
-| 36 | Plan Azure AI Foundry Agent integration | Deferred | Natural language query interface |
+| # | Task | Status | Notes | Verified |
+|---|------|--------|-------|----------|
+| 35 | Plan Function App 3 (Graph Operations) | Deferred | Gremlin projection + snapshot generation | No |
+| 36 | Plan Azure AI Foundry Agent integration | Deferred | Natural language query interface | No |
 
 ---
 

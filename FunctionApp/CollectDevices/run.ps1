@@ -128,6 +128,32 @@ try {
     $selectFields = "id,displayName,accountEnabled,deviceId,operatingSystem,operatingSystemVersion,isCompliant,isManaged,trustType,approximateLastSignInDateTime,createdDateTime,deviceVersion,manufacturer,model,profileType,registrationDateTime,extensionAttributes,onPremisesSyncEnabled,onPremisesLastSyncDateTime,managementType"
     $nextLink = "https://graph.microsoft.com/v1.0/devices?`$select=$selectFields&`$top=$batchSize"
 
+    # Build Intune device lookup for usersLoggedOn data
+    # Requires DeviceManagementManagedDevices.Read.All permission
+    $intuneDeviceLookup = @{}
+    $intuneCount = 0
+    try {
+        Write-Verbose "Querying Intune managed devices for usersLoggedOn data..."
+        $intuneNextLink = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?`$select=id,azureADDeviceId,userPrincipalName,usersLoggedOn"
+        while ($intuneNextLink) {
+            $intuneResponse = Invoke-GraphWithRetry -Uri $intuneNextLink -AccessToken $graphToken
+            foreach ($intuneDevice in $intuneResponse.value) {
+                if ($intuneDevice.azureADDeviceId) {
+                    $intuneDeviceLookup[$intuneDevice.azureADDeviceId] = @{
+                        intunePrimaryUser = $intuneDevice.userPrincipalName ?? ""
+                        usersLoggedOn = $intuneDevice.usersLoggedOn ?? @()
+                    }
+                    $intuneCount++
+                }
+            }
+            $intuneNextLink = $intuneResponse.'@odata.nextLink'
+        }
+        Write-Verbose "Built Intune lookup with $intuneCount devices"
+    }
+    catch {
+        Write-Warning "Failed to query Intune devices (may not have Intune license or permission): $_"
+    }
+
     Write-Verbose "Starting batch processing with streaming writes"
 
     # Process batches
@@ -178,6 +204,11 @@ try {
                 mdmAppId = $device.mdmAppId ?? $null
                 managementType = $device.managementType ?? $null
                 systemLabels = $device.systemLabels ?? @()
+
+                # Intune device data (usersLoggedOn, primary user)
+                # Lookup by Entra device ID (device.id matches Intune azureADDeviceId)
+                intunePrimaryUser = if ($intuneDeviceLookup.ContainsKey($device.id)) { $intuneDeviceLookup[$device.id].intunePrimaryUser } else { $null }
+                usersLoggedOn = if ($intuneDeviceLookup.ContainsKey($device.id)) { $intuneDeviceLookup[$device.id].usersLoggedOn } else { @() }
 
                 # V3: Temporal fields for historical tracking
                 effectiveFrom = $timestampFormatted

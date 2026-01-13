@@ -396,7 +396,7 @@ function Invoke-GraphBatch {
         $batches.Add($Requests[$i..$endIndex])
     }
 
-    Write-Verbose "[BATCH] Processing $($Requests.Count) requests in $($batches.Count) batches"
+    Write-Information "[BATCH] Processing $($Requests.Count) requests in $($batches.Count) batches (API: $ApiVersion)" -InformationAction Continue
 
     $batchNumber = 0
     foreach ($batch in $batches) {
