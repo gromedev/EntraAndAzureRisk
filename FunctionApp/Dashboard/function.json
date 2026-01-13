@@ -20,7 +20,7 @@
       "databaseName": "EntraData",
       "containerName": "principals",
       "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+      "sqlQuery": "SELECT TOP 1000 * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
     },
     {
       "name": "resourcesIn",
@@ -29,7 +29,7 @@
       "databaseName": "EntraData",
       "containerName": "resources",
       "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false) AND c.resourceType NOT IN ('directoryRoleDefinition', 'azureRoleDefinition')"
+      "sqlQuery": "SELECT TOP 500 * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false) AND c.resourceType NOT IN ('directoryRoleDefinition', 'azureRoleDefinition')"
     },
     {
       "name": "edgesIn",
@@ -38,7 +38,7 @@
       "databaseName": "EntraData",
       "containerName": "edges",
       "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+      "sqlQuery": "SELECT TOP 2000 * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
     },
     {
       "name": "policiesIn",
@@ -47,7 +47,7 @@
       "databaseName": "EntraData",
       "containerName": "policies",
       "connection": "CosmosDbConnectionString",
-      "sqlQuery": "SELECT * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
+      "sqlQuery": "SELECT TOP 500 * FROM c WHERE (NOT IS_DEFINED(c.deleted) OR c.deleted = false)"
     },
     {
       "name": "eventsIn",

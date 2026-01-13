@@ -105,7 +105,7 @@ function Build-Table {
             'No data'
         }
         $emptyRow = "<tr><td colspan='$($columns.Count)' style='text-align:center;color:#666;padding:20px;font-size:0.85em;'>$emptyMsg</td></tr>"
-        return "<table id='$tableId'><thead><tr>$headers</tr></thead><tbody>$emptyRow</tbody></table>"
+        return "<table id='$tableId'><thead><tr>$headers</tr></thead><tbody>$emptyRow</tbody></table><div id='$tableId-pager' class='pager'></div>"
     }
 
     $rows = ($data | ForEach-Object {
@@ -117,7 +117,7 @@ function Build-Table {
         "<tr>$cells</tr>"
     }) -join "`n"
 
-    return "<table id='$tableId'><thead><tr>$headers</tr></thead><tbody>$rows</tbody></table>"
+    return "<table id='$tableId'><thead><tr>$headers</tr></thead><tbody>$rows</tbody></table><div id='$tableId-pager' class='pager'></div>"
 }
 
 try {
@@ -399,6 +399,12 @@ try {
         .export-btns { float: right; margin-left: 10px; }
         .export-btn { padding: 4px 8px; margin-left: 4px; font-size: 11px; cursor: pointer; background: #f0f0f0; border: 1px solid #ccc; border-radius: 3px; }
         .export-btn:hover { background: #e0e0e0; }
+        .pager { padding: 8px 10px; background: #f8f9fa; border-top: 1px solid #dee2e6; font-size: 0.8em; display: flex; align-items: center; gap: 5px; }
+        .pager button { padding: 4px 8px; border: 1px solid #ccc; background: #fff; cursor: pointer; border-radius: 3px; }
+        .pager button:hover:not(:disabled) { background: #e9ecef; }
+        .pager button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .page-size-select { margin-left: auto; }
+        .page-size-select select { padding: 3px 6px; border: 1px solid #ccc; border-radius: 3px; }
     </style>
     <script>
         function toggleContainer(containerId) {
@@ -468,6 +474,72 @@ try {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         }
+        // Pagination
+        var pageSize = 50;
+        var currentPages = {};
+        function initPagination(tableId) {
+            var table = document.getElementById(tableId);
+            if (!table) return;
+            var rows = table.querySelectorAll('tbody tr');
+            var total = rows.length;
+            if (total <= pageSize) {
+                // No pagination needed for small tables
+                var pager = document.getElementById(tableId + '-pager');
+                if (pager) pager.style.display = 'none';
+                return;
+            }
+            currentPages[tableId] = 1;
+            showPage(tableId, 1);
+            updatePager(tableId, total);
+        }
+        function showPage(tableId, page) {
+            var table = document.getElementById(tableId);
+            if (!table) return;
+            var rows = Array.from(table.querySelectorAll('tbody tr'));
+            var total = rows.length;
+            var totalPages = Math.ceil(total / pageSize);
+            if (page < 1) page = 1;
+            if (page > totalPages) page = totalPages;
+            currentPages[tableId] = page;
+            var start = (page - 1) * pageSize;
+            var end = start + pageSize;
+            rows.forEach((row, i) => {
+                row.style.display = (i >= start && i < end) ? '' : 'none';
+            });
+            updatePager(tableId, total);
+        }
+        function updatePager(tableId, total) {
+            var pager = document.getElementById(tableId + '-pager');
+            if (!pager) return;
+            var page = currentPages[tableId] || 1;
+            var totalPages = Math.ceil(total / pageSize);
+            var start = (page - 1) * pageSize + 1;
+            var end = Math.min(page * pageSize, total);
+            pager.innerHTML = '<span>Showing ' + start + '-' + end + ' of ' + total + '</span> ' +
+                '<button onclick="showPage(\'' + tableId + '\', 1)" ' + (page===1?'disabled':'') + '>&laquo;</button> ' +
+                '<button onclick="showPage(\'' + tableId + '\', ' + (page-1) + ')" ' + (page===1?'disabled':'') + '>&lsaquo;</button> ' +
+                '<span style="margin:0 8px;">Page ' + page + ' / ' + totalPages + '</span>' +
+                '<button onclick="showPage(\'' + tableId + '\', ' + (page+1) + ')" ' + (page===totalPages?'disabled':'') + '>&rsaquo;</button> ' +
+                '<button onclick="showPage(\'' + tableId + '\', ' + totalPages + ')" ' + (page===totalPages?'disabled':'') + '>&raquo;</button>';
+            pager.style.display = totalPages > 1 ? 'block' : 'none';
+        }
+        function changePageSize(newSize) {
+            pageSize = parseInt(newSize);
+            Object.keys(currentPages).forEach(function(tableId) {
+                currentPages[tableId] = 1;
+                var table = document.getElementById(tableId);
+                if (table) {
+                    var total = table.querySelectorAll('tbody tr').length;
+                    showPage(tableId, 1);
+                }
+            });
+        }
+        // Initialize pagination on load
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('table').forEach(function(table) {
+                if (table.id) initPagination(table.id);
+            });
+        });
     </script>
 </head>
 <body>
@@ -495,8 +567,19 @@ try {
         })
     </div>
     <div class="summary" style="background:#e8f5e9;border-left-color:#4caf50;">
-        <b>View Generated</b>: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') UTC
+        <b>View Generated</b>: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') UTC |
+        <span class="page-size-select">Rows per page: <select onchange="changePageSize(this.value)">
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+            <option value="250">250</option>
+        </select></span>
     </div>
+    $(if ($allPrincipals.Count -ge 1000 -or $allEdges.Count -ge 2000 -or $allResources.Count -ge 500) {
+        '<div class="summary" style="background:#ffebee;border-left-color:#d32f2f;"><b>Data Truncated</b>: Some containers exceeded display limits. ' +
+        "Principals: $($allPrincipals.Count)/1000, Edges: $($allEdges.Count)/2000, Resources: $($allResources.Count)/500. " +
+        'Use export or direct Cosmos queries for full data.</div>'
+    })
 
     <!-- CONTAINER 1: PRINCIPALS -->
     <div class="container" id="principals-section">
