@@ -1700,7 +1700,7 @@ Ranked from **easiest** (least likely to break anything) to **hardest** (signifi
 
 | # | Task | Status | Change Required | Risk | Verified |
 |---|------|--------|-----------------|------|----------|
-| 17 | Implement Graph Delta Query API | **Research Complete** | **RESEARCH 2026-01-13**: 9 resources support delta (users, groups, apps, SPs, devices, AUs, directoryRoles, directoryObjects, oauth2PermissionGrants). Token expiration: 7 days. Priority is **conditional collection** (Phase 2) - only fetch per-entity data for changed entities. See `/docs/Epic 0-plan-delta-Architecture.md` | Medium | Research Yes |
+| 17 | Implement Graph Delta Query API | ✅ **COMPLETE** | **VERIFIED 2026-01-13**: Phase 1 ($batch API) 94.4% reduction. Phase 2a (delta infrastructure) verified. **Phase 2b (conditional collection) VERIFIED** - authMethodsProcessedCount=0 when no users changed. See `/docs/Epic 0-plan-delta-Architecture.md` | Medium | **Yes** |
 | 18 | Audit - Who Made Changes feature | Pending | New collection from /auditLogs/directoryAudits | Medium | No |
 | 19 | Expand Intune/Devices collection | Pending | New API calls (ASR, Settings catalog, Baselines, etc) | Medium | No |
 | 20 | Null vs Blank values fix | ✅ Done | INVESTIGATION COMPLETE: Dashboard shows 0 empty cells, 0 quality issues. `?? ""` pattern (310 occurrences) is intentional for clean display. Enrichment logic working for RBAC edges. No action needed - 2026-01-13 | None | Yes |
@@ -1852,6 +1852,110 @@ A new "Alpenglow Dashboard" will be created as a separate Function App 2 with:
 | 36 | Plan Azure AI Foundry Agent integration | Deferred | Natural language query interface | No |
 
 ---
+
+---
+
+## Epic 0: API Optimization (Delta Architecture)
+
+**Document:** `/docs/Epic 0-plan-delta-Architecture.md`
+**Status:** Phase 2b COMPLETE (2026-01-13)
+
+### Implementation Priority
+
+| Priority | Task | Status | Impact | Verified |
+|----------|------|--------|--------|----------|
+| **1** | $batch API for auth methods | ✅ **COMPLETE** | 94.4% API call reduction (826→46 calls) | **Yes** |
+| **2a** | Delta query infrastructure | ✅ **COMPLETE** | Enables conditional collection | **Yes** |
+| **2b** | Conditional auth method collection | ✅ **COMPLETE** | authMethodsProcessedCount=0 when no changes | **Yes** |
+| **3** | Skip license details in delta runs | 🔲 Pending | 10-15% additional reduction | No |
+| **4** | Skip auth methods for guests | 🔲 Optional | 10-30% savings (configurable) | No |
+
+### Files Modified (Phase 2b - 2026-01-13)
+
+| File | Change |
+|------|--------|
+| `FunctionApp/CollectUsers/run.ps1` | Added delta query + conditional auth methods |
+| `FunctionApp/CollectDevices/run.ps1` | Added delta query for testing |
+| `FunctionApp/Modules/EntraDataCollection/EntraDataCollection.psm1` | Added `Get-DeltaToken`, `Set-DeltaToken`, `Invoke-GraphDelta` |
+| `FunctionApp/Modules/EntraDataCollection/EntraDataCollection.psd1` | Exported delta functions |
+
+### Remaining Optimization Tasks
+
+| # | Task | Status | Notes | Priority |
+|---|------|--------|-------|----------|
+| D-1 | Extend delta to CollectRelationships (owners, licenses) | Pending | Use delta results to skip per-entity calls | Medium |
+| D-2 | Extend delta to CollectAppRegistrations (FIC) | Pending | Only fetch FIC for changed apps | Medium |
+| D-3 | Review collector frequencies (#38) | Pending | Now unblocked by delta implementation | Low |
+| D-4 | Configure selective collection schedule | Pending | Daily full + delta every 6h | Low |
+
+---
+
+## Epic V4: Edge Schema Optimization
+
+**Document:** `/docs/Epic v4 - edges-v4.md`
+**Status:** Planning
+**Risk:** Medium-High (architectural change)
+
+### Overview
+
+Current V3.5 edge schema has **87+ flat fields** with ~70% null density. This Epic refactors to a Core + Properties nested model and adds security enrichment.
+
+### Epic A: Schema Refactoring (Core + Properties Model)
+
+| # | Task | Status | Description | Risk | Files |
+|---|------|--------|-------------|------|-------|
+| A-0 | POC with groupMember edge type | 🔲 Pending | Validate approach with single edge type | Low | CollectRelationships |
+| A-1 | Add helper functions to module | 🔲 Pending | `New-EdgeDocument`, `ConvertTo-NestedEdge`, `Get-EdgeProperties` | Low | EntraDataCollection.psm1 |
+| A-2 | Update IndexerConfigs.psd1 | 🔲 Pending | Add schemaVersion, properties handling | Medium | IndexerConfigs.psd1 |
+| A-3 | Update CollectRelationships Phase 1 (groupMember) | 🔲 Pending | First edge type migration | Medium | CollectRelationships |
+| A-4 | Update CollectRelationships Phases 2-17 | 🔲 Pending | All 17 collection phases | High | CollectRelationships |
+| A-5 | Update DeriveEdges/run.ps1 | 🔲 Pending | Use `Get-EdgeProperties` for reading | Medium | DeriveEdges |
+| A-6 | Update DeriveVirtualEdges/run.ps1 | 🔲 Pending | Nested schema for output | Low | DeriveVirtualEdges |
+| A-7 | Update module manifest | 🔲 Pending | Export new functions | Low | EntraDataCollection.psd1 |
+| A-8 | Update Gremlin projector | 🔲 Pending | Schema-aware property extraction | Medium | ProjectGraphToGremlin |
+| A-9 | Create backfill migration script | 🔲 Pending | Convert existing flat edges | Medium | NEW: BackfillNestedSchema |
+| A-10 | Update Dashboard queries | 🔲 Pending | `c.X` → `c.properties.X` | Low | Dashboard |
+
+### Epic B: Security Enrichment
+
+| # | Task | Status | Description | Risk | Files |
+|---|------|--------|-------------|------|-------|
+| B-1 | Create EnrichEdges function | 🔲 Pending | New Azure Function for edge enrichment | Medium | NEW: EnrichEdges |
+| B-2 | Add mfaProtected to group memberships | 🔲 Pending | Correlate with CA policies | Medium | EnrichEdges |
+| B-3 | Add tier/severity to directoryRole edges | 🔲 Pending | Role template classification | Medium | EnrichEdges |
+| B-4 | Add tier to PIM edges | 🔲 Pending | Same classification as directoryRole | Low | EnrichEdges |
+| B-5 | Add severity to azureRbac edges | 🔲 Pending | Owner/Contributor = Critical | Low | EnrichEdges |
+
+### Edge Type Reference (17 Collection Phases)
+
+| Phase | Edge Type | Source → Target | Key Properties |
+|-------|-----------|-----------------|----------------|
+| 1 | `groupMember` | user/group/sp/device → group | membershipType |
+| 2 | `groupMemberTransitive` | user/group/sp/device → group | inheritancePath |
+| 3 | `directoryRole` | any → directoryRole | targetRoleTemplateId |
+| 4 | `pimEligible` | any → directoryRole | scheduleInfo |
+| 5 | `pimActive` | any → directoryRole | scheduleInfo |
+| 6 | `pimRequest` | any → directoryRole | justification |
+| 7 | `pimGroupEligible` | any → group | accessId |
+| 8 | `pimGroupActive` | any → group | accessId |
+| 9 | `azureRbac` | any → azureRole | subscriptionId, scope |
+| 10 | `appOwner` | user/sp/group → application | targetAppId |
+| 11 | `spOwner` | user/sp/group → servicePrincipal | targetAppId |
+| 12 | `license` | user → license | targetSkuId |
+| 13 | `oauth2PermissionGrant` | user/tenant → servicePrincipal | consentType, scope |
+| 14 | `appRoleAssignment` | sp/user/group → servicePrincipal | appRoleId |
+| 15 | `groupOwner` | user/sp/group → group | targetIsAssignableToRole |
+| 16 | `deviceOwner` | user → device | targetDeviceId |
+| 17a | `caPolicy*` (5 types) | policy → various | requiresMfa, policyState |
+| 17b | `rolePolicyAssignment` | policy → directoryRole | requiresMfaOnActivation |
+
+### Implementation Order
+
+1. **Foundation:** A-1, A-7 (add functions)
+2. **POC:** A-0, A-2, A-3, A-8 (groupMember only)
+3. **Full Rollout:** A-4, A-5, A-6 (all edge types)
+4. **Migration:** A-9, A-10 (backfill + dashboard)
+5. **Enrichment:** B-1 through B-5 (Epic B)
 
 ---
 

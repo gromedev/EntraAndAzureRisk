@@ -397,7 +397,7 @@ Even with delta, run daily full sync to:
 |----------|--------|--------|--------|--------|
 | **1** | $batch API for auth methods | Medium | **70%+ reduction in CollectUsers calls** | ✅ **VERIFIED** (94.4% reduction) |
 | **2** | Delta queries for entity lists | Medium | Enables conditional collection | ✅ **VERIFIED** (2026-01-13) |
-| **3** | Conditional auth method collection | Medium | **90%+ reduction in delta runs** | 🔲 Pending |
+| **3** | Conditional auth method collection | Medium | **90%+ reduction in delta runs** | ✅ **VERIFIED** (2026-01-13) |
 | **4** | Skip license details in delta | Low | 10-15% reduction | 🔲 Pending |
 
 ---
