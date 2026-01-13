@@ -1,0 +1,53 @@
+{
+  "bindings": [
+    {
+      "authLevel": "function",
+      "type": "httpTrigger",
+      "direction": "in",
+      "name": "Request",
+      "methods": [ "get" ],
+      "route": "dashboard"
+    },
+    {
+      "type": "http",
+      "direction": "out",
+      "name": "Response"
+    },
+    {
+      "name": "usersRawIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "users_raw",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c._ts DESC"
+    },
+    {
+      "name": "userChangesIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "user_changes",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
+    },
+    {
+      "name": "groupsRawIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "groups_raw",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c._ts DESC"
+    },
+    {
+      "name": "groupChangesIn",
+      "type": "cosmosDB",
+      "direction": "in",
+      "databaseName": "EntraData",
+      "containerName": "group_changes",
+      "connection": "CosmosDbConnectionString",
+      "sqlQuery": "SELECT TOP 100 * FROM c ORDER BY c.changeTimestamp DESC"
+    }
+  ]
+}

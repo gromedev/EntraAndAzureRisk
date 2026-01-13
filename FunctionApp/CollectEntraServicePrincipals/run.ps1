@@ -1,8 +1,8 @@
 <#
 .SYNOPSIS
-    Collects user data from Microsoft Entra ID and streams to Blob Storage
+    Collects service principal data from Microsoft Entra ID and streams to Blob Storage
 .DESCRIPTION
-    - Queries Graph API with pagination
+    - Queries Graph API (v1.0 endpoint for service principals)
     - Streams JSONL output to Blob Storage (memory-efficient)
     - Returns summary statistics for orchestrator
     - Token caching (eliminates redundant IMDS calls)
@@ -55,14 +55,14 @@ if ($missingVars) {
 
 #region Function Logic
 try {
-    Write-Verbose "Starting Entra user data collection"
-    
+    Write-Verbose "Starting Entra service principal data collection"
+
     # Generate ISO 8601 timestamps (single Get-Date to prevent race condition)
     $now = (Get-Date).ToUniversalTime()
     $timestamp = $now.ToString("yyyy-MM-ddTHH-mm-ssZ")
     $timestampFormatted = $now.ToString("yyyy-MM-ddTHH:mm:ssZ")
     Write-Verbose "Collection timestamp: $timestampFormatted"
-    
+
     # Get access tokens (cached - eliminates redundant IMDS calls)
     Write-Verbose "Acquiring access tokens with managed identity"
     try {
@@ -76,35 +76,37 @@ try {
             Error = "Token acquisition failed: $($_.Exception.Message)"
         }
     }
-    
+
     # Get configuration
     $storageAccountName = $env:STORAGE_ACCOUNT_NAME
     $batchSize = if ($env:BATCH_SIZE) { [int]$env:BATCH_SIZE } else { 999 }
-    
+
     Write-Verbose "Configuration: Batch=$batchSize"
-    
+
     # Initialize counters and buffers
-    $usersJsonL = New-Object System.Text.StringBuilder(1048576)  # 1MB initial capacity
-    $userCount = 0
+    $servicePrincipalsJsonL = New-Object System.Text.StringBuilder(1048576)  # 1MB initial capacity
+    $servicePrincipalCount = 0
     $batchNumber = 0
     $writeThreshold = 5000
-    
+
     # Summary statistics
-    $enabledCount = 0
-    $disabledCount = 0
-    $memberCount = 0
-    $guestCount = 0
-    
+    $accountEnabledCount = 0
+    $accountDisabledCount = 0
+    $applicationTypeCount = 0
+    $managedIdentityTypeCount = 0
+    $legacyTypeCount = 0
+    $socialIdpTypeCount = 0
+
     # Initialize append blob
-    $usersBlobName = "$timestamp/$timestamp-users.jsonl"
-    Write-Verbose "Initializing append blob: $usersBlobName"
-    
+    $servicePrincipalsBlobName = "$timestamp/$timestamp-serviceprincipals.jsonl"
+    Write-Verbose "Initializing append blob: $servicePrincipalsBlobName"
+
     $containerName = if ($env:STORAGE_CONTAINER_RAW_DATA) { $env:STORAGE_CONTAINER_RAW_DATA } else { 'raw-data' }
-    
+
     try {
         Initialize-AppendBlob -StorageAccountName $storageAccountName `
                               -ContainerName $containerName `
-                              -BlobName $usersBlobName `
+                              -BlobName $servicePrincipalsBlobName `
                               -AccessToken $storageToken
     }
     catch {
@@ -114,22 +116,22 @@ try {
             Error = "Blob initialization failed: $($_.Exception.Message)"
         }
     }
-    
-    # Query users with field selection
-    $selectFields = "userPrincipalName,id,accountEnabled,userType,createdDateTime,signInActivity,displayName,passwordPolicies,usageLocation,externalUserState,externalUserStateChangeDateTime,onPremisesSyncEnabled,onPremisesSamAccountName,onPremisesUserPrincipalName,onPremisesSecurityIdentifier"
-    $nextLink = "https://graph.microsoft.com/v1.0/users?`$select=$selectFields&`$top=$batchSize"
-    
+
+    # Query service principals with field selection
+    $selectFields = "appDisplayName,accountEnabled,addIns,displayName,appId,appRoleAssignmentRequired,deletedDateTime,description,oauth2PermissionScopes,resourceSpecificApplicationPermissions,servicePrincipalNames,servicePrincipalType,tags,notes"
+    $nextLink = "https://graph.microsoft.com/v1.0/servicePrincipals?`$select=$selectFields&`$top=$batchSize"
+
     Write-Verbose "Starting batch processing with streaming writes"
-    
+
     # Process batches
     while ($nextLink) {
         $batchNumber++
         Write-Verbose "Processing batch $batchNumber..."
-        
+
         # Get batch from Graph API
         try {
             $response = Invoke-GraphWithRetry -Uri $nextLink -AccessToken $graphToken
-            $userBatch = $response.value
+            $servicePrincipalBatch = $response.value
             $nextLink = $response.'@odata.nextLink'
         }
         catch {
@@ -137,134 +139,143 @@ try {
             Write-Warning "Skipping batch $batchNumber due to error"
             continue
         }
-        
-        if ($userBatch.Count -eq 0) { break }
-        
-        # Sequential process batch
-        foreach ($user in $userBatch) {
-            # Transform to consistent camelCase structure with objectId
-$userObj = @{
-    # Properties from Graph API user object
-    objectId = $user.id ?? ""
-    userPrincipalName = $user.userPrincipalName ?? ""
-    accountEnabled = if ($null -ne $user.accountEnabled) { $user.accountEnabled } else { $null }
-    userType = $user.userType ?? ""
-    createdDateTime = $user.createdDateTime ?? ""
-    lastSignInDateTime = if ($user.signInActivity.lastSignInDateTime) { 
-        $user.signInActivity.lastSignInDateTime 
-    } else { 
-        $null 
-    }
-    
-    # Properties that might be null
-    displayName = $user.displayName ?? $null
-    passwordPolicies = $user.passwordPolicies ?? $null
-    usageLocation = $user.usageLocation ?? $null
-    externalUserState = $user.externalUserState ?? $null
-    externalUserStateChangeDateTime = $user.externalUserStateChangeDateTime ?? $null
-    onPremisesSyncEnabled = if ($null -ne $user.onPremisesSyncEnabled) { $user.onPremisesSyncEnabled } else { $null }
-    onPremisesSamAccountName = $user.onPremisesSamAccountName ?? $null
-    onPremisesUserPrincipalName = $user.onPremisesUserPrincipalName ?? $null
-    onPremisesSecurityIdentifier = $user.onPremisesSecurityIdentifier ?? $null
-    
-    # Locally-generated property (collection metadata)
-    collectionTimestamp = $timestampFormatted
-}
 
-            
-            [void]$usersJsonL.AppendLine(($userObj | ConvertTo-Json -Compress))
-            $userCount++
-            
+        if ($servicePrincipalBatch.Count -eq 0) { break }
+
+        # Sequential process batch
+        foreach ($sp in $servicePrincipalBatch) {
+            # Transform to consistent camelCase structure with objectId
+            $servicePrincipalObj = @{
+                # Core identifiers
+                objectId = $sp.id ?? ""
+                appId = $sp.appId ?? ""
+                displayName = $sp.displayName ?? ""
+                servicePrincipalType = $sp.servicePrincipalType ?? ""
+
+                # Boolean flags
+                accountEnabled = if ($null -ne $sp.accountEnabled) { $sp.accountEnabled } else { $null }
+                appRoleAssignmentRequired = if ($null -ne $sp.appRoleAssignmentRequired) { $sp.appRoleAssignmentRequired } else { $null }
+
+                # DateTime fields
+                deletedDateTime = $sp.deletedDateTime ?? $null
+
+                # Text fields
+                appDisplayName = $sp.appDisplayName ?? $null
+                description = $sp.description ?? $null
+                notes = $sp.notes ?? $null
+
+                # Array fields
+                addIns = $sp.addIns ?? @()
+                oauth2PermissionScopes = $sp.oauth2PermissionScopes ?? @()
+                resourceSpecificApplicationPermissions = $sp.resourceSpecificApplicationPermissions ?? @()
+                servicePrincipalNames = $sp.servicePrincipalNames ?? @()
+                tags = $sp.tags ?? @()
+
+                # Locally-generated property (collection metadata)
+                collectionTimestamp = $timestampFormatted
+            }
+
+            [void]$servicePrincipalsJsonL.AppendLine(($servicePrincipalObj | ConvertTo-Json -Compress))
+            $servicePrincipalCount++
+
             # Track summary statistics
-            if ($userObj.accountEnabled -eq $true) { $enabledCount++ }
-            elseif ($userObj.accountEnabled -eq $false) { $disabledCount++ }
-            
-            if ($userObj.userType -eq 'Member') { $memberCount++ }
-            elseif ($userObj.userType -eq 'Guest') { $guestCount++ }
+            if ($servicePrincipalObj.accountEnabled -eq $true) { $accountEnabledCount++ }
+            elseif ($servicePrincipalObj.accountEnabled -eq $false) { $accountDisabledCount++ }
+
+            # Track service principal types
+            switch ($servicePrincipalObj.servicePrincipalType) {
+                'Application' { $applicationTypeCount++ }
+                'ManagedIdentity' { $managedIdentityTypeCount++ }
+                'Legacy' { $legacyTypeCount++ }
+                'SocialIdp' { $socialIdpTypeCount++ }
+            }
         }
-        
-        # Periodic flush to blob (every ~5000 users)
-        if ($usersJsonL.Length -ge ($writeThreshold * 200)) {
+
+        # Periodic flush to blob (every ~5000 service principals)
+        if ($servicePrincipalsJsonL.Length -ge ($writeThreshold * 200)) {
             try {
                 Add-BlobContent -StorageAccountName $storageAccountName `
                                 -ContainerName $containerName `
-                                -BlobName $usersBlobName `
-                                -Content $usersJsonL.ToString() `
+                                -BlobName $servicePrincipalsBlobName `
+                                -Content $servicePrincipalsJsonL.ToString() `
                                 -AccessToken $storageToken `
                                 -MaxRetries 3 `
                                 -BaseRetryDelaySeconds 2
-                
-                Write-Verbose "Flushed $($usersJsonL.Length) characters to blob (batch $batchNumber)"
-                $usersJsonL.Clear()
+
+                Write-Verbose "Flushed $($servicePrincipalsJsonL.Length) characters to blob (batch $batchNumber)"
+                $servicePrincipalsJsonL.Clear()
             }
             catch {
                 Write-Error "CRITICAL: Blob write failed after retries at batch $batchNumber $_"
                 throw "Cannot continue - data loss would occur"
             }
         }
-        
-        Write-Verbose "Batch $batchNumber complete: $userCount total users"
+
+        Write-Verbose "Batch $batchNumber complete: $servicePrincipalCount total service principals"
     }
-    
+
     # Final flush
-    if ($usersJsonL.Length -gt 0) {
+    if ($servicePrincipalsJsonL.Length -gt 0) {
         try {
             Add-BlobContent -StorageAccountName $storageAccountName `
-                            -ContainerName 'raw-data' `
-                            -BlobName $usersBlobName `
-                            -Content $usersJsonL.ToString() `
+                            -ContainerName $containerName `
+                            -BlobName $servicePrincipalsBlobName `
+                            -Content $servicePrincipalsJsonL.ToString() `
                             -AccessToken $storageToken `
                             -MaxRetries 3 `
                             -BaseRetryDelaySeconds 2
-            Write-Verbose "Final flush: $($usersJsonL.Length) characters written"
+            Write-Verbose "Final flush: $($servicePrincipalsJsonL.Length) characters written"
         }
         catch {
             Write-Error "CRITICAL: Final flush failed: $_"
             throw "Cannot complete collection"
         }
     }
-    
-    Write-Verbose "User collection complete: $userCount users written to $usersBlobName"
-    
+
+    Write-Verbose "Service principal collection complete: $servicePrincipalCount service principals written to $servicePrincipalsBlobName"
+
     # Cleanup
-    $usersJsonL.Clear()
-    $usersJsonL = $null
-    
+    $servicePrincipalsJsonL.Clear()
+    $servicePrincipalsJsonL = $null
+
     # Create summary
     $summary = @{
         id = $timestamp
         collectionTimestamp = $timestampFormatted
-        collectionType = 'users'
-        totalCount = $userCount
-        enabledCount = $enabledCount
-        disabledCount = $disabledCount
-        memberCount = $memberCount
-        guestCount = $guestCount
-        blobPath = $usersBlobName
+        collectionType = 'servicePrincipals'
+        totalCount = $servicePrincipalCount
+        accountEnabledCount = $accountEnabledCount
+        accountDisabledCount = $accountDisabledCount
+        applicationTypeCount = $applicationTypeCount
+        managedIdentityTypeCount = $managedIdentityTypeCount
+        legacyTypeCount = $legacyTypeCount
+        socialIdpTypeCount = $socialIdpTypeCount
+        blobPath = $servicePrincipalsBlobName
     }
-    
+
     # Garbage collection
     Write-Verbose "Performing garbage collection"
     [System.GC]::Collect()
     [System.GC]::WaitForPendingFinalizers()
     [System.GC]::Collect()
-    
+
     Write-Verbose "Collection activity completed successfully!"
-    
+
     return @{
         Success = $true
-        UserCount = $userCount
+        ServicePrincipalCount = $servicePrincipalCount
         Data = @()
         Summary = $summary
-        FileName = "$timestamp-users.jsonl"
+        FileName = "$timestamp-serviceprincipals.jsonl"
         Timestamp = $timestamp
-        BlobName = $usersBlobName
+        BlobName = $servicePrincipalsBlobName
     }
 }
 catch {
-    Write-Error "Unexpected error in CollectEntraUsers: $_"
+    Write-Error "Unexpected error in CollectEntraServicePrincipals: $_"
     return @{
         Success = $false
         Error = $_.Exception.Message
     }
 }
+#endregion
