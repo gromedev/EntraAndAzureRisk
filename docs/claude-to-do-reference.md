@@ -1700,7 +1700,7 @@ Ranked from **easiest** (least likely to break anything) to **hardest** (signifi
 
 | # | Task | Status | Change Required | Risk | Verified |
 |---|------|--------|-----------------|------|----------|
-| 17 | Implement Graph Delta Query API. Investigate using e.g. /users/delta instead of /users to get only changed entities. The devices Graph API also has delta capabilities. What else in the solution can use delta endpoints? | Pending | See `/docs/Epic 0-plan-delta-Architecture.md` | Medium | No |
+| 17 | Implement Graph Delta Query API | **Research Complete** | **RESEARCH 2026-01-13**: 9 resources support delta (users, groups, apps, SPs, devices, AUs, directoryRoles, directoryObjects, oauth2PermissionGrants). Token expiration: 7 days. Priority is **conditional collection** (Phase 2) - only fetch per-entity data for changed entities. See `/docs/Epic 0-plan-delta-Architecture.md` | Medium | Research Yes |
 | 18 | Audit - Who Made Changes feature | Pending | New collection from /auditLogs/directoryAudits | Medium | No |
 | 19 | Expand Intune/Devices collection | Pending | New API calls (ASR, Settings catalog, Baselines, etc) | Medium | No |
 | 20 | Null vs Blank values fix | ✅ Done | INVESTIGATION COMPLETE: Dashboard shows 0 empty cells, 0 quality issues. `?? ""` pattern (310 occurrences) is intentional for clean display. Enrichment logic working for RBAC edges. No action needed - 2026-01-13 | None | Yes |

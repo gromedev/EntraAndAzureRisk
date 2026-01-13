@@ -573,6 +573,375 @@ function Invoke-GraphBatch {
     return $results
 }
 
+#region Delta Query Functions
+
+function Get-DeltaToken {
+    <#
+    .SYNOPSIS
+        Retrieves a stored delta token for a resource type from Blob Storage
+
+    .DESCRIPTION
+        Delta tokens are stored as JSON files in blob storage under delta-tokens/ container.
+        Returns the stored deltaLink URL if found, or $null if no token exists.
+
+        Delta tokens expire after 7 days for directory objects (users, groups, apps, etc.)
+        If the token is expired, this function returns $null to trigger a full sync.
+
+    .PARAMETER ResourceType
+        The type of resource (users, groups, applications, servicePrincipals, devices, administrativeUnits)
+
+    .PARAMETER StorageAccountName
+        The Azure Storage account name
+
+    .PARAMETER AccessToken
+        The access token for Storage authentication
+
+    .EXAMPLE
+        $deltaLink = Get-DeltaToken -ResourceType "users" -StorageAccountName $storageAccount -AccessToken $token
+        if ($deltaLink) {
+            # Use delta query
+        } else {
+            # Full sync required
+        }
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('users', 'groups', 'applications', 'servicePrincipals', 'devices', 'administrativeUnits', 'directoryRoles', 'oauth2PermissionGrants')]
+        [string]$ResourceType,
+
+        [Parameter(Mandatory)]
+        [string]$StorageAccountName,
+
+        [Parameter(Mandatory)]
+        [string]$AccessToken
+    )
+
+    $blobName = "delta-tokens/$ResourceType.json"
+    $containerName = 'raw-data'
+    $uri = "https://$StorageAccountName.blob.core.windows.net/$containerName/$blobName"
+
+    try {
+        $headers = @{
+            'Authorization' = "Bearer $AccessToken"
+            'x-ms-version' = '2021-08-06'
+            'x-ms-date' = [DateTime]::UtcNow.ToString('r')
+        }
+
+        $response = Invoke-RestMethod -Uri $uri -Method Get -Headers $headers -ErrorAction Stop
+
+        # Invoke-RestMethod auto-parses JSON, but handle both cases
+        $result = if ($response -is [string]) {
+            $response | ConvertFrom-Json -ErrorAction SilentlyContinue
+        } else {
+            $response
+        }
+
+        if ($result -and $result.deltaLink) {
+            # Check if token has expired (7 days for directory objects)
+            $lastUpdated = [DateTime]::Parse($result.lastUpdated)
+            $expirationDays = 7
+
+            if ((Get-Date).ToUniversalTime() -gt $lastUpdated.AddDays($expirationDays)) {
+                Write-Warning "[DELTA] Token for '$ResourceType' expired (last updated: $($result.lastUpdated))"
+                return $null
+            }
+
+            Write-Verbose "[DELTA] Found valid token for '$ResourceType' (last updated: $($result.lastUpdated))"
+            return $result.deltaLink
+        }
+        else {
+            Write-Verbose "[DELTA] No stored token found for '$ResourceType'"
+            return $null
+        }
+    }
+    catch {
+        $statusCode = $_.Exception.Response.StatusCode.value__
+        if ($statusCode -eq 404) {
+            Write-Verbose "[DELTA] No stored token found for '$ResourceType' (blob not found)"
+            return $null
+        }
+        Write-Warning "[DELTA] Error retrieving token for '$ResourceType': $_"
+        return $null
+    }
+}
+
+function Set-DeltaToken {
+    <#
+    .SYNOPSIS
+        Stores a delta token for a resource type in Blob Storage
+
+    .DESCRIPTION
+        Saves the deltaLink URL returned by a Graph delta query for future use.
+        Stored as a JSON file in blob storage under delta-tokens/ folder.
+
+        The JSON includes:
+        - resourceType: The resource type name
+        - deltaLink: The full deltaLink URL with token
+        - lastUpdated: Timestamp of when the token was saved
+
+    .PARAMETER ResourceType
+        The type of resource (users, groups, applications, etc.)
+
+    .PARAMETER DeltaLink
+        The deltaLink URL returned by the Graph delta query
+
+    .PARAMETER StorageAccountName
+        The Azure Storage account name
+
+    .PARAMETER AccessToken
+        The access token for Storage authentication
+
+    .EXAMPLE
+        Set-DeltaToken -ResourceType "users" -DeltaLink $response.'@odata.deltaLink' `
+            -StorageAccountName $storageAccount -AccessToken $token
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('users', 'groups', 'applications', 'servicePrincipals', 'devices', 'administrativeUnits', 'directoryRoles', 'oauth2PermissionGrants')]
+        [string]$ResourceType,
+
+        [Parameter(Mandatory)]
+        [string]$DeltaLink,
+
+        [Parameter(Mandatory)]
+        [string]$StorageAccountName,
+
+        [Parameter(Mandatory)]
+        [string]$AccessToken
+    )
+
+    $blobName = "delta-tokens/$ResourceType.json"
+    $containerName = 'raw-data'
+    $uri = "https://$StorageAccountName.blob.core.windows.net/$containerName/$blobName"
+
+    $document = @{
+        resourceType = $ResourceType
+        deltaLink = $DeltaLink
+        lastUpdated = (Get-Date).ToUniversalTime().ToString('o')
+    }
+
+    $body = $document | ConvertTo-Json -Compress
+
+    try {
+        $headers = @{
+            'Authorization' = "Bearer $AccessToken"
+            'x-ms-version' = '2021-08-06'
+            'x-ms-date' = [DateTime]::UtcNow.ToString('r')
+            'x-ms-blob-type' = 'BlockBlob'
+            'Content-Type' = 'application/json'
+        }
+
+        Invoke-RestMethod -Uri $uri -Method Put -Headers $headers -Body $body -ErrorAction Stop | Out-Null
+
+        Write-Information "[DELTA] Stored token for '$ResourceType'" -InformationAction Continue
+    }
+    catch {
+        Write-Warning "[DELTA] Failed to store token for '$ResourceType': $_"
+        throw
+    }
+}
+
+function Invoke-GraphDelta {
+    <#
+    .SYNOPSIS
+        Executes a Microsoft Graph delta query with automatic token management
+
+    .DESCRIPTION
+        Performs a delta query against Microsoft Graph to retrieve only changed entities.
+        Automatically manages delta tokens:
+        - If a stored token exists and is valid, uses it for incremental sync
+        - If no token exists or it's expired, performs a full sync
+        - Stores the new deltaLink after successful completion
+
+        Returns changed entities with @removed markers for deleted items.
+
+        Supported resources:
+        - users: /users/delta
+        - groups: /groups/delta
+        - applications: /applications/delta
+        - servicePrincipals: /servicePrincipals/delta
+        - devices: /devices/delta
+        - administrativeUnits: /directory/administrativeUnits/delta
+        - directoryRoles: /directoryRoles/delta
+        - oauth2PermissionGrants: /oauth2PermissionGrants/delta
+
+    .PARAMETER ResourceType
+        The type of resource to query
+
+    .PARAMETER Select
+        Optional $select parameter to limit returned properties
+
+    .PARAMETER GraphToken
+        Access token for Microsoft Graph API
+
+    .PARAMETER StorageAccountName
+        Azure Storage account name for delta token storage
+
+    .PARAMETER StorageToken
+        Access token for Azure Storage
+
+    .PARAMETER ForceFullSync
+        If true, ignores stored token and performs full sync
+
+    .PARAMETER ApiVersion
+        Graph API version (v1.0 or beta). Default: v1.0
+
+    .OUTPUTS
+        PSCustomObject with:
+        - Entities: Array of changed/new entities
+        - RemovedIds: Array of IDs for deleted entities
+        - IsFullSync: Boolean indicating if this was a full sync
+        - TotalCount: Number of entities returned
+
+    .EXAMPLE
+        $result = Invoke-GraphDelta -ResourceType "users" -Select "id,displayName,userPrincipalName" `
+            -GraphToken $graphToken -StorageAccountName $storageAccount -StorageToken $storageToken
+
+        # Process changed users
+        foreach ($user in $result.Entities) {
+            # ...
+        }
+
+        # Handle deleted users
+        foreach ($deletedId in $result.RemovedIds) {
+            # Mark as deleted...
+        }
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('users', 'groups', 'applications', 'servicePrincipals', 'devices', 'administrativeUnits', 'directoryRoles', 'oauth2PermissionGrants')]
+        [string]$ResourceType,
+
+        [string]$Select,
+
+        [Parameter(Mandatory)]
+        [string]$GraphToken,
+
+        [Parameter(Mandatory)]
+        [string]$StorageAccountName,
+
+        [Parameter(Mandatory)]
+        [string]$StorageToken,
+
+        [switch]$ForceFullSync,
+
+        [ValidateSet('v1.0', 'beta')]
+        [string]$ApiVersion = 'v1.0'
+    )
+
+    # Map resource types to Graph delta endpoints
+    $deltaEndpoints = @{
+        'users' = '/users/delta'
+        'groups' = '/groups/delta'
+        'applications' = '/applications/delta'
+        'servicePrincipals' = '/servicePrincipals/delta'
+        'devices' = '/devices/delta'
+        'administrativeUnits' = '/directory/administrativeUnits/delta'
+        'directoryRoles' = '/directoryRoles/delta'
+        'oauth2PermissionGrants' = '/oauth2PermissionGrants/delta'
+    }
+
+    $deltaPath = $deltaEndpoints[$ResourceType]
+    $isFullSync = $true
+    $startUri = $null
+
+    # Try to get stored delta token (unless forcing full sync)
+    if (-not $ForceFullSync) {
+        $storedDeltaLink = Get-DeltaToken -ResourceType $ResourceType `
+            -StorageAccountName $StorageAccountName -AccessToken $StorageToken
+
+        if ($storedDeltaLink) {
+            $startUri = $storedDeltaLink
+            $isFullSync = $false
+            Write-Information "[DELTA] Using stored token for '$ResourceType' (incremental sync)" -InformationAction Continue
+        }
+    }
+
+    # If no stored token, build initial delta URI
+    if (-not $startUri) {
+        $startUri = "https://graph.microsoft.com/$ApiVersion$deltaPath"
+
+        # Add $select if provided
+        if ($Select) {
+            $startUri += "?`$select=$Select"
+        }
+
+        Write-Information "[DELTA] No stored token for '$ResourceType' (full sync)" -InformationAction Continue
+    }
+
+    # Collect all results
+    $entities = [System.Collections.ArrayList]::new()
+    $removedIds = [System.Collections.ArrayList]::new()
+    $nextLink = $startUri
+    $pageCount = 0
+    $newDeltaLink = $null
+
+    while ($nextLink) {
+        $pageCount++
+
+        try {
+            $response = Invoke-GraphWithRetry -Uri $nextLink -AccessToken $GraphToken
+
+            # Process entities
+            foreach ($entity in $response.value) {
+                if ($entity.'@removed') {
+                    # Entity was deleted - track the ID
+                    [void]$removedIds.Add($entity.id)
+                }
+                else {
+                    # Changed or new entity
+                    [void]$entities.Add($entity)
+                }
+            }
+
+            # Check for next page or delta link
+            if ($response.'@odata.nextLink') {
+                $nextLink = $response.'@odata.nextLink'
+            }
+            elseif ($response.'@odata.deltaLink') {
+                $newDeltaLink = $response.'@odata.deltaLink'
+                $nextLink = $null
+            }
+            else {
+                $nextLink = $null
+            }
+        }
+        catch {
+            Write-Error "[DELTA] Error fetching page $pageCount for '$ResourceType': $_"
+            throw
+        }
+    }
+
+    # Store the new delta link for next run
+    if ($newDeltaLink) {
+        try {
+            Set-DeltaToken -ResourceType $ResourceType -DeltaLink $newDeltaLink `
+                -StorageAccountName $StorageAccountName -AccessToken $StorageToken
+        }
+        catch {
+            Write-Warning "[DELTA] Failed to store delta token - next run will perform full sync"
+        }
+    }
+
+    # Log summary
+    $syncType = if ($isFullSync) { "FULL" } else { "INCREMENTAL" }
+    Write-Information "[DELTA] $ResourceType $syncType sync complete: $($entities.Count) changed, $($removedIds.Count) removed (pages: $pageCount)" -InformationAction Continue
+
+    return [PSCustomObject]@{
+        Entities = $entities.ToArray()
+        RemovedIds = $removedIds.ToArray()
+        IsFullSync = $isFullSync
+        TotalCount = $entities.Count
+        RemovedCount = $removedIds.Count
+        PageCount = $pageCount
+    }
+}
+
+#endregion Delta Query Functions
+
 function Get-GraphPagedResult {
     <#
     .SYNOPSIS
@@ -1023,12 +1392,20 @@ function Write-CosmosDocument {
         
         [Parameter(Mandatory)]
         [string]$AccessToken,
-        
-        [int]$MaxRetries = 3
+
+        [int]$MaxRetries = 3,
+
+        [string]$PartitionKeyPath = 'objectId'
     )
-    
+
     $uri = "$Endpoint/dbs/$Database/colls/$Container/docs"
-    
+
+    # Get partition key value from document using the specified path
+    $partitionKeyValue = $Document[$PartitionKeyPath]
+    if (-not $partitionKeyValue) {
+        throw "Partition key '$PartitionKeyPath' not found in document or is null"
+    }
+
     $attempt = 0
     while ($attempt -lt $MaxRetries) {
         $headers = @{
@@ -1036,7 +1413,7 @@ function Write-CosmosDocument {
             'Content-Type' = 'application/json'
             'x-ms-date' = [DateTime]::UtcNow.ToString('r')
             'x-ms-version' = '2018-12-31'
-            'x-ms-documentdb-partitionkey' = "[`"$($Document.objectId)`"]"
+            'x-ms-documentdb-partitionkey' = "[`"$partitionKeyValue`"]"
         }
         
         $body = $Document | ConvertTo-Json -Depth 10 -Compress
@@ -2758,6 +3135,10 @@ Export-ModuleMember -Function @(
     'Invoke-GraphWithRetry',
     'Invoke-GraphBatch',
     'Get-GraphPagedResult',
+    # Delta Query API
+    'Get-DeltaToken',
+    'Set-DeltaToken',
+    'Invoke-GraphDelta',
     # Blob Storage
     'Initialize-AppendBlob',
     'Add-BlobContent',

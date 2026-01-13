@@ -19,6 +19,10 @@
         'Invoke-GraphWithRetry',
         'Invoke-GraphBatch',
         'Get-GraphPagedResult',
+        # Delta Query API
+        'Get-DeltaToken',
+        'Set-DeltaToken',
+        'Invoke-GraphDelta',
         # Blob Storage
         'Initialize-AppendBlob',
         'Add-BlobContent',

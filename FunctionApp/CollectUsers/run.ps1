@@ -216,6 +216,52 @@ try {
     # Query users with field selection
     # Removed rarely-populated fields: passwordPolicies, employeeId, employeeHireDate, employeeType, companyName, mobilePhone
     $selectFields = "userPrincipalName,id,accountEnabled,userType,createdDateTime,signInActivity,displayName,usageLocation,externalUserState,externalUserStateChangeDateTime,onPremisesSyncEnabled,onPremisesSamAccountName,onPremisesUserPrincipalName,onPremisesSecurityIdentifier,lastPasswordChangeDateTime,signInSessionsValidFromDateTime,refreshTokensValidFromDateTime,onPremisesExtensionAttributes,mail,mailNickname,proxyAddresses,businessPhones,department,jobTitle,assignedLicenses"
+
+    #region Delta Query for Conditional Auth Methods Collection (Phase 2b)
+    # Check if delta sync is enabled (via environment variable or activity input)
+    $useDeltaSync = $false
+    if ($ActivityInput -and $ActivityInput.UseDelta -eq $true) {
+        $useDeltaSync = $true
+    }
+    elseif ($env:DELTA_SYNC_ENABLED -eq 'true') {
+        $useDeltaSync = $true
+    }
+
+    # Track delta query results - determines which users need auth methods collected
+    $changedUserIds = [System.Collections.Generic.HashSet[string]]::new()
+    $isFullSync = $true
+    $deltaAuthSkippedCount = 0
+
+    if ($useDeltaSync -and $storageAccountName) {
+        Write-Information "[USER-DELTA] Delta sync enabled - querying for changed users" -InformationAction Continue
+        try {
+            $deltaResult = Invoke-GraphDelta -ResourceType "users" `
+                -Select "id" `
+                -GraphToken $graphToken `
+                -StorageAccountName $storageAccountName `
+                -StorageToken $storageToken
+
+            $isFullSync = $deltaResult.IsFullSync
+
+            # Build HashSet of changed user IDs for O(1) lookup
+            foreach ($entity in $deltaResult.Entities) {
+                [void]$changedUserIds.Add($entity.id)
+            }
+            # Also include removed IDs (in case we need to track deletions)
+            foreach ($removedId in $deltaResult.RemovedIds) {
+                [void]$changedUserIds.Add($removedId)
+            }
+
+            Write-Information "[USER-DELTA] Delta result: $($changedUserIds.Count) changed users, IsFullSync=$isFullSync" -InformationAction Continue
+        }
+        catch {
+            Write-Warning "[USER-DELTA] Delta query failed, falling back to full sync: $_"
+            $isFullSync = $true
+            $changedUserIds.Clear()
+        }
+    }
+    #endregion
+
     $nextLink = "https://graph.microsoft.com/v1.0/users?`$select=$selectFields&`$top=$batchSize"
 
     Write-Verbose "Starting batch processing with streaming writes"
@@ -239,11 +285,25 @@ try {
 
         if ($userBatch.Count -eq 0) { break }
 
-        # --- BATCH: Collect Auth Methods for all users in this batch (using Graph $batch API) ---
+        # --- BATCH: Collect Auth Methods for users in this batch (using Graph $batch API) ---
         # Build list of users that need auth methods collected
+        # Phase 2b: For incremental sync, only collect for changed users
         $usersForAuth = @($userBatch | Where-Object {
             $acctEnabled = if ($null -ne $_.accountEnabled) { $_.accountEnabled } else { $null }
-            -not ($skipDisabledForAuthMethods -and $acctEnabled -eq $false)
+            $skipDisabled = ($skipDisabledForAuthMethods -and $acctEnabled -eq $false)
+
+            # Delta check: Skip auth methods for unchanged users during incremental sync
+            $skipUnchanged = $false
+            if (-not $isFullSync) {
+                # Incremental sync: Only collect auth for users in the changed set
+                # If no users changed (changedUserIds.Count = 0), skip ALL auth collection
+                if ($changedUserIds.Count -eq 0 -or -not $changedUserIds.Contains($_.id)) {
+                    $skipUnchanged = $true
+                    $script:deltaAuthSkippedCount++
+                }
+            }
+
+            -not $skipDisabled -and -not $skipUnchanged
         })
 
         # Initialize results hashtables
@@ -299,32 +359,39 @@ try {
             $authMethodTypes = [System.Collections.Generic.List[string]]::new()
 
             # --- Process Auth Methods from batch results ---
-            $shouldCollectAuth = -not ($skipDisabledForAuthMethods -and $accountEnabled -eq $false)
+            # Check if user was included in the batch request (accounts for both disabled and delta filtering)
+            $authMethodsResponse = $authMethodsResults[$userId]
+            $wasInBatchRequest = $authMethodsResults.ContainsKey($userId)
 
-            if ($shouldCollectAuth) {
-                # Process auth methods from batch result
-                $authMethodsResponse = $authMethodsResults[$userId]
-                if ($null -ne $authMethodsResponse -and $authMethodsResponse.value) {
-                    foreach ($method in $authMethodsResponse.value) {
-                        $methodType = $method.'@odata.type' -replace '#microsoft.graph.', ''
-                        $authMethodTypes.Add($methodType)
-                        $methodCount++
+            if ($wasInBatchRequest -and $null -ne $authMethodsResponse -and $authMethodsResponse.value) {
+                foreach ($method in $authMethodsResponse.value) {
+                    $methodType = $method.'@odata.type' -replace '#microsoft.graph.', ''
+                    $authMethodTypes.Add($methodType)
+                    $methodCount++
 
-                        switch ($methodType) {
-                            'microsoftAuthenticatorAuthenticationMethod' { $hasAuthenticator = $true }
-                            'phoneAuthenticationMethod' { $hasPhone = $true }
-                            'fido2AuthenticationMethod' { $hasFido2 = $true }
-                            'emailAuthenticationMethod' { $hasEmail = $true }
-                            'passwordAuthenticationMethod' { $hasPassword = $true }
-                            'temporaryAccessPassAuthenticationMethod' { $hasTap = $true }
-                            'windowsHelloForBusinessAuthenticationMethod' { $hasWindowsHello = $true }
-                            'softwareOathAuthenticationMethod' { $hasSoftwareOath = $true }
-                        }
+                    switch ($methodType) {
+                        'microsoftAuthenticatorAuthenticationMethod' { $hasAuthenticator = $true }
+                        'phoneAuthenticationMethod' { $hasPhone = $true }
+                        'fido2AuthenticationMethod' { $hasFido2 = $true }
+                        'emailAuthenticationMethod' { $hasEmail = $true }
+                        'passwordAuthenticationMethod' { $hasPassword = $true }
+                        'temporaryAccessPassAuthenticationMethod' { $hasTap = $true }
+                        'windowsHelloForBusinessAuthenticationMethod' { $hasWindowsHello = $true }
+                        'softwareOathAuthenticationMethod' { $hasSoftwareOath = $true }
                     }
                 }
-                elseif ($null -eq $authMethodsResponse) {
-                    $authMethodsErrorCount++
-                }
+            }
+            elseif ($wasInBatchRequest -and $null -eq $authMethodsResponse) {
+                $authMethodsErrorCount++
+            }
+
+            # Determine if this user should have had auth methods collected
+            $shouldCollectAuth = -not ($skipDisabledForAuthMethods -and $accountEnabled -eq $false)
+            if ($shouldCollectAuth -and -not $wasInBatchRequest) {
+                # User was skipped due to delta filtering (not disabled)
+                # Don't count as error - this is expected behavior for incremental sync
+            }
+            elseif ($wasInBatchRequest) {
 
                 # Process MFA requirements from batch result
                 $mfaResponse = $mfaRequirementsResults[$userId]
@@ -522,6 +589,11 @@ try {
     Write-Verbose "Risk data: $usersAtRiskCount at-risk users (High: $highRiskCount, Medium: $mediumRiskCount, Low: $lowRiskCount)"
     Write-Verbose "License data: $usersWithP2Count with P2, $usersWithE5Count with E5, $unlicensedCount unlicensed"
 
+    # Phase 2b: Log delta-based auth methods optimization
+    if (-not $isFullSync -and $changedUserIds.Count -gt 0) {
+        Write-Information "[USER-DELTA] Incremental sync: Skipped auth methods for $deltaAuthSkippedCount unchanged users (collected for $authMethodsProcessedCount changed users)" -InformationAction Continue
+    }
+
     # Cleanup
     $usersJsonL.Clear()
     $usersJsonL = $null
@@ -560,6 +632,11 @@ try {
         unlicensedUserCount         = $unlicensedCount
         skuLookupCount              = $skuLookup.Count
         blobPath                    = $principalsBlobName
+        # Phase 2b: Delta sync stats
+        deltaEnabled                = $useDeltaSync
+        deltaIsFullSync             = $isFullSync
+        deltaChangedUserCount       = $changedUserIds.Count
+        deltaAuthSkippedCount       = $deltaAuthSkippedCount
     }
 
     # Garbage collection

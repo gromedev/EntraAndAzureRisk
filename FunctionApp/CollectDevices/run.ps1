@@ -82,6 +82,15 @@ try {
         }
     }
 
+    # Check if delta sync is enabled (via environment variable or activity input)
+    $useDeltaSync = $false
+    if ($ActivityInput -and $ActivityInput.UseDelta -eq $true) {
+        $useDeltaSync = $true
+    }
+    elseif ($env:DELTA_SYNC_ENABLED -eq 'true') {
+        $useDeltaSync = $true
+    }
+
     # Get configuration
     $storageAccountName = $env:STORAGE_ACCOUNT_NAME
     $batchSize = if ($env:BATCH_SIZE) { [int]$env:BATCH_SIZE } else { 999 }
@@ -126,6 +135,33 @@ try {
     # Note: Requires Device.Read.All permission
     # Removed rarely-populated fields: mdmAppId, systemLabels
     $selectFields = "id,displayName,accountEnabled,deviceId,operatingSystem,operatingSystemVersion,isCompliant,isManaged,trustType,approximateLastSignInDateTime,createdDateTime,deviceVersion,manufacturer,model,profileType,registrationDateTime,extensionAttributes,onPremisesSyncEnabled,onPremisesLastSyncDateTime,managementType"
+
+    # Track delta query results
+    $deltaResult = $null
+    $removedDeviceIds = @()
+    $isFullSync = $true
+
+    # Use delta query if enabled (for testing delta infrastructure)
+    if ($useDeltaSync -and $storageAccountName) {
+        Write-Information "[DEVICE-DELTA] Delta sync enabled - using Invoke-GraphDelta" -InformationAction Continue
+        try {
+            $deltaResult = Invoke-GraphDelta -ResourceType "devices" `
+                -Select $selectFields `
+                -GraphToken $graphToken `
+                -StorageAccountName $storageAccountName `
+                -StorageToken $storageToken
+
+            $isFullSync = $deltaResult.IsFullSync
+            $removedDeviceIds = $deltaResult.RemovedIds
+
+            Write-Information "[DEVICE-DELTA] Delta result: $($deltaResult.TotalCount) changed, $($deltaResult.RemovedCount) removed, IsFullSync=$isFullSync" -InformationAction Continue
+        }
+        catch {
+            Write-Warning "[DEVICE-DELTA] Delta query failed, falling back to full sync: $_"
+            $deltaResult = $null
+        }
+    }
+
     $nextLink = "https://graph.microsoft.com/v1.0/devices?`$select=$selectFields&`$top=$batchSize"
 
     # Build Intune device lookup for usersLoggedOn data

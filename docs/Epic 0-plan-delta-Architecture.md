@@ -144,6 +144,50 @@ Evaluate Microsoft Graph delta queries for potential API call reduction. This do
 
 ---
 
+## Complete Delta Query Support Matrix (Research 2026-01-13)
+
+### Microsoft Graph Resources with Delta Support (v1.0)
+
+| Resource | Delta Endpoint | Our Collector | Impact |
+|----------|----------------|---------------|--------|
+| **user** | `/users/delta` | CollectUsers | ✅ Enables conditional auth method collection |
+| **group** | `/groups/delta` | CollectEntraGroups | ✅ Enables conditional member collection |
+| **application** | `/applications/delta` | CollectAppRegistrations | ✅ Enables conditional FIC/owner collection |
+| **servicePrincipal** | `/servicePrincipals/delta` | CollectEntraServicePrincipals | ✅ Enables conditional owner collection |
+| **device** | `/devices/delta` | CollectDevices | ✅ Enables conditional owner collection |
+| **administrativeUnit** | `/directory/administrativeUnits/delta` | CollectAdministrativeUnits | ✅ Enables conditional member collection |
+| **directoryRole** | `/directoryRoles/delta` | CollectRelationships | ✅ Role assignment tracking |
+| **directoryObject** | `/directoryObjects/delta` | N/A (generic) | Can filter by type |
+| **oAuth2PermissionGrant** | `/oauth2PermissionGrants/delta` | CollectRelationships | ✅ Consent tracking |
+| **orgContact** | `/contacts/delta` | Not collected | N/A |
+
+### Additional Delta-Supported Resources (Not Currently Collected)
+
+| Resource | Delta Endpoint | Notes |
+|----------|----------------|-------|
+| callRecording | `/communications/callRecords/delta` | Teams recording |
+| callTranscript | `/communications/callTranscripts/delta` | Teams transcript |
+| chatMessage | `/teams/{id}/channels/{id}/messages/delta` | Teams messages |
+| driveItem | `/drives/{id}/root/delta` | OneDrive/SharePoint |
+| event | `/users/{id}/events/delta` | Calendar events |
+| listItem | `/sites/{id}/lists/{id}/items/delta` | SharePoint lists |
+| message | `/users/{id}/messages/delta` | Mail messages |
+| site | `/sites/delta` | SharePoint sites |
+| todoTask | `/me/todo/lists/{id}/tasks/delta` | To-do tasks |
+| plannerUser | `/planner/buckets/delta` | Planner (beta) |
+
+### Delta Token Expiration
+
+| Resource Type | Token Expiration |
+|---------------|------------------|
+| Directory objects (user, group, app, SP, device, AU, directoryRole, orgContact, oauth2permissiongrant) | **7 days** |
+| Outlook entities (message, event, contact) | Depends on internal cache |
+| OneDrive/SharePoint (driveItem, listItem, site) | **30 days** |
+
+**Source**: [Microsoft Graph Delta Query Overview](https://learn.microsoft.com/en-us/graph/delta-query-overview)
+
+---
+
 ## Delta Query Reality Check
 
 ### What Delta CAN Help With
@@ -156,6 +200,8 @@ Evaluate Microsoft Graph delta queries for potential API call reduction. This do
 | `/servicePrincipals` | ✅ Yes | Reduces SP list calls from ~2 to ~1 |
 | `/devices` | ✅ Yes | Reduces device list calls from ~1 to ~1 |
 | `/directoryRoles` | ✅ Yes | Minimal (already small) |
+| `/administrativeUnits` | ✅ Yes | Enables conditional member collection |
+| `/oauth2PermissionGrants` | ✅ Yes | Consent change tracking |
 
 ### What Delta CANNOT Help With (The Real Problem)
 
@@ -347,12 +393,36 @@ Even with delta, run daily full sync to:
 
 ## Implementation Priority
 
-| Priority | Change | Effort | Impact |
-|----------|--------|--------|--------|
-| **1** | $batch API for auth methods | Medium | **70%+ reduction in CollectUsers calls** |
-| **2** | Conditional auth method collection | Medium | **90%+ reduction in delta runs** |
-| **3** | Skip license details in delta | Low | 10-15% reduction |
-| **4** | Delta queries for entity lists | Medium | 1-2% reduction |
+| Priority | Change | Effort | Impact | Status |
+|----------|--------|--------|--------|--------|
+| **1** | $batch API for auth methods | Medium | **70%+ reduction in CollectUsers calls** | ✅ **VERIFIED** (94.4% reduction) |
+| **2** | Delta queries for entity lists | Medium | Enables conditional collection | ✅ **VERIFIED** (2026-01-13) |
+| **3** | Conditional auth method collection | Medium | **90%+ reduction in delta runs** | 🔲 Pending |
+| **4** | Skip license details in delta | Low | 10-15% reduction | 🔲 Pending |
+
+---
+
+## Implementation Status (2026-01-13)
+
+### Phase 1: $batch API - ✅ COMPLETE
+- Added `Invoke-GraphBatch` function to [EntraDataCollection.psm1](../FunctionApp/Modules/EntraDataCollection/EntraDataCollection.psm1#L307)
+- Runtime verified: 826 individual calls → 46 batch calls = **94.4% reduction**
+- Integrated in CollectRelationships and CollectUsers collectors
+
+### Phase 2a: Delta Queries - ✅ COMPLETE
+- Added delta query functions:
+  - `Get-DeltaToken` - Retrieves stored delta token from blob storage
+  - `Set-DeltaToken` - Stores delta token in blob storage
+  - `Invoke-GraphDelta` - Executes delta query with automatic token management
+- Delta tokens stored in `raw-data/delta-tokens/{resourceType}.json`
+- Token expiration: 7 days (automatically falls back to full sync)
+- Runtime verified in CollectDevices:
+  - First run: Full sync (no stored token)
+  - Second run: Incremental sync (used stored token)
+
+### Phase 2b: Conditional Collection - 🔲 PENDING
+- Use delta query results to only fetch per-entity data for changed entities
+- Target collectors: CollectUsers (auth methods), CollectRelationships (owners, licenses)
 
 ---
 
