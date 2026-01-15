@@ -258,31 +258,40 @@ If Dashboard (www) is compromised:
 Dashboard showed -179 deleted edges after delta sync when only 1 test change was made.
 
 ### Root Cause Analysis
-After investigation, the "bug" appears to be a **false alarm**:
+**Status: UNRESOLVED** - Root cause not identified after 3+ hours of investigation.
 
-| Metric | First Full Sync | Subsequent Runs | Actual (from ARM API) |
-|--------|-----------------|-----------------|----------------------|
-| Azure RBAC | 28 | 9 | **6** |
-| appRoleAssignments | 39 | 22 | Unknown |
+### What Was Tried (None of these fixed the issue)
+1. Added pagination support to Azure RBAC collection using `Get-AzureManagementPagedResult` - **DID NOT FIX**
+2. Verified `Invoke-GraphBatch` handles retries and errors correctly - **NOT THE CAUSE**
+3. Compared orchestrator inputs (identical between runs) - **NOT THE CAUSE**
+4. Verified actual ARM API count (6 assignments) - **INFORMATIONAL ONLY**
+5. Wiped Cosmos DB and ran clean slate test - **BUG STILL PRESENT**
 
-The **first full sync inflated the numbers**, possibly due to:
-- Cached tokens from previous sessions
-- Stale data in the environment
-- API consistency issues on first call
+### Clean Slate Test Results (January 15, 2026)
 
-The subsequent runs (9 Azure RBAC) are actually **closer to reality** than the original 28.
+After wiping Cosmos DB and running controlled test with 20 modifications:
 
-### What Was Tried
-1. ✅ Added pagination support to Azure RBAC collection using `Get-AzureManagementPagedResult`
-2. ✅ Verified `Invoke-GraphBatch` handles retries and errors correctly
-3. ✅ Compared orchestrator inputs (identical between runs)
-4. ✅ Verified actual ARM API count (6 assignments)
+**Edge Counts (Correct):**
+| Edge Type | Full Sync | Delta Sync | Change | Expected |
+|-----------|-----------|------------|--------|----------|
+| Total Edges | 700 | 704 | **+4** | ~+4 ✓ |
+| groupMembershipsDirect | 246 | 247 | +1 | +1 ✓ |
+| appOwners | 21 | 22 | +1 | +1 ✓ |
+| spOwners | 22 | 23 | +1 | +1 ✓ |
+| pimEligible | 14 | 15 | +1 | +1 ✓ |
 
-### Conclusion
-The delete detection is working correctly. The issue was that the first sync collected inflated numbers, causing subsequent syncs to appear to have "deletions" when they were actually collecting the correct count.
+**Audit Tracking (WRONG):**
+Dashboard shows: `+265 new / ~113 mod / -122 del`
 
-### Fix Applied
-Updated `CollectRelationships/run.ps1` Phase 5 (Azure RBAC) to use `Get-AzureManagementPagedResult` for proper pagination handling. This ensures all role assignments are collected even if the API paginates results.
+The **122 deleted** is wrong - only ~4 deletions were expected.
+
+### Issue Summary
+- Edge *counts* are correct
+- Audit *tracking* is over-reporting deletions
+- The indexer writes 153 CosmosWrites for edges, but only 31 actual changes (21 modified + 10 new)
+- The extra 122 writes are being recorded as deletes
+
+**Likely Cause:** `IndexEdgesInCosmosDB` function may be treating edge property changes as delete+create pairs rather than modifications.
 
 ### Recommendation
-Proceed with Epic v4 implementation, which will rewrite all 17 collection phases with better structure. Any remaining edge collection issues will be easier to debug with the cleaner codebase.
+Proceed with Epic v4 implementation. The bug requires deeper investigation into the indexing logic, which will be easier with the cleaner codebase from Epic v4.
