@@ -284,6 +284,60 @@ try {
     $resourceChanges = @($changes | Where-Object { $_.entityType -eq 'resources' })
     $edgeChanges = @($changes | Where-Object { $_.entityType -eq 'edges' })
 
+    # Query actual totals from audit container (the binding only returns TOP 500)
+    $actualNewCount = 0
+    $actualModifiedCount = 0
+    $actualDeletedCount = 0
+    try {
+        $cosmosConnection = $env:CosmosDbConnectionString
+        if ($cosmosConnection -match 'AccountEndpoint=([^;]+);AccountKey=([^;]+)') {
+            $endpoint = $Matches[1]
+            $key = $Matches[2]
+            $databaseId = 'EntraData'
+            $containerId = 'audit'
+
+            # Build the query URL
+            $resourceLink = "dbs/$databaseId/colls/$containerId"
+            $queryUrl = "$endpoint$resourceLink/docs"
+
+            # Generate auth header
+            $date = [DateTime]::UtcNow.ToString('r')
+            $verb = 'POST'
+            $resourceType = 'docs'
+            $stringToSign = "$($verb.ToLower())`n$($resourceType.ToLower())`n$resourceLink`n$($date.ToLower())`n`n"
+            $hmac = New-Object System.Security.Cryptography.HMACSHA256
+            $hmac.Key = [Convert]::FromBase64String($key)
+            $signature = [Convert]::ToBase64String($hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($stringToSign)))
+            $authHeader = [System.Web.HttpUtility]::UrlEncode("type=master&ver=1.0&sig=$signature")
+
+            # Query for counts by changeType
+            $countQuery = @{
+                query = "SELECT c.changeType, COUNT(1) as count FROM c GROUP BY c.changeType"
+            } | ConvertTo-Json
+
+            $headers = @{
+                'Authorization' = $authHeader
+                'x-ms-date' = $date
+                'x-ms-version' = '2018-12-31'
+                'x-ms-documentdb-isquery' = 'true'
+                'x-ms-documentdb-query-enablecrosspartition' = 'true'
+                'Content-Type' = 'application/query+json'
+            }
+
+            $response = Invoke-RestMethod -Uri $queryUrl -Method POST -Headers $headers -Body $countQuery -ErrorAction Stop
+            foreach ($row in $response.Documents) {
+                switch ($row.changeType) {
+                    'new' { $actualNewCount = $row.count }
+                    'modified' { $actualModifiedCount = $row.count }
+                    'deleted' { $actualDeletedCount = $row.count }
+                }
+            }
+        }
+    } catch {
+        # If count query fails, fall back to sample counts
+        Write-Warning "Could not query actual audit counts: $_"
+    }
+
     # ========== DEBUG METRICS ==========
     # Calculate data freshness from collection timestamps
     $allTimestamps = @()
@@ -557,7 +611,7 @@ try {
         Data Age: <b>$dataAgeMinutes min</b> |
         Newest: $newestCollection |
         Oldest: $oldestCollection |
-        Changes: <span style="color:#107c10">+$newCount new</span> / <span style="color:#0078d4">~$modifiedCount mod</span> / <span style="color:#d13438">-$deletedCount del</span>
+        Changes: <span style="color:#107c10">+$(if ($actualNewCount -gt 0) { $actualNewCount } else { $newCount }) new</span> / <span style="color:#0078d4">~$(if ($actualModifiedCount -gt 0) { $actualModifiedCount } else { $modifiedCount }) mod</span> / <span style="color:#d13438">-$(if ($actualDeletedCount -gt 0) { $actualDeletedCount } else { $deletedCount }) del</span>
         $(if ($usersNoUpn -gt 0 -or $groupsNoName -gt 0 -or $edgesNoSource -gt 0 -or $edgesNoTarget -gt 0) {
             " | <b style='color:#d13438'>Quality Issues:</b> " +
             $(if ($usersNoUpn -gt 0) { "Users w/o UPN: $usersNoUpn " } else { "" }) +

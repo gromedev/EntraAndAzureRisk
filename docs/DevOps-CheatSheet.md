@@ -56,7 +56,7 @@ Write-Host "Orchestration $($status.runtimeStatus.ToLower()) in ${elapsed}s"
 
 ```powershell
 
-$STATUS_URI; $elapsed = [int]((Get-Date) - $startTime).TotalSeconds; $currentActivities = $status.historyEvents | Where-Object { $_.EventType -eq 'TaskScheduled' -and -not ($status.historyEvents | Where-Object { $_.EventType -eq 'TaskCompleted' -and $_.TaskScheduledId -eq $_.EventId }) } | ForEach-Object { $activityStart = [DateTime]$_.Timestamp; $activityElapsed = [int]((Get-Date).ToUniversalTime() - $activityStart).TotalSeconds; "$($_.Name) (${activityElapsed}s)" }; $activityList = if ($currentActivities) { $currentActivities -join ', ' } else { 'None' }; Write-Host "${elapsed}s: $($status.runtimeStatus) | Running: $activityList"; if ($status.runtimeStatus -in @('Completed', 'Failed')) { break } }
+$STATUS_URI; $elapsed = [int]((Get-Date) - $startTime).TotalSeconds; $currentActivities = $status.historyEvents | Where-Object { $_.EventType -eq 'TaskScheduled' -and -not ($status.historyEvents | Where-Object { $_.EventType -eq 'TaskCompleted' -and $_.TaskScheduledId -eq $_.EventId }) } | ForEach-Object { $activityStart = [DateTime]$_.Timestamp; $activityElapsed = [int]((Get-Date).ToUniversalTime() - $activityStart).TotalSeconds; "$($_.Name) (${activityElapsed}s)" }; $activityList = if ($currentActivities) { $currentActivities -join ', ' } else { 'None' }; Write-Host "${elapsed}s: $($status.runtimeStatus) | Running: $activityList"; if ($status.runtimeStatus -in @('Completed', 'Failed')) { break } 
 
 ```
 ---

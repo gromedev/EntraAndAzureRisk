@@ -859,14 +859,11 @@ try {
     foreach ($sub in $subscriptions) {
         try {
             $uri = "https://management.azure.com$($sub.id)/providers/Microsoft.Authorization/roleAssignments?api-version=2022-04-01"
-            $headers = @{
-                'Authorization' = "Bearer $azureToken"
-                'Content-Type' = 'application/json'
-            }
 
-            $response = Invoke-RestMethod -Uri $uri -Method GET -Headers $headers -ErrorAction Stop
+            # Use paginated helper to get ALL role assignments (ARM API paginates results)
+            $roleAssignments = Get-AzureManagementPagedResult -Uri $uri -AccessToken $azureToken
 
-            foreach ($assignment in $response.value) {
+            foreach ($assignment in $roleAssignments) {
                 $scope = $assignment.properties.scope
                 $scopeType = "unknown"
                 $resourceGroup = $null

@@ -1,161 +1,58 @@
 {
-  "apps": [
-    {
-      "appId": "7236db84-2029-472a-8075-e3cefb045a6b",
-      "credentials": [],
-      "spId": "237e8206-991f-480c-9318-036ff0544774",
-      "displayName": "Alpenglow-Test-App-App1-4a7981a7"
-    },
-    {
-      "appId": "cd2e7a45-4e36-4586-bb1d-f5efaf22ddb2",
-      "credentials": [],
-      "spId": "ca76a45e-e1e8-44de-a3fd-ee2f4fc2f3cb",
-      "displayName": "Alpenglow-Test-App-App2-a2f8f754"
-    },
-    {
-      "appId": "07439a1b-a3e0-4097-8a30-ad9167a7a802",
-      "credentials": [],
-      "spId": "b40b46d9-eff7-4206-91db-4ce7e37677ab",
-      "displayName": "Alpenglow-Test-App-App3-5445f4c4"
-    },
-    {
-      "displayName": "Alpenglow-Test-App-App1-e8cc55c7",
-      "credentials": [],
-      "appId": "2f3ed58b-764b-4a8a-a1ca-a814a47b03f4",
-      "spId": "dc07f314-89e1-4ce6-9bee-5ea04c2c78a8"
-    },
-    {
-      "displayName": "Alpenglow-Test-App-App2-7a288615",
-      "credentials": [],
-      "appId": "7c7c4834-260a-4795-a065-ff6793386d4e",
-      "spId": "29e11246-fc9b-442a-980b-f2fe65a877d6"
-    },
-    {
-      "displayName": "Alpenglow-Test-App-App3-052e649d",
-      "credentials": [],
-      "appId": "1e7088bd-8e5e-4bf2-9a7f-df691f09ede1",
-      "spId": "30252265-cb0e-4a2c-bf9f-68adb78e57f1"
-    },
-    {
-      "displayName": "Alpenglow-Test-App-App1-698fce40",
-      "credentials": [],
-      "appId": "31b3412a-193d-4a0d-ad87-6591810b7729",
-      "spId": "406573e3-e282-46a8-99a1-6652f92bde9d"
-    },
-    {
-      "displayName": "Alpenglow-Test-App-App2-3d8a2544",
-      "credentials": [],
-      "appId": "cfae6f96-fc10-4c19-9c03-abe15baf63b2",
-      "spId": "55970424-a0a6-4970-af4c-b843f2770a6b"
-    },
-    {
-      "displayName": "Alpenglow-Test-App-App3-af361379",
-      "credentials": [],
-      "appId": "383bbb39-1794-4f88-8e23-a0673f9e0f29",
-      "spId": "3ea15f9a-6449-4f01-a728-7c63d3ee0a98"
-    },
-    {
-      "displayName": "Alpenglow-Test-App-App1-9a684cc3",
-      "credentials": [],
-      "appId": "24d24f76-91b3-4e3d-ae04-3f9945be93e5",
-      "spId": "1f9acd0c-68e7-43bb-8842-1280a249a097"
-    },
-    {
-      "displayName": "Alpenglow-Test-App-App2-4a6b21e6",
-      "credentials": [],
-      "appId": "e0580c12-8551-49a6-a1c8-39070c3a70a0",
-      "spId": "fdf55e26-facb-4efb-a405-e8aa2ab02f00"
-    },
-    {
-      "displayName": "Alpenglow-Test-App-App3-cf3ee04d",
-      "credentials": [],
-      "appId": "dc68cdd5-b62e-4488-b86a-9b46eaaecc05",
-      "spId": "fd36965e-f055-49ac-9fd7-b253b53721dd"
-    }
-  ],
-  "appOwnerships": [
-    {
-      "ownerId": "5150093b-ff55-49c7-90af-b2a8aae0ebfc",
-      "appId": "7236db84-2029-472a-8075-e3cefb045a6b"
-    },
-    {
-      "ownerId": "acb22cce-4a94-4741-ad6d-92a9aa2f4dc8",
-      "appId": "cd2e7a45-4e36-4586-bb1d-f5efaf22ddb2"
-    },
-    {
-      "ownerId": "f95c6b91-6cc6-41c0-8ef2-b5f06417a1c7",
-      "appId": "7236db84-2029-472a-8075-e3cefb045a6b"
-    },
-    {
-      "ownerId": "f95c6b91-6cc6-41c0-8ef2-b5f06417a1c7",
-      "appId": "cd2e7a45-4e36-4586-bb1d-f5efaf22ddb2"
-    },
-    {
-      "appId": "07439a1b-a3e0-4097-8a30-ad9167a7a802",
-      "ownerId": "7e5c4094-827d-4c1d-a301-2cdb6ff1b1ca"
-    },
-    {
-      "ownerId": "aee28442-6579-4693-be9e-870411998731",
-      "appId": "07439a1b-a3e0-4097-8a30-ad9167a7a802"
-    },
-    {
-      "ownerId": "65719ba1-f669-41d2-b478-7adb3ffd0f38",
-      "appId": "7236db84-2029-472a-8075-e3cefb045a6b"
-    },
-    {
-      "ownerId": "10e5fb65-5ba6-466b-8836-e7ed6bb2bbaf",
-      "appId": "7236db84-2029-472a-8075-e3cefb045a6b"
-    },
-    {
-      "ownerId": "65719ba1-f669-41d2-b478-7adb3ffd0f38",
-      "appId": "cd2e7a45-4e36-4586-bb1d-f5efaf22ddb2"
-    },
-    {
-      "ownerId": "bb83b61b-8cd7-4788-af82-38e914a4088b",
-      "appId": "7236db84-2029-472a-8075-e3cefb045a6b"
-    },
-    {
-      "ownerId": "40f01b3f-be62-4020-aea3-5ac088fc05f0",
-      "appId": "cd2e7a45-4e36-4586-bb1d-f5efaf22ddb2"
-    },
-    {
-      "ownerId": "bc6ff818-af9e-4d7b-85b4-5afdc451e74e",
-      "appId": "cd2e7a45-4e36-4586-bb1d-f5efaf22ddb2"
-    },
-    {
-      "ownerId": "acb22cce-4a94-4741-ad6d-92a9aa2f4dc8",
-      "appId": "7236db84-2029-472a-8075-e3cefb045a6b"
-    },
+  "groupOwnerships": [
     {
       "ownerId": "7e5c4094-827d-4c1d-a301-2cdb6ff1b1ca",
-      "appId": "cd2e7a45-4e36-4586-bb1d-f5efaf22ddb2"
+      "groupId": "65d3edca-1ac7-4bc8-a1e5-be6533d6aefb"
     },
     {
-      "ownerId": "06a25125-30e6-4a8b-8e3c-d33c8e839003",
-      "appId": "7236db84-2029-472a-8075-e3cefb045a6b"
-    },
-    {
-      "ownerId": "fa43749b-4a1d-4753-b9c9-b83eb06c5224",
-      "appId": "cd2e7a45-4e36-4586-bb1d-f5efaf22ddb2"
+      "ownerId": "acb22cce-4a94-4741-ad6d-92a9aa2f4dc8",
+      "groupId": "438e5625-f4d2-41a2-9e2d-76ad7f6b04dd"
     },
     {
       "ownerId": "fb9d1bef-9c94-47d2-9e52-06949b1c253b",
-      "appId": "7236db84-2029-472a-8075-e3cefb045a6b"
+      "groupId": "6e15aabe-28a2-4cee-b235-94106deaff85"
     },
     {
-      "ownerId": "89d1419c-188c-4e19-9add-561534f50468",
-      "appId": "2f3ed58b-764b-4a8a-a1ca-a814a47b03f4"
+      "ownerId": "10e5fb65-5ba6-466b-8836-e7ed6bb2bbaf",
+      "groupId": "db5b4947-12e6-49a9-851d-d5c2f7bad5c1"
     },
     {
-      "appId": "31b3412a-193d-4a0d-ad87-6591810b7729",
-      "ownerId": "9fa5ef68-7819-4862-bd1c-8958c3459626"
+      "ownerId": "aee28442-6579-4693-be9e-870411998731",
+      "groupId": "6e15aabe-28a2-4cee-b235-94106deaff85"
     },
     {
-      "appId": "31b3412a-193d-4a0d-ad87-6591810b7729",
+      "ownerId": "06a25125-30e6-4a8b-8e3c-d33c8e839003",
+      "groupId": "6c734aaf-daae-4973-ac4c-8398cba8244a"
+    },
+    {
+      "ownerId": "ac38c789-0802-479b-9839-84cd108020b0",
+      "groupId": "db5b4947-12e6-49a9-851d-d5c2f7bad5c1"
+    },
+    {
+      "ownerId": "40f01b3f-be62-4020-aea3-5ac088fc05f0",
+      "groupId": "6c734aaf-daae-4973-ac4c-8398cba8244a"
+    },
+    {
+      "ownerId": "fb9d1bef-9c94-47d2-9e52-06949b1c253b",
+      "groupId": "db5b4947-12e6-49a9-851d-d5c2f7bad5c1"
+    },
+    {
+      "ownerId": "bc6ff818-af9e-4d7b-85b4-5afdc451e74e",
+      "groupId": "f7bfb4d0-7542-43d4-9c66-f1dc947f77df"
+    },
+    {
+      "ownerId": "0cfefa41-0215-46c5-affb-da8fc891f53b",
+      "groupId": "29debaee-2e29-41f3-9c01-7444a71d1423"
+    },
+    {
+      "groupId": "438e5625-f4d2-41a2-9e2d-76ad7f6b04dd",
+      "ownerId": "bb83b61b-8cd7-4788-af82-38e914a4088b"
+    },
+    {
+      "groupId": "8782c59c-1548-4d49-a8e7-75f9a4cea705",
       "ownerId": "fd60866e-28f0-426d-9cc8-27775af3dca1"
     }
   ],
-  "compliancePolicies": [],
   "credentials": [
     {
       "spId": "237e8206-991f-480c-9318-036ff0544774",
@@ -174,10 +71,6 @@
       "keyId": "944666ad-f39c-4e02-9976-a1dd8ce26984"
     },
     {
-      "spId": "3ea15f9a-6449-4f01-a728-7c63d3ee0a98",
-      "keyId": "6abee1bc-7a26-4526-9173-206f1c98c3fe"
-    },
-    {
       "spId": "fdf55e26-facb-4efb-a405-e8aa2ab02f00",
       "keyId": "9ae65feb-d650-4e3c-95d5-8a1cd997e142"
     },
@@ -190,10 +83,6 @@
       "keyId": "e21b5c98-4a16-4402-9075-7e9ad0b00ec5"
     },
     {
-      "keyId": "b6f209a3-1cb4-4fb9-8330-8d637883e03a",
-      "spId": "29e11246-fc9b-442a-980b-f2fe65a877d6"
-    },
-    {
       "spId": "55970424-a0a6-4970-af4c-b843f2770a6b",
       "keyId": "0919ba2e-392e-4624-b6a4-02b77202da7f"
     },
@@ -204,222 +93,14 @@
     {
       "spId": "406573e3-e282-46a8-99a1-6652f92bde9d",
       "keyId": "4db6cbbe-c1fa-4965-94bf-4c334a38b17e"
-    }
-  ],
-  "groups": [
-    {
-      "roleAssignable": false,
-      "id": "db5b4947-12e6-49a9-851d-d5c2f7bad5c1",
-      "displayName": "Alpenglow-Test-Group-G1-57b0047e"
     },
     {
-      "roleAssignable": false,
-      "id": "6c734aaf-daae-4973-ac4c-8398cba8244a",
-      "displayName": "Alpenglow-Test-Group-G2-187b21b6"
+      "spId": "29e11246-fc9b-442a-980b-f2fe65a877d6",
+      "keyId": "3ecc7644-fd4d-4add-b8f9-c1fa829ad090"
     },
     {
-      "roleAssignable": false,
-      "id": "438e5625-f4d2-41a2-9e2d-76ad7f6b04dd",
-      "displayName": "Alpenglow-Test-Group-G3-4fe6e3c5"
-    },
-    {
-      "roleAssignable": false,
-      "id": "65d3edca-1ac7-4bc8-a1e5-be6533d6aefb",
-      "displayName": "Alpenglow-Test-Group-G4-ecbbfc81"
-    },
-    {
-      "roleAssignable": false,
-      "id": "6e15aabe-28a2-4cee-b235-94106deaff85",
-      "displayName": "Alpenglow-Test-Group-G5-a3d6345c"
-    },
-    {
-      "roleAssignable": false,
-      "id": "ee56c86e-60f4-45e1-ac53-764cf594d2ee",
-      "displayName": "Alpenglow-Test-Group-Nest-L1-e19ec7b6"
-    },
-    {
-      "roleAssignable": false,
-      "id": "4ec83dee-d2fe-4d79-aef6-4e466233ae6e",
-      "displayName": "Alpenglow-Test-Group-Nest-L2-c232276b"
-    },
-    {
-      "roleAssignable": false,
-      "id": "fcccdf6d-01c5-487e-9d2a-67b461615ff6",
-      "displayName": "Alpenglow-Test-Group-Nest-L3-7395d814"
-    },
-    {
-      "roleAssignable": false,
-      "id": "c1c46e99-208d-4d9d-8d89-a8f14e2e5da9",
-      "displayName": "Alpenglow-Test-Group-Nest-L4-c10239a9"
-    },
-    {
-      "roleAssignable": true,
-      "id": "69d0376b-b095-484e-8c31-5911b17a5b34",
-      "displayName": "Alpenglow-Test-Group-RoleAssign-fd206e40"
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-G1-7c187c65",
-      "id": "a7c98702-292d-49f8-853c-a3061f8b2699",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-G2-5b0009ed",
-      "id": "91e60872-422c-4650-871c-d9e39194dc55",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-G3-9dbf5f25",
-      "id": "9215fdfe-68ca-4fd8-8930-d8af552f1e11",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-G4-abc58e0b",
-      "id": "49fd94d5-b5ed-411d-bfd6-068ba013b59c",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-G5-e64a0eff",
-      "id": "29debaee-2e29-41f3-9c01-7444a71d1423",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-Nest-L1-fd8e739e",
-      "id": "3e1febcb-4848-4d50-833b-27f10542c1f7",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-Nest-L2-dcc08894",
-      "id": "30ddfc2e-3a59-4c89-85cd-d6f69a44b0e5",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-Nest-L3-9a69386c",
-      "id": "722df7b1-441a-4ff6-85b8-60f4c9a99031",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-Nest-L4-e292c823",
-      "id": "4f1f6eea-f425-4315-83d4-ae28ea54fa7f",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-RoleAssign-15cd8503",
-      "id": "c74c76dd-ab3e-4495-bb3f-252bf2a40293",
-      "roleAssignable": true
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-G1-3ebedff8",
-      "id": "8782c59c-1548-4d49-a8e7-75f9a4cea705",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-G2-1f9ce039",
-      "id": "535338c1-005d-474e-93cd-6a090ebae073",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-G3-3a5ebc25",
-      "id": "abc7e74e-971b-4af0-ab76-a22c1c6655b9",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-G4-49f4c078",
-      "id": "5d0ef896-528b-4c2b-9512-a1074904aaac",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-G5-5d74ddda",
-      "id": "0e5b03f7-bba0-4184-b1c2-d16e142b5977",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-Nest-L1-d7b5603f",
-      "id": "0b6c796c-db57-4b69-8a39-34bd7833db48",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-Nest-L2-4e58631f",
-      "id": "cc26bf60-5212-4131-8aef-16db253e8e2d",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-Nest-L3-e0630c66",
-      "id": "7d972edb-b336-477e-a259-70ff5498aea5",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-Nest-L4-892ac9fc",
-      "id": "4916598f-407e-4323-9b99-ad8334d704ad",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-RoleAssign-6467b6dc",
-      "id": "c731158a-8a7b-4875-8d72-3dc4ade907b8",
-      "roleAssignable": true
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-G1-8416af13",
-      "id": "c62dbca2-6519-4122-86ae-bc841ad1666f",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-G2-0aa71621",
-      "id": "1a546d6c-2695-4c85-8d4b-2680ebf781fb",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-G3-28325262",
-      "id": "f623d954-50be-44f1-ac5e-b86ea8e03721",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-G4-dce8a77e",
-      "id": "f7bfb4d0-7542-43d4-9c66-f1dc947f77df",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-G5-d4fd95a7",
-      "id": "372f76d3-6373-4944-b3df-a5372b3f35b8",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-Nest-L1-d4e319a9",
-      "id": "266651a3-46ad-4479-a12f-5eebfe839db1",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-Nest-L2-70d82b5e",
-      "id": "04246269-8135-4389-828c-3b4a7150c971",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-Nest-L3-4b3cbb10",
-      "id": "4b4b9285-2a8a-4cc1-80df-42722bb0e520",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-Nest-L4-1b2113df",
-      "id": "e976a971-82e1-4b3a-b725-a0a813de7250",
-      "roleAssignable": false
-    },
-    {
-      "displayName": "Alpenglow-Test-Group-RoleAssign-96b23e40",
-      "id": "3ab85024-db3a-4664-8e1a-120e53d121be",
-      "roleAssignable": true
-    }
-  ],
-  "directRoleAssignments": [
-    {
-      "principalId": "d52e43a6-78eb-4fe4-8569-8b68a56c83dd",
-      "roleId": "fdd7a751-b60b-444a-984c-02652fe8fa1c",
-      "id": "UafX_Qu2SkSYTAJlL-j6HKZDLtXreORPhWmLaKVsg90-1",
-      "roleName": "GroupsAdmin"
-    },
-    {
-      "roleName": "GroupsAdmin",
-      "principalId": "8c107e25-57ee-45eb-83d8-d32c0b44fdb2",
-      "id": "UafX_Qu2SkSYTAJlL-j6HCV-EIzuV-tFg9jTLAtE_bI-1",
-      "roleId": "fdd7a751-b60b-444a-984c-02652fe8fa1c"
+      "spId": "3ea15f9a-6449-4f01-a728-7c63d3ee0a98",
+      "keyId": "cfa465d7-ff4d-4de8-93d0-6929ae4890ba"
     }
   ],
   "azureResources": [
@@ -601,6 +282,239 @@
       "resourceGroup": "rg-alpenglow-test"
     }
   ],
+  "appProtectionPolicies": [
+    [
+      null,
+      {
+        "id": "T_f5137af0-9ff0-4653-87f1-de3b1b20ed2f",
+        "displayName": "Alpenglow-Test-AppProtection-2c5f6427"
+      }
+    ],
+    [
+      null,
+      {
+        "displayName": "Alpenglow-Test-AppProtection-8db94a64",
+        "id": "T_8ab6d0a2-69b4-4aca-81dd-2b5c86cae9cd"
+      }
+    ],
+    [
+      null,
+      {
+        "displayName": "Alpenglow-Test-AppProtection-a22c77b8",
+        "id": "T_7b1548f9-e0a9-4a56-a707-4ad362df2ddb"
+      }
+    ],
+    [
+      null,
+      {
+        "displayName": "Alpenglow-Test-AppProtection-c1c73e6a",
+        "id": "T_b049ce6a-99d0-4f87-978b-7b9c49d2b9ea"
+      }
+    ]
+  ],
+  "appOwnerships": [
+    {
+      "ownerId": "5150093b-ff55-49c7-90af-b2a8aae0ebfc",
+      "appId": "7236db84-2029-472a-8075-e3cefb045a6b"
+    },
+    {
+      "ownerId": "acb22cce-4a94-4741-ad6d-92a9aa2f4dc8",
+      "appId": "cd2e7a45-4e36-4586-bb1d-f5efaf22ddb2"
+    },
+    {
+      "ownerId": "f95c6b91-6cc6-41c0-8ef2-b5f06417a1c7",
+      "appId": "7236db84-2029-472a-8075-e3cefb045a6b"
+    },
+    {
+      "ownerId": "f95c6b91-6cc6-41c0-8ef2-b5f06417a1c7",
+      "appId": "cd2e7a45-4e36-4586-bb1d-f5efaf22ddb2"
+    },
+    {
+      "appId": "07439a1b-a3e0-4097-8a30-ad9167a7a802",
+      "ownerId": "7e5c4094-827d-4c1d-a301-2cdb6ff1b1ca"
+    },
+    {
+      "ownerId": "aee28442-6579-4693-be9e-870411998731",
+      "appId": "07439a1b-a3e0-4097-8a30-ad9167a7a802"
+    },
+    {
+      "ownerId": "65719ba1-f669-41d2-b478-7adb3ffd0f38",
+      "appId": "7236db84-2029-472a-8075-e3cefb045a6b"
+    },
+    {
+      "ownerId": "10e5fb65-5ba6-466b-8836-e7ed6bb2bbaf",
+      "appId": "7236db84-2029-472a-8075-e3cefb045a6b"
+    },
+    {
+      "ownerId": "65719ba1-f669-41d2-b478-7adb3ffd0f38",
+      "appId": "cd2e7a45-4e36-4586-bb1d-f5efaf22ddb2"
+    },
+    {
+      "ownerId": "bb83b61b-8cd7-4788-af82-38e914a4088b",
+      "appId": "7236db84-2029-472a-8075-e3cefb045a6b"
+    },
+    {
+      "ownerId": "40f01b3f-be62-4020-aea3-5ac088fc05f0",
+      "appId": "cd2e7a45-4e36-4586-bb1d-f5efaf22ddb2"
+    },
+    {
+      "ownerId": "bc6ff818-af9e-4d7b-85b4-5afdc451e74e",
+      "appId": "cd2e7a45-4e36-4586-bb1d-f5efaf22ddb2"
+    },
+    {
+      "ownerId": "acb22cce-4a94-4741-ad6d-92a9aa2f4dc8",
+      "appId": "7236db84-2029-472a-8075-e3cefb045a6b"
+    },
+    {
+      "ownerId": "7e5c4094-827d-4c1d-a301-2cdb6ff1b1ca",
+      "appId": "cd2e7a45-4e36-4586-bb1d-f5efaf22ddb2"
+    },
+    {
+      "ownerId": "06a25125-30e6-4a8b-8e3c-d33c8e839003",
+      "appId": "7236db84-2029-472a-8075-e3cefb045a6b"
+    },
+    {
+      "ownerId": "fa43749b-4a1d-4753-b9c9-b83eb06c5224",
+      "appId": "cd2e7a45-4e36-4586-bb1d-f5efaf22ddb2"
+    },
+    {
+      "ownerId": "fb9d1bef-9c94-47d2-9e52-06949b1c253b",
+      "appId": "7236db84-2029-472a-8075-e3cefb045a6b"
+    },
+    {
+      "ownerId": "89d1419c-188c-4e19-9add-561534f50468",
+      "appId": "2f3ed58b-764b-4a8a-a1ca-a814a47b03f4"
+    },
+    {
+      "appId": "31b3412a-193d-4a0d-ad87-6591810b7729",
+      "ownerId": "9fa5ef68-7819-4862-bd1c-8958c3459626"
+    },
+    {
+      "appId": "31b3412a-193d-4a0d-ad87-6591810b7729",
+      "ownerId": "fd60866e-28f0-426d-9cc8-27775af3dca1"
+    },
+    {
+      "ownerId": "684fbc85-5aac-4a55-9a46-72804b4f79f4",
+      "appId": "383bbb39-1794-4f88-8e23-a0673f9e0f29"
+    }
+  ],
+  "spOwnerships": [
+    {
+      "spId": "237e8206-991f-480c-9318-036ff0544774",
+      "ownerId": "7e5c4094-827d-4c1d-a301-2cdb6ff1b1ca"
+    },
+    {
+      "spId": "ca76a45e-e1e8-44de-a3fd-ee2f4fc2f3cb",
+      "ownerId": "aee28442-6579-4693-be9e-870411998731"
+    },
+    {
+      "spId": "b40b46d9-eff7-4206-91db-4ce7e37677ab",
+      "ownerId": "fb9d1bef-9c94-47d2-9e52-06949b1c253b"
+    },
+    {
+      "spId": "ca76a45e-e1e8-44de-a3fd-ee2f4fc2f3cb",
+      "ownerId": "3f1a9d88-8715-4baf-be0d-6837a03cccf3"
+    },
+    {
+      "spId": "237e8206-991f-480c-9318-036ff0544774",
+      "ownerId": "bc6ff818-af9e-4d7b-85b4-5afdc451e74e"
+    },
+    {
+      "spId": "ca76a45e-e1e8-44de-a3fd-ee2f4fc2f3cb",
+      "ownerId": "f95c6b91-6cc6-41c0-8ef2-b5f06417a1c7"
+    },
+    {
+      "spId": "b40b46d9-eff7-4206-91db-4ce7e37677ab",
+      "ownerId": "aee28442-6579-4693-be9e-870411998731"
+    },
+    {
+      "ownerId": "acb22cce-4a94-4741-ad6d-92a9aa2f4dc8",
+      "spId": "237e8206-991f-480c-9318-036ff0544774"
+    },
+    {
+      "spId": "237e8206-991f-480c-9318-036ff0544774",
+      "ownerId": "fb9d1bef-9c94-47d2-9e52-06949b1c253b"
+    },
+    {
+      "spId": "237e8206-991f-480c-9318-036ff0544774",
+      "ownerId": "10e5fb65-5ba6-466b-8836-e7ed6bb2bbaf"
+    },
+    {
+      "spId": "ca76a45e-e1e8-44de-a3fd-ee2f4fc2f3cb",
+      "ownerId": "65719ba1-f669-41d2-b478-7adb3ffd0f38"
+    },
+    {
+      "spId": "ca76a45e-e1e8-44de-a3fd-ee2f4fc2f3cb",
+      "ownerId": "89d1419c-188c-4e19-9add-561534f50468"
+    },
+    {
+      "spId": "ca76a45e-e1e8-44de-a3fd-ee2f4fc2f3cb",
+      "ownerId": "e58591c2-7c1a-4cf0-90c1-5e9873073571"
+    },
+    {
+      "spId": "237e8206-991f-480c-9318-036ff0544774",
+      "ownerId": "3f1a9d88-8715-4baf-be0d-6837a03cccf3"
+    },
+    {
+      "spId": "ca76a45e-e1e8-44de-a3fd-ee2f4fc2f3cb",
+      "ownerId": "e05615a9-9e2e-400d-be77-2bdf204a8f51"
+    },
+    {
+      "spId": "b40b46d9-eff7-4206-91db-4ce7e37677ab",
+      "ownerId": "d52e43a6-78eb-4fe4-8569-8b68a56c83dd"
+    },
+    {
+      "ownerId": "7b2af41e-3d92-4996-bc74-a6eb5220ed0f",
+      "spId": "237e8206-991f-480c-9318-036ff0544774"
+    },
+    {
+      "spId": "30252265-cb0e-4a2c-bf9f-68adb78e57f1",
+      "ownerId": "ac38c789-0802-479b-9839-84cd108020b0"
+    },
+    {
+      "spId": "30252265-cb0e-4a2c-bf9f-68adb78e57f1",
+      "ownerId": "8af6298f-c1a6-4b8e-837b-30da4e699d35"
+    },
+    {
+      "ownerId": "ac38c789-0802-479b-9839-84cd108020b0",
+      "spId": "237e8206-991f-480c-9318-036ff0544774"
+    }
+  ],
+  "namedLocations": [
+    {
+      "id": "0f032db5-3a98-4a0f-95f5-246f291b41f5",
+      "displayName": "Alpenglow-Test-Location-c234df78"
+    },
+    {
+      "id": "01c03dcb-d6c4-48a0-9eb5-1764d6b666db",
+      "displayName": "Alpenglow-Test-Location-70eb843f"
+    },
+    {
+      "displayName": "Alpenglow-Test-Location-7f08b666",
+      "id": "0ca4cdc7-fa25-4450-8d64-f9969fe18ad3"
+    },
+    {
+      "displayName": "Alpenglow-Test-Location-ae0e7100",
+      "id": "02d1dc8a-813c-4c1b-ac7b-1c88bf9765fc"
+    },
+    {
+      "displayName": "Alpenglow-Test-Location-7ba85ad7",
+      "id": "0f626bf5-043b-41de-bf45-979b5b2a7283"
+    },
+    {
+      "displayName": "Alpenglow-Test-Location-5ef382d9",
+      "id": "0e5ad906-0319-4d9b-aafd-3d829e26b553"
+    },
+    {
+      "displayName": "Alpenglow-Test-Location-c1ffb58e",
+      "id": "0d7be900-56ca-4432-9ea0-3deea840c5a1"
+    },
+    {
+      "displayName": "Alpenglow-Test-Location-ce099be1",
+      "id": "09a1a04f-112d-4649-acd1-d20c127e37e0"
+    }
+  ],
+  "compliancePolicies": [],
   "users": [
     {
       "upn": "alpenglow-test-user-u1-848c2393@gromedev01.onmicrosoft.com",
@@ -864,10 +778,6 @@
       "groupId": "29debaee-2e29-41f3-9c01-7444a71d1423"
     },
     {
-      "memberId": "7e5c4094-827d-4c1d-a301-2cdb6ff1b1ca",
-      "groupId": "535338c1-005d-474e-93cd-6a090ebae073"
-    },
-    {
       "memberId": "d52e43a6-78eb-4fe4-8569-8b68a56c83dd",
       "groupId": "c62dbca2-6519-4122-86ae-bc841ad1666f"
     },
@@ -878,10 +788,6 @@
     {
       "memberId": "8c107e25-57ee-45eb-83d8-d32c0b44fdb2",
       "groupId": "438e5625-f4d2-41a2-9e2d-76ad7f6b04dd"
-    },
-    {
-      "memberId": "73387c95-789b-4e29-86a1-4451e2d4514a",
-      "groupId": "91e60872-422c-4650-871c-d9e39194dc55"
     },
     {
       "memberId": "7b2af41e-3d92-4996-bc74-a6eb5220ed0f",
@@ -898,202 +804,92 @@
     {
       "groupId": "9215fdfe-68ca-4fd8-8930-d8af552f1e11",
       "memberId": "0cfefa41-0215-46c5-affb-da8fc891f53b"
+    },
+    {
+      "memberId": "72ad118d-50ab-4346-900d-9cc5b9828969",
+      "groupId": "91e60872-422c-4650-871c-d9e39194dc55"
+    },
+    {
+      "memberId": "9fa5ef68-7819-4862-bd1c-8958c3459626",
+      "groupId": "a7c98702-292d-49f8-853c-a3061f8b2699"
+    },
+    {
+      "memberId": "30156810-dc8e-4270-987c-b86273830658",
+      "groupId": "372f76d3-6373-4944-b3df-a5372b3f35b8"
     }
   ],
-  "groupOwnerships": [
+  "apps": [
     {
-      "ownerId": "7e5c4094-827d-4c1d-a301-2cdb6ff1b1ca",
-      "groupId": "65d3edca-1ac7-4bc8-a1e5-be6533d6aefb"
-    },
-    {
-      "ownerId": "acb22cce-4a94-4741-ad6d-92a9aa2f4dc8",
-      "groupId": "438e5625-f4d2-41a2-9e2d-76ad7f6b04dd"
-    },
-    {
-      "ownerId": "fb9d1bef-9c94-47d2-9e52-06949b1c253b",
-      "groupId": "6e15aabe-28a2-4cee-b235-94106deaff85"
-    },
-    {
-      "ownerId": "10e5fb65-5ba6-466b-8836-e7ed6bb2bbaf",
-      "groupId": "db5b4947-12e6-49a9-851d-d5c2f7bad5c1"
-    },
-    {
-      "ownerId": "aee28442-6579-4693-be9e-870411998731",
-      "groupId": "6e15aabe-28a2-4cee-b235-94106deaff85"
-    },
-    {
-      "ownerId": "06a25125-30e6-4a8b-8e3c-d33c8e839003",
-      "groupId": "6c734aaf-daae-4973-ac4c-8398cba8244a"
-    },
-    {
-      "ownerId": "ac38c789-0802-479b-9839-84cd108020b0",
-      "groupId": "db5b4947-12e6-49a9-851d-d5c2f7bad5c1"
-    },
-    {
-      "ownerId": "40f01b3f-be62-4020-aea3-5ac088fc05f0",
-      "groupId": "6c734aaf-daae-4973-ac4c-8398cba8244a"
-    },
-    {
-      "ownerId": "fb9d1bef-9c94-47d2-9e52-06949b1c253b",
-      "groupId": "db5b4947-12e6-49a9-851d-d5c2f7bad5c1"
-    },
-    {
-      "ownerId": "bc6ff818-af9e-4d7b-85b4-5afdc451e74e",
-      "groupId": "f7bfb4d0-7542-43d4-9c66-f1dc947f77df"
-    },
-    {
-      "ownerId": "0cfefa41-0215-46c5-affb-da8fc891f53b",
-      "groupId": "29debaee-2e29-41f3-9c01-7444a71d1423"
-    },
-    {
-      "groupId": "438e5625-f4d2-41a2-9e2d-76ad7f6b04dd",
-      "ownerId": "bb83b61b-8cd7-4788-af82-38e914a4088b"
-    },
-    {
-      "groupId": "8782c59c-1548-4d49-a8e7-75f9a4cea705",
-      "ownerId": "fd60866e-28f0-426d-9cc8-27775af3dca1"
-    }
-  ],
-  "spOwnerships": [
-    {
+      "appId": "7236db84-2029-472a-8075-e3cefb045a6b",
+      "credentials": [],
       "spId": "237e8206-991f-480c-9318-036ff0544774",
-      "ownerId": "7e5c4094-827d-4c1d-a301-2cdb6ff1b1ca"
+      "displayName": "Alpenglow-Test-App-App1-4a7981a7"
     },
     {
+      "appId": "cd2e7a45-4e36-4586-bb1d-f5efaf22ddb2",
+      "credentials": [],
       "spId": "ca76a45e-e1e8-44de-a3fd-ee2f4fc2f3cb",
-      "ownerId": "aee28442-6579-4693-be9e-870411998731"
+      "displayName": "Alpenglow-Test-App-App2-a2f8f754"
     },
     {
+      "appId": "07439a1b-a3e0-4097-8a30-ad9167a7a802",
+      "credentials": [],
       "spId": "b40b46d9-eff7-4206-91db-4ce7e37677ab",
-      "ownerId": "fb9d1bef-9c94-47d2-9e52-06949b1c253b"
+      "displayName": "Alpenglow-Test-App-App3-5445f4c4"
     },
     {
-      "spId": "ca76a45e-e1e8-44de-a3fd-ee2f4fc2f3cb",
-      "ownerId": "3f1a9d88-8715-4baf-be0d-6837a03cccf3"
+      "displayName": "Alpenglow-Test-App-App1-e8cc55c7",
+      "credentials": [],
+      "appId": "2f3ed58b-764b-4a8a-a1ca-a814a47b03f4",
+      "spId": "dc07f314-89e1-4ce6-9bee-5ea04c2c78a8"
     },
     {
-      "spId": "237e8206-991f-480c-9318-036ff0544774",
-      "ownerId": "bc6ff818-af9e-4d7b-85b4-5afdc451e74e"
+      "displayName": "Alpenglow-Test-App-App2-7a288615",
+      "credentials": [],
+      "appId": "7c7c4834-260a-4795-a065-ff6793386d4e",
+      "spId": "29e11246-fc9b-442a-980b-f2fe65a877d6"
     },
     {
-      "spId": "ca76a45e-e1e8-44de-a3fd-ee2f4fc2f3cb",
-      "ownerId": "f95c6b91-6cc6-41c0-8ef2-b5f06417a1c7"
+      "displayName": "Alpenglow-Test-App-App3-052e649d",
+      "credentials": [],
+      "appId": "1e7088bd-8e5e-4bf2-9a7f-df691f09ede1",
+      "spId": "30252265-cb0e-4a2c-bf9f-68adb78e57f1"
     },
     {
-      "spId": "b40b46d9-eff7-4206-91db-4ce7e37677ab",
-      "ownerId": "aee28442-6579-4693-be9e-870411998731"
+      "displayName": "Alpenglow-Test-App-App1-698fce40",
+      "credentials": [],
+      "appId": "31b3412a-193d-4a0d-ad87-6591810b7729",
+      "spId": "406573e3-e282-46a8-99a1-6652f92bde9d"
     },
     {
-      "ownerId": "acb22cce-4a94-4741-ad6d-92a9aa2f4dc8",
-      "spId": "237e8206-991f-480c-9318-036ff0544774"
+      "displayName": "Alpenglow-Test-App-App2-3d8a2544",
+      "credentials": [],
+      "appId": "cfae6f96-fc10-4c19-9c03-abe15baf63b2",
+      "spId": "55970424-a0a6-4970-af4c-b843f2770a6b"
     },
     {
-      "spId": "237e8206-991f-480c-9318-036ff0544774",
-      "ownerId": "fb9d1bef-9c94-47d2-9e52-06949b1c253b"
+      "displayName": "Alpenglow-Test-App-App3-af361379",
+      "credentials": [],
+      "appId": "383bbb39-1794-4f88-8e23-a0673f9e0f29",
+      "spId": "3ea15f9a-6449-4f01-a728-7c63d3ee0a98"
     },
     {
-      "spId": "237e8206-991f-480c-9318-036ff0544774",
-      "ownerId": "10e5fb65-5ba6-466b-8836-e7ed6bb2bbaf"
+      "displayName": "Alpenglow-Test-App-App1-9a684cc3",
+      "credentials": [],
+      "appId": "24d24f76-91b3-4e3d-ae04-3f9945be93e5",
+      "spId": "1f9acd0c-68e7-43bb-8842-1280a249a097"
     },
     {
-      "spId": "ca76a45e-e1e8-44de-a3fd-ee2f4fc2f3cb",
-      "ownerId": "65719ba1-f669-41d2-b478-7adb3ffd0f38"
+      "displayName": "Alpenglow-Test-App-App2-4a6b21e6",
+      "credentials": [],
+      "appId": "e0580c12-8551-49a6-a1c8-39070c3a70a0",
+      "spId": "fdf55e26-facb-4efb-a405-e8aa2ab02f00"
     },
     {
-      "spId": "ca76a45e-e1e8-44de-a3fd-ee2f4fc2f3cb",
-      "ownerId": "89d1419c-188c-4e19-9add-561534f50468"
-    },
-    {
-      "spId": "ca76a45e-e1e8-44de-a3fd-ee2f4fc2f3cb",
-      "ownerId": "e58591c2-7c1a-4cf0-90c1-5e9873073571"
-    },
-    {
-      "spId": "237e8206-991f-480c-9318-036ff0544774",
-      "ownerId": "3f1a9d88-8715-4baf-be0d-6837a03cccf3"
-    },
-    {
-      "spId": "ca76a45e-e1e8-44de-a3fd-ee2f4fc2f3cb",
-      "ownerId": "e05615a9-9e2e-400d-be77-2bdf204a8f51"
-    },
-    {
-      "spId": "b40b46d9-eff7-4206-91db-4ce7e37677ab",
-      "ownerId": "d52e43a6-78eb-4fe4-8569-8b68a56c83dd"
-    },
-    {
-      "ownerId": "7b2af41e-3d92-4996-bc74-a6eb5220ed0f",
-      "spId": "237e8206-991f-480c-9318-036ff0544774"
-    },
-    {
-      "spId": "30252265-cb0e-4a2c-bf9f-68adb78e57f1",
-      "ownerId": "ac38c789-0802-479b-9839-84cd108020b0"
-    },
-    {
-      "spId": "30252265-cb0e-4a2c-bf9f-68adb78e57f1",
-      "ownerId": "8af6298f-c1a6-4b8e-837b-30da4e699d35"
-    }
-  ],
-  "appProtectionPolicies": [
-    [
-      null,
-      {
-        "id": "T_f5137af0-9ff0-4653-87f1-de3b1b20ed2f",
-        "displayName": "Alpenglow-Test-AppProtection-2c5f6427"
-      }
-    ],
-    [
-      null,
-      {
-        "displayName": "Alpenglow-Test-AppProtection-8db94a64",
-        "id": "T_8ab6d0a2-69b4-4aca-81dd-2b5c86cae9cd"
-      }
-    ],
-    [
-      null,
-      {
-        "displayName": "Alpenglow-Test-AppProtection-a22c77b8",
-        "id": "T_7b1548f9-e0a9-4a56-a707-4ad362df2ddb"
-      }
-    ],
-    [
-      null,
-      {
-        "displayName": "Alpenglow-Test-AppProtection-c1c73e6a",
-        "id": "T_b049ce6a-99d0-4f87-978b-7b9c49d2b9ea"
-      }
-    ]
-  ],
-  "namedLocations": [
-    {
-      "id": "0f032db5-3a98-4a0f-95f5-246f291b41f5",
-      "displayName": "Alpenglow-Test-Location-c234df78"
-    },
-    {
-      "id": "01c03dcb-d6c4-48a0-9eb5-1764d6b666db",
-      "displayName": "Alpenglow-Test-Location-70eb843f"
-    },
-    {
-      "displayName": "Alpenglow-Test-Location-7f08b666",
-      "id": "0ca4cdc7-fa25-4450-8d64-f9969fe18ad3"
-    },
-    {
-      "displayName": "Alpenglow-Test-Location-ae0e7100",
-      "id": "02d1dc8a-813c-4c1b-ac7b-1c88bf9765fc"
-    },
-    {
-      "displayName": "Alpenglow-Test-Location-7ba85ad7",
-      "id": "0f626bf5-043b-41de-bf45-979b5b2a7283"
-    },
-    {
-      "displayName": "Alpenglow-Test-Location-5ef382d9",
-      "id": "0e5ad906-0319-4d9b-aafd-3d829e26b553"
-    },
-    {
-      "displayName": "Alpenglow-Test-Location-c1ffb58e",
-      "id": "0d7be900-56ca-4432-9ea0-3deea840c5a1"
-    },
-    {
-      "displayName": "Alpenglow-Test-Location-ce099be1",
-      "id": "09a1a04f-112d-4649-acd1-d20c127e37e0"
+      "displayName": "Alpenglow-Test-App-App3-cf3ee04d",
+      "credentials": [],
+      "appId": "dc68cdd5-b62e-4488-b86a-9b46eaaecc05",
+      "spId": "fd36965e-f055-49ac-9fd7-b253b53721dd"
     }
   ],
   "caPolicies": [
@@ -1136,6 +932,222 @@
       "displayName": "Alpenglow-Test-CAPolicy-02359dd1",
       "targetGroupId": "db5b4947-12e6-49a9-851d-d5c2f7bad5c1",
       "id": "b9ddff1d-6819-41dc-81a1-a28a646443f3"
+    }
+  ],
+  "directRoleAssignments": [
+    {
+      "principalId": "d52e43a6-78eb-4fe4-8569-8b68a56c83dd",
+      "roleId": "fdd7a751-b60b-444a-984c-02652fe8fa1c",
+      "id": "UafX_Qu2SkSYTAJlL-j6HKZDLtXreORPhWmLaKVsg90-1",
+      "roleName": "GroupsAdmin"
+    },
+    {
+      "principalId": "73387c95-789b-4e29-86a1-4451e2d4514a",
+      "id": "4yeYchSc90m7G5YI8Va7uJV8OHObeClOhqFEUeLUUUo-1",
+      "roleId": "729827e3-9c14-49f7-bb1b-9608f156bbb8",
+      "roleName": "HelpDeskAdmin"
+    }
+  ],
+  "groups": [
+    {
+      "roleAssignable": false,
+      "id": "db5b4947-12e6-49a9-851d-d5c2f7bad5c1",
+      "displayName": "Alpenglow-Test-Group-G1-57b0047e"
+    },
+    {
+      "roleAssignable": false,
+      "id": "6c734aaf-daae-4973-ac4c-8398cba8244a",
+      "displayName": "Alpenglow-Test-Group-G2-187b21b6"
+    },
+    {
+      "roleAssignable": false,
+      "id": "438e5625-f4d2-41a2-9e2d-76ad7f6b04dd",
+      "displayName": "Alpenglow-Test-Group-G3-4fe6e3c5"
+    },
+    {
+      "roleAssignable": false,
+      "id": "65d3edca-1ac7-4bc8-a1e5-be6533d6aefb",
+      "displayName": "Alpenglow-Test-Group-G4-ecbbfc81"
+    },
+    {
+      "roleAssignable": false,
+      "id": "6e15aabe-28a2-4cee-b235-94106deaff85",
+      "displayName": "Alpenglow-Test-Group-G5-a3d6345c"
+    },
+    {
+      "roleAssignable": false,
+      "id": "ee56c86e-60f4-45e1-ac53-764cf594d2ee",
+      "displayName": "Alpenglow-Test-Group-Nest-L1-e19ec7b6"
+    },
+    {
+      "roleAssignable": false,
+      "id": "4ec83dee-d2fe-4d79-aef6-4e466233ae6e",
+      "displayName": "Alpenglow-Test-Group-Nest-L2-c232276b"
+    },
+    {
+      "roleAssignable": false,
+      "id": "fcccdf6d-01c5-487e-9d2a-67b461615ff6",
+      "displayName": "Alpenglow-Test-Group-Nest-L3-7395d814"
+    },
+    {
+      "roleAssignable": false,
+      "id": "c1c46e99-208d-4d9d-8d89-a8f14e2e5da9",
+      "displayName": "Alpenglow-Test-Group-Nest-L4-c10239a9"
+    },
+    {
+      "roleAssignable": true,
+      "id": "69d0376b-b095-484e-8c31-5911b17a5b34",
+      "displayName": "Alpenglow-Test-Group-RoleAssign-fd206e40"
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-G1-7c187c65",
+      "id": "a7c98702-292d-49f8-853c-a3061f8b2699",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-G2-5b0009ed",
+      "id": "91e60872-422c-4650-871c-d9e39194dc55",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-G3-9dbf5f25",
+      "id": "9215fdfe-68ca-4fd8-8930-d8af552f1e11",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-G4-abc58e0b",
+      "id": "49fd94d5-b5ed-411d-bfd6-068ba013b59c",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-G5-e64a0eff",
+      "id": "29debaee-2e29-41f3-9c01-7444a71d1423",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-Nest-L1-fd8e739e",
+      "id": "3e1febcb-4848-4d50-833b-27f10542c1f7",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-Nest-L2-dcc08894",
+      "id": "30ddfc2e-3a59-4c89-85cd-d6f69a44b0e5",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-Nest-L3-9a69386c",
+      "id": "722df7b1-441a-4ff6-85b8-60f4c9a99031",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-Nest-L4-e292c823",
+      "id": "4f1f6eea-f425-4315-83d4-ae28ea54fa7f",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-RoleAssign-15cd8503",
+      "id": "c74c76dd-ab3e-4495-bb3f-252bf2a40293",
+      "roleAssignable": true
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-G1-3ebedff8",
+      "id": "8782c59c-1548-4d49-a8e7-75f9a4cea705",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-G2-1f9ce039",
+      "id": "535338c1-005d-474e-93cd-6a090ebae073",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-G3-3a5ebc25",
+      "id": "abc7e74e-971b-4af0-ab76-a22c1c6655b9",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-G4-49f4c078",
+      "id": "5d0ef896-528b-4c2b-9512-a1074904aaac",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-G5-5d74ddda",
+      "id": "0e5b03f7-bba0-4184-b1c2-d16e142b5977",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-Nest-L1-d7b5603f",
+      "id": "0b6c796c-db57-4b69-8a39-34bd7833db48",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-Nest-L2-4e58631f",
+      "id": "cc26bf60-5212-4131-8aef-16db253e8e2d",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-Nest-L3-e0630c66",
+      "id": "7d972edb-b336-477e-a259-70ff5498aea5",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-Nest-L4-892ac9fc",
+      "id": "4916598f-407e-4323-9b99-ad8334d704ad",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-RoleAssign-6467b6dc",
+      "id": "c731158a-8a7b-4875-8d72-3dc4ade907b8",
+      "roleAssignable": true
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-G1-8416af13",
+      "id": "c62dbca2-6519-4122-86ae-bc841ad1666f",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-G2-0aa71621",
+      "id": "1a546d6c-2695-4c85-8d4b-2680ebf781fb",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-G3-28325262",
+      "id": "f623d954-50be-44f1-ac5e-b86ea8e03721",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-G4-dce8a77e",
+      "id": "f7bfb4d0-7542-43d4-9c66-f1dc947f77df",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-G5-d4fd95a7",
+      "id": "372f76d3-6373-4944-b3df-a5372b3f35b8",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-Nest-L1-d4e319a9",
+      "id": "266651a3-46ad-4479-a12f-5eebfe839db1",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-Nest-L2-70d82b5e",
+      "id": "04246269-8135-4389-828c-3b4a7150c971",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-Nest-L3-4b3cbb10",
+      "id": "4b4b9285-2a8a-4cc1-80df-42722bb0e520",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-Nest-L4-1b2113df",
+      "id": "e976a971-82e1-4b3a-b725-a0a813de7250",
+      "roleAssignable": false
+    },
+    {
+      "displayName": "Alpenglow-Test-Group-RoleAssign-96b23e40",
+      "id": "3ab85024-db3a-4664-8e1a-120e53d121be",
+      "roleAssignable": true
     }
   ]
 }
