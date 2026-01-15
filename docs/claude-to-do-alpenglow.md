@@ -11,6 +11,20 @@ Migrating EntraAndAzureRisk (v3.5) to Alpenglow Alpha with separate Function App
 
 ---
 
+## Phase 0: Remove Unimplemented Resource Types
+
+### 0.1 Disable VMSS and Data Factory Collection
+These resource types are not ready for production. Remove from collection but keep Dashboard tabs as placeholders.
+
+- [ ] Remove `vmScaleSet` entry from `FunctionApp/Modules/EntraDataCollection/AzureResourceTypes.psd1` (lines 41-46)
+- [ ] Remove `dataFactory` entry from `FunctionApp/Modules/EntraDataCollection/AzureResourceTypes.psd1` (lines 47-53)
+- [ ] Update Dashboard VMSS tab to show placeholder message: "Placeholder only. Feature not implemented yet"
+- [ ] Update Dashboard Data Factory tab to show placeholder message: "Placeholder only. Feature not implemented yet"
+
+**Note:** The switch cases in `CollectAzureResources/run.ps1` can remain as dead code - they won't execute without the config entries and can be re-enabled later.
+
+---
+
 ## Phase 1: Project Structure Changes
 
 ### 1.1 Separate Dashboard into its own Function App
@@ -95,6 +109,11 @@ Verify final structure:
   - [ ] `functionAppWwwName`
   - [ ] `functionAppWwwDefaultHostName`
   - [ ] `functionAppWwwPrincipalId`
+
+### 2.5 Timer Trigger Schedule Change
+- [ ] Change TimerTrigger schedule from every 6 hours to once daily
+  - [ ] Update `FunctionApp-Data/TimerTrigger/function.json` schedule to `"0 0 2 * * *"` (2:00 AM daily)
+  - [ ] Update any related documentation
 
 ---
 
@@ -258,31 +277,62 @@ If Dashboard (www) is compromised:
 Dashboard showed -179 deleted edges after delta sync when only 1 test change was made.
 
 ### Root Cause Analysis
-After investigation, the "bug" appears to be a **false alarm**:
+**Status: UNRESOLVED** - Root cause not definitively identified.
 
 | Metric | First Full Sync | Subsequent Runs | Actual (from ARM API) |
 |--------|-----------------|-----------------|----------------------|
 | Azure RBAC | 28 | 9 | **6** |
 | appRoleAssignments | 39 | 22 | Unknown |
 
-The **first full sync inflated the numbers**, possibly due to:
-- Cached tokens from previous sessions
-- Stale data in the environment
-- API consistency issues on first call
-
-The subsequent runs (9 Azure RBAC) are actually **closer to reality** than the original 28.
+**Unexplained issues:**
+- Why did first sync collect 28 when actual count is 6?
+- Why do subsequent runs collect 9 instead of 6?
+- Resource groups were deleted during testing - environmental changes not properly tracked
 
 ### What Was Tried
-1. ✅ Added pagination support to Azure RBAC collection using `Get-AzureManagementPagedResult`
-2. ✅ Verified `Invoke-GraphBatch` handles retries and errors correctly
-3. ✅ Compared orchestrator inputs (identical between runs)
-4. ✅ Verified actual ARM API count (6 assignments)
+1. Added pagination support to Azure RBAC collection using `Get-AzureManagementPagedResult`
+2. Verified `Invoke-GraphBatch` handles retries and errors correctly
+3. Compared orchestrator inputs (identical between runs)
+4. Verified actual ARM API count (6 assignments)
+
+**None of these resolved the discrepancy.**
+
+### Fix Applied (Partial)
+Updated `CollectRelationships/run.ps1` Phase 5 (Azure RBAC) to use `Get-AzureManagementPagedResult` for proper pagination handling. However, this did not resolve the count discrepancy.
 
 ### Conclusion
-The delete detection is working correctly. The issue was that the first sync collected inflated numbers, causing subsequent syncs to appear to have "deletions" when they were actually collecting the correct count.
+The bug remains unresolved. The delete detection may be working correctly, but the edge collection itself has inconsistencies that need further investigation after Epic v4 refactoring provides a cleaner codebase to debug.
 
-### Fix Applied
-Updated `CollectRelationships/run.ps1` Phase 5 (Azure RBAC) to use `Get-AzureManagementPagedResult` for proper pagination handling. This ensures all role assignments are collected even if the API paginates results.
+### Latest Test Results (January 15, 2026 - Clean Slate Test)
+
+After wiping Cosmos DB and running a clean full sync followed by controlled test changes:
+
+**Test Script Made 20 Modifications:**
+- 3 group memberships added, 2 removed (net +1)
+- 2 credentials rotated
+- 1 PIM eligibility added
+- 1 group owner added, 1 removed (net 0)
+- 2 app/SP owners added
+- 1 direct role added, 1 removed (net 0)
+- 1 CA policy exclusion added
+
+**Edge Counts (Correct):**
+| Edge Type | Full Sync | Delta Sync | Change | Expected |
+|-----------|-----------|------------|--------|----------|
+| Total Edges | 700 | 704 | **+4** | ~+4 ✓ |
+| groupMembershipsDirect | 246 | 247 | +1 | +1 ✓ |
+| appOwners | 21 | 22 | +1 | +1 ✓ |
+| spOwners | 22 | 23 | +1 | +1 ✓ |
+| pimEligible | 14 | 15 | +1 | +1 ✓ |
+
+**Issue Remaining:**
+Dashboard shows: `+265 new / ~113 mod / -122 del`
+
+The **122 deleted** is wrong - only ~4 deletions were expected. The edge *counts* are correct, but the *audit tracking* is over-reporting deletions.
+
+The indexer is writing 153 CosmosWrites for edges, but only 31 actual changes (21 modified + 10 new). The extra 122 writes are being recorded as deletes.
+
+**Likely Cause:** The `IndexEdgesInCosmosDB` function may be treating edge property changes (like timestamps) as delete+create pairs rather than modifications.
 
 ### Recommendation
 Proceed with Epic v4 implementation, which will rewrite all 17 collection phases with better structure. Any remaining edge collection issues will be easier to debug with the cleaner codebase.
