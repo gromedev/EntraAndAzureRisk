@@ -403,50 +403,9 @@ try {
         }
     }
 
-    # Index Azure Hierarchy edges
-    if ($azureHierarchyResult.Success -and $azureHierarchyResult.EdgesBlobName) {
-        $indexInput = @{ Timestamp = $timestamp; BlobName = $azureHierarchyResult.EdgesBlobName }
-        $indexResult = Invoke-DurableActivity -FunctionName 'IndexEdgesInCosmosDB' -Input $indexInput
-        if ($indexResult.Success) {
-            Write-Verbose "Azure Hierarchy edges indexing complete: $($indexResult.TotalEdges) total"
-            $edgesIndexResult.TotalEdges += $indexResult.TotalEdges
-            $edgesIndexResult.NewEdges += $indexResult.NewEdges
-            $edgesIndexResult.ModifiedEdges += $indexResult.ModifiedEdges
-            $edgesIndexResult.CosmosWriteCount += $indexResult.CosmosWriteCount
-        } else {
-            Write-Warning "Azure Hierarchy edges indexing failed: $($indexResult.Error)"
-        }
-    }
-
-    # CONSOLIDATED: Index Azure Resources edges (managed identity associations)
-    if ($azureResourcesResult.Success -and $azureResourcesResult.EdgesBlobName) {
-        $indexInput = @{ Timestamp = $timestamp; BlobName = $azureResourcesResult.EdgesBlobName }
-        $indexResult = Invoke-DurableActivity -FunctionName 'IndexEdgesInCosmosDB' -Input $indexInput
-        if ($indexResult.Success) {
-            Write-Verbose "Azure Resources edges indexing complete: $($indexResult.TotalEdges) total"
-            $edgesIndexResult.TotalEdges += $indexResult.TotalEdges
-            $edgesIndexResult.NewEdges += $indexResult.NewEdges
-            $edgesIndexResult.ModifiedEdges += $indexResult.ModifiedEdges
-            $edgesIndexResult.CosmosWriteCount += $indexResult.CosmosWriteCount
-        } else {
-            Write-Warning "Azure Resources edges indexing failed: $($indexResult.Error)"
-        }
-    }
-
-    # Index Administrative Units edges (AU memberships)
-    if ($adminUnitsResult.Success -and $adminUnitsResult.EdgesBlobName) {
-        $indexInput = @{ Timestamp = $timestamp; BlobName = $adminUnitsResult.EdgesBlobName }
-        $indexResult = Invoke-DurableActivity -FunctionName 'IndexEdgesInCosmosDB' -Input $indexInput
-        if ($indexResult.Success) {
-            Write-Verbose "Administrative Units edges indexing complete: $($indexResult.TotalEdges) total"
-            $edgesIndexResult.TotalEdges += $indexResult.TotalEdges
-            $edgesIndexResult.NewEdges += $indexResult.NewEdges
-            $edgesIndexResult.ModifiedEdges += $indexResult.ModifiedEdges
-            $edgesIndexResult.CosmosWriteCount += $indexResult.CosmosWriteCount
-        } else {
-            Write-Warning "Administrative Units edges indexing failed: $($indexResult.Error)"
-        }
-    }
+    # NOTE: Azure Hierarchy, Azure Resources, and Admin Units edges are all appended to the same
+    # unified edges.jsonl blob. The single IndexEdgesInCosmosDB call above already indexes ALL edges.
+    # Previous duplicate calls were removed to fix incorrect edge counting and delete detection.
 
     # Index Policies (policies container - ALL policies including CA and Intune)
     # NOTE: Both CollectPolicies and CollectIntunePolicies write to the SAME policies.jsonl blob

@@ -1887,6 +1887,8 @@ A new "Alpenglow Dashboard" will be created as a separate Function App 2 with:
 | D-2 | Extend delta to CollectAppRegistrations (FIC) | Pending | Only fetch FIC for changed apps | Medium |
 | D-3 | Review collector frequencies (#38) | Pending | Now unblocked by delta implementation | Low |
 | D-4 | Configure selective collection schedule | Pending | Daily full + delta every 6h | Low |
+| D-5 | Batch group member queries | ✅ **COMPLETE** | [CollectRelationships:184](../FunctionApp/CollectRelationships/run.ps1#L184) - **DONE 2026-01-15**: Implemented $batch for direct + transitive group members. Phase 1a/1b now use Invoke-GraphBatch. | High |
+| D-6 | Fix duplicate edge indexing | ✅ **COMPLETE** | **DONE 2026-01-15**: Removed duplicate IndexEdgesInCosmosDB calls from Orchestrator. All edges written to unified edges.jsonl - only need single indexer call. Fixed false "deleted" detection (was 457, now 0). | High |
 
 ---
 

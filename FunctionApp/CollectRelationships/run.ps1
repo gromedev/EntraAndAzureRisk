@@ -179,69 +179,110 @@ try {
 
     Write-Verbose "Found $($groups.Count) groups to process for memberships"
 
-    foreach ($group in $groups) {
-        try {
-            $membersUri = "https://graph.microsoft.com/v1.0/groups/$($group.id)/members?`$select=id,displayName,userPrincipalName,accountEnabled,userType,mail"
-            $membersNextLink = $membersUri
+    # Helper function to process members response and create edges
+    function Process-GroupMembers {
+        param($Members, $Group, $GroupLookup, $DirectMembershipKeys, $GroupNesting, $TimestampFormatted)
 
-            while ($membersNextLink) {
-                try {
-                    $membersResponse = Invoke-GraphWithRetry -Uri $membersNextLink -AccessToken $graphToken
-                    $membersNextLink = $membersResponse.'@odata.nextLink'
+        $edges = [System.Collections.Generic.List[string]]::new()
 
-                    foreach ($member in $membersResponse.value) {
-                        $odataType = $member.'@odata.type'
-                        $memberType = switch ($odataType) {
-                            '#microsoft.graph.user' { 'user' }
-                            '#microsoft.graph.group' { 'group' }
-                            '#microsoft.graph.servicePrincipal' { 'servicePrincipal' }
-                            '#microsoft.graph.device' { 'device' }
-                            default { 'unknown' }
-                        }
+        foreach ($member in $Members) {
+            $odataType = $member.'@odata.type'
+            $memberType = switch ($odataType) {
+                '#microsoft.graph.user' { 'user' }
+                '#microsoft.graph.group' { 'group' }
+                '#microsoft.graph.servicePrincipal' { 'servicePrincipal' }
+                '#microsoft.graph.device' { 'device' }
+                default { 'unknown' }
+            }
 
-                        # Track for transitive comparison
-                        $membershipKey = "$($member.id)_$($group.id)"
-                        [void]$directMembershipKeys.Add($membershipKey)
+            # Track for transitive comparison
+            $membershipKey = "$($member.id)_$($Group.id)"
+            [void]$DirectMembershipKeys.Add($membershipKey)
 
-                        # Track group nesting (which groups contain other groups)
-                        if ($memberType -eq 'group') {
-                            if (-not $groupNesting.ContainsKey($member.id)) {
-                                $groupNesting[$member.id] = [System.Collections.Generic.List[string]]::new()
-                            }
-                            $groupNesting[$member.id].Add($group.id)
-                        }
-
-                        $relationship = @{
-                            id = "$($member.id)_$($group.id)_groupMember"
-                            objectId = "$($member.id)_$($group.id)_groupMember"
-                            edgeType = "groupMember"
-                            sourceId = $member.id
-                            sourceType = $memberType
-                            sourceDisplayName = $member.displayName ?? ""
-                            targetId = $group.id
-                            targetType = "group"
-                            targetDisplayName = $group.displayName ?? ""
-                            sourceUserPrincipalName = if ($memberType -eq 'user') { $member.userPrincipalName ?? $null } else { $null }
-                            sourceAccountEnabled = if ($null -ne $member.accountEnabled) { $member.accountEnabled } else { $null }
-                            sourceUserType = if ($memberType -eq 'user') { $member.userType ?? $null } else { $null }
-                            targetSecurityEnabled = if ($null -ne $group.securityEnabled) { $group.securityEnabled } else { $null }
-                            targetMailEnabled = if ($null -ne $group.mailEnabled) { $group.mailEnabled } else { $null }
-                            targetVisibility = $group.visibility ?? $null
-                            targetIsAssignableToRole = if ($null -ne $group.isAssignableToRole) { $group.isAssignableToRole } else { $null }
-                            membershipType = "Direct"
-                            inheritancePath = @()  # Empty for direct memberships
-                            inheritanceDepth = 0
-                            collectionTimestamp = $timestampFormatted
-                        }
-
-                        [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress -Depth 10))
-                        $stats.GroupMembershipsDirect++
-                    }
+            # Track group nesting (which groups contain other groups)
+            if ($memberType -eq 'group') {
+                if (-not $GroupNesting.ContainsKey($member.id)) {
+                    $GroupNesting[$member.id] = [System.Collections.Generic.List[string]]::new()
                 }
-                catch { Write-Warning "Failed to get members for group $($group.displayName): $_"; break }
+                $GroupNesting[$member.id].Add($Group.id)
+            }
+
+            $relationship = @{
+                id = "$($member.id)_$($Group.id)_groupMember"
+                objectId = "$($member.id)_$($Group.id)_groupMember"
+                edgeType = "groupMember"
+                sourceId = $member.id
+                sourceType = $memberType
+                sourceDisplayName = $member.displayName ?? ""
+                targetId = $Group.id
+                targetType = "group"
+                targetDisplayName = $Group.displayName ?? ""
+                sourceUserPrincipalName = if ($memberType -eq 'user') { $member.userPrincipalName ?? $null } else { $null }
+                sourceAccountEnabled = if ($null -ne $member.accountEnabled) { $member.accountEnabled } else { $null }
+                sourceUserType = if ($memberType -eq 'user') { $member.userType ?? $null } else { $null }
+                targetSecurityEnabled = if ($null -ne $Group.securityEnabled) { $Group.securityEnabled } else { $null }
+                targetMailEnabled = if ($null -ne $Group.mailEnabled) { $Group.mailEnabled } else { $null }
+                targetVisibility = $Group.visibility ?? $null
+                targetIsAssignableToRole = if ($null -ne $Group.isAssignableToRole) { $Group.isAssignableToRole } else { $null }
+                membershipType = "Direct"
+                inheritancePath = @()
+                inheritanceDepth = 0
+                collectionTimestamp = $TimestampFormatted
+            }
+
+            $edges.Add(($relationship | ConvertTo-Json -Compress -Depth 10))
+        }
+
+        return $edges
+    }
+
+    # Process groups in batches using $batch API
+    $groupBatchSize = 20  # Graph API $batch limit
+    $groupsWithPagination = [System.Collections.Generic.List[object]]::new()
+    $batchApiCalls = 0
+    $individualApiCalls = 0
+
+    for ($i = 0; $i -lt $groups.Count; $i += $groupBatchSize) {
+        $endIndex = [Math]::Min($i + $groupBatchSize - 1, $groups.Count - 1)
+        $groupBatch = $groups[$i..$endIndex]
+
+        # Build batch requests for member queries
+        $batchRequests = $groupBatch | ForEach-Object {
+            @{
+                id = $_.id
+                method = "GET"
+                url = "/groups/$($_.id)/members?`$select=id,displayName,userPrincipalName,accountEnabled,userType,mail&`$top=100"
             }
         }
-        catch { Write-Warning "Error processing group $($group.displayName): $_" }
+
+        # Execute batch request
+        $batchResponses = Invoke-GraphBatch -Requests $batchRequests -AccessToken $graphToken
+        $batchApiCalls++
+
+        # Process results
+        foreach ($group in $groupBatch) {
+            $membersResponse = $batchResponses[$group.id]
+
+            if ($null -ne $membersResponse -and $membersResponse.value) {
+                # Process first page of members
+                $edges = Process-GroupMembers -Members $membersResponse.value -Group $group `
+                    -GroupLookup $groupLookup -DirectMembershipKeys $directMembershipKeys `
+                    -GroupNesting $groupNesting -TimestampFormatted $timestampFormatted
+
+                foreach ($edge in $edges) {
+                    [void]$jsonL.AppendLine($edge)
+                    $stats.GroupMembershipsDirect++
+                }
+
+                # Check if this group has pagination (more than 100 members)
+                if ($membersResponse.'@odata.nextLink') {
+                    $groupsWithPagination.Add(@{
+                        Group = $group
+                        NextLink = $membersResponse.'@odata.nextLink'
+                    })
+                }
+            }
+        }
 
         # Periodic flush
         if ($jsonL.Length -ge ($writeThreshold * 300)) {
@@ -249,8 +290,40 @@ try {
             Write-Verbose "Flushed group memberships buffer ($($stats.GroupMembershipsDirect) direct total)"
         }
     }
+
+    # Handle groups with pagination (>100 members) - these need individual follow-up calls
+    if ($groupsWithPagination.Count -gt 0) {
+        Write-Verbose "Processing $($groupsWithPagination.Count) groups with pagination (>100 members)..."
+
+        foreach ($paginatedGroup in $groupsWithPagination) {
+            $group = $paginatedGroup.Group
+            $nextLink = $paginatedGroup.NextLink
+
+            while ($nextLink) {
+                try {
+                    $membersResponse = Invoke-GraphWithRetry -Uri $nextLink -AccessToken $graphToken
+                    $individualApiCalls++
+                    $nextLink = $membersResponse.'@odata.nextLink'
+
+                    $edges = Process-GroupMembers -Members $membersResponse.value -Group $group `
+                        -GroupLookup $groupLookup -DirectMembershipKeys $directMembershipKeys `
+                        -GroupNesting $groupNesting -TimestampFormatted $timestampFormatted
+
+                    foreach ($edge in $edges) {
+                        [void]$jsonL.AppendLine($edge)
+                        $stats.GroupMembershipsDirect++
+                    }
+                }
+                catch {
+                    Write-Warning "Failed to get paginated members for group $($group.displayName): $_"
+                    break
+                }
+            }
+        }
+    }
+
     Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
-    Write-Verbose "Direct group memberships complete: $($stats.GroupMembershipsDirect)"
+    Write-Information "[BATCH-MEMBERS] Direct group memberships complete: $($stats.GroupMembershipsDirect) edges, $batchApiCalls batch calls, $individualApiCalls pagination calls (groups with >100 members: $($groupsWithPagination.Count))" -InformationAction Continue
     #endregion
 
     #region Phase 1b: Transitive Group Memberships
@@ -280,85 +353,120 @@ try {
         return @()
     }
 
-    # Process all groups for transitive memberships
-    $groupsToProcess = $groups
+    # Helper function to process transitive members and create edges
+    function Process-TransitiveMembers {
+        param($Members, $Group, $DirectMembershipKeys, $GroupNesting, $TimestampFormatted)
 
-    Write-Verbose "Processing $($groupsToProcess.Count) groups for transitive memberships"
+        $edges = [System.Collections.Generic.List[string]]::new()
+        $skippedDirect = 0
 
-    foreach ($group in $groupsToProcess) {
-        try {
-            # Get transitive members
-            $transitiveMembersUri = "https://graph.microsoft.com/v1.0/groups/$($group.id)/transitiveMembers?`$select=id,displayName,userPrincipalName,accountEnabled,userType"
-            $transitiveMembersNextLink = $transitiveMembersUri
+        foreach ($member in $Members) {
+            $membershipKey = "$($member.id)_$($Group.id)"
 
-            while ($transitiveMembersNextLink) {
-                try {
-                    $transitiveResponse = Invoke-GraphWithRetry -Uri $transitiveMembersNextLink -AccessToken $graphToken
-                    $transitiveMembersNextLink = $transitiveResponse.'@odata.nextLink'
+            # Skip if this is a direct membership (already recorded)
+            if ($DirectMembershipKeys.Contains($membershipKey)) {
+                $skippedDirect++
+                continue
+            }
 
-                    foreach ($member in $transitiveResponse.value) {
-                        $membershipKey = "$($member.id)_$($group.id)"
+            $odataType = $member.'@odata.type'
+            $memberType = switch ($odataType) {
+                '#microsoft.graph.user' { 'user' }
+                '#microsoft.graph.group' { 'group' }
+                '#microsoft.graph.servicePrincipal' { 'servicePrincipal' }
+                '#microsoft.graph.device' { 'device' }
+                default { 'unknown' }
+            }
 
-                        # Skip if this is a direct membership (already recorded)
-                        if ($directMembershipKeys.Contains($membershipKey)) {
-                            continue
-                        }
-
-                        $odataType = $member.'@odata.type'
-                        $memberType = switch ($odataType) {
-                            '#microsoft.graph.user' { 'user' }
-                            '#microsoft.graph.group' { 'group' }
-                            '#microsoft.graph.servicePrincipal' { 'servicePrincipal' }
-                            '#microsoft.graph.device' { 'device' }
-                            default { 'unknown' }
-                        }
-
-                        # Find the intermediate groups this member belongs to that are nested in target group
-                        $inheritancePath = @()
-                        foreach ($directGroupId in $groupNesting.Keys) {
-                            # Check if member is directly in this group AND this group is in target group (directly or transitively)
-                            if ($directMembershipKeys.Contains("$($member.id)_$directGroupId")) {
-                                if ($groupNesting[$directGroupId] -contains $group.id) {
-                                    # Found: member → directGroupId → targetGroup
-                                    $inheritancePath += $directGroupId
-                                }
-                            }
-                        }
-
-                        # Calculate depth based on inheritance path
-                        $inheritanceDepth = if ($inheritancePath.Count -gt 0) { $inheritancePath.Count } else { 1 }
-
-                        $relationship = @{
-                            id = "$($member.id)_$($group.id)_groupMemberTransitive"
-                            objectId = "$($member.id)_$($group.id)_groupMemberTransitive"
-                            edgeType = "groupMemberTransitive"
-                            sourceId = $member.id
-                            sourceType = $memberType
-                            sourceDisplayName = $member.displayName ?? ""
-                            targetId = $group.id
-                            targetType = "group"
-                            targetDisplayName = $group.displayName ?? ""
-                            sourceUserPrincipalName = if ($memberType -eq 'user') { $member.userPrincipalName ?? $null } else { $null }
-                            sourceAccountEnabled = if ($null -ne $member.accountEnabled) { $member.accountEnabled } else { $null }
-                            sourceUserType = if ($memberType -eq 'user') { $member.userType ?? $null } else { $null }
-                            targetSecurityEnabled = if ($null -ne $group.securityEnabled) { $group.securityEnabled } else { $null }
-                            targetMailEnabled = if ($null -ne $group.mailEnabled) { $group.mailEnabled } else { $null }
-                            targetVisibility = $group.visibility ?? $null
-                            targetIsAssignableToRole = if ($null -ne $group.isAssignableToRole) { $group.isAssignableToRole } else { $null }
-                            membershipType = "Transitive"
-                            inheritancePath = $inheritancePath
-                            inheritanceDepth = $inheritanceDepth
-                            collectionTimestamp = $timestampFormatted
-                        }
-
-                        [void]$jsonL.AppendLine(($relationship | ConvertTo-Json -Compress -Depth 10))
-                        $stats.GroupMembershipsTransitive++
+            # Find the intermediate groups this member belongs to that are nested in target group
+            $inheritancePath = @()
+            foreach ($directGroupId in $GroupNesting.Keys) {
+                if ($DirectMembershipKeys.Contains("$($member.id)_$directGroupId")) {
+                    if ($GroupNesting[$directGroupId] -contains $Group.id) {
+                        $inheritancePath += $directGroupId
                     }
                 }
-                catch { Write-Warning "Failed to get transitive members for group $($group.displayName): $_"; break }
+            }
+
+            $inheritanceDepth = if ($inheritancePath.Count -gt 0) { $inheritancePath.Count } else { 1 }
+
+            $relationship = @{
+                id = "$($member.id)_$($Group.id)_groupMemberTransitive"
+                objectId = "$($member.id)_$($Group.id)_groupMemberTransitive"
+                edgeType = "groupMemberTransitive"
+                sourceId = $member.id
+                sourceType = $memberType
+                sourceDisplayName = $member.displayName ?? ""
+                targetId = $Group.id
+                targetType = "group"
+                targetDisplayName = $Group.displayName ?? ""
+                sourceUserPrincipalName = if ($memberType -eq 'user') { $member.userPrincipalName ?? $null } else { $null }
+                sourceAccountEnabled = if ($null -ne $member.accountEnabled) { $member.accountEnabled } else { $null }
+                sourceUserType = if ($memberType -eq 'user') { $member.userType ?? $null } else { $null }
+                targetSecurityEnabled = if ($null -ne $Group.securityEnabled) { $Group.securityEnabled } else { $null }
+                targetMailEnabled = if ($null -ne $Group.mailEnabled) { $Group.mailEnabled } else { $null }
+                targetVisibility = $Group.visibility ?? $null
+                targetIsAssignableToRole = if ($null -ne $Group.isAssignableToRole) { $Group.isAssignableToRole } else { $null }
+                membershipType = "Transitive"
+                inheritancePath = $inheritancePath
+                inheritanceDepth = $inheritanceDepth
+                collectionTimestamp = $TimestampFormatted
+            }
+
+            $edges.Add(($relationship | ConvertTo-Json -Compress -Depth 10))
+        }
+
+        return @{ Edges = $edges; SkippedDirect = $skippedDirect }
+    }
+
+    # Process groups in batches using $batch API
+    $transitiveGroupsWithPagination = [System.Collections.Generic.List[object]]::new()
+    $transitiveBatchApiCalls = 0
+    $transitiveIndividualApiCalls = 0
+
+    Write-Verbose "Processing $($groups.Count) groups for transitive memberships using batch API"
+
+    for ($i = 0; $i -lt $groups.Count; $i += $groupBatchSize) {
+        $endIndex = [Math]::Min($i + $groupBatchSize - 1, $groups.Count - 1)
+        $groupBatch = $groups[$i..$endIndex]
+
+        # Build batch requests for transitive member queries
+        $batchRequests = $groupBatch | ForEach-Object {
+            @{
+                id = $_.id
+                method = "GET"
+                url = "/groups/$($_.id)/transitiveMembers?`$select=id,displayName,userPrincipalName,accountEnabled,userType&`$top=100"
             }
         }
-        catch { Write-Warning "Error processing transitive members for group $($group.displayName): $_" }
+
+        # Execute batch request
+        $batchResponses = Invoke-GraphBatch -Requests $batchRequests -AccessToken $graphToken
+        $transitiveBatchApiCalls++
+
+        # Process results
+        foreach ($group in $groupBatch) {
+            $transitiveResponse = $batchResponses[$group.id]
+
+            if ($null -ne $transitiveResponse -and $transitiveResponse.value) {
+                # Process first page of transitive members
+                $result = Process-TransitiveMembers -Members $transitiveResponse.value -Group $group `
+                    -DirectMembershipKeys $directMembershipKeys -GroupNesting $groupNesting `
+                    -TimestampFormatted $timestampFormatted
+
+                foreach ($edge in $result.Edges) {
+                    [void]$jsonL.AppendLine($edge)
+                    $stats.GroupMembershipsTransitive++
+                }
+
+                # Check if this group has pagination
+                if ($transitiveResponse.'@odata.nextLink') {
+                    $transitiveGroupsWithPagination.Add(@{
+                        Group = $group
+                        NextLink = $transitiveResponse.'@odata.nextLink'
+                    })
+                }
+            }
+        }
 
         # Periodic flush
         if ($jsonL.Length -ge ($writeThreshold * 300)) {
@@ -366,8 +474,40 @@ try {
             Write-Verbose "Flushed transitive memberships buffer ($($stats.GroupMembershipsTransitive) total)"
         }
     }
+
+    # Handle groups with pagination (>100 transitive members)
+    if ($transitiveGroupsWithPagination.Count -gt 0) {
+        Write-Verbose "Processing $($transitiveGroupsWithPagination.Count) groups with transitive pagination..."
+
+        foreach ($paginatedGroup in $transitiveGroupsWithPagination) {
+            $group = $paginatedGroup.Group
+            $nextLink = $paginatedGroup.NextLink
+
+            while ($nextLink) {
+                try {
+                    $transitiveResponse = Invoke-GraphWithRetry -Uri $nextLink -AccessToken $graphToken
+                    $transitiveIndividualApiCalls++
+                    $nextLink = $transitiveResponse.'@odata.nextLink'
+
+                    $result = Process-TransitiveMembers -Members $transitiveResponse.value -Group $group `
+                        -DirectMembershipKeys $directMembershipKeys -GroupNesting $groupNesting `
+                        -TimestampFormatted $timestampFormatted
+
+                    foreach ($edge in $result.Edges) {
+                        [void]$jsonL.AppendLine($edge)
+                        $stats.GroupMembershipsTransitive++
+                    }
+                }
+                catch {
+                    Write-Warning "Failed to get paginated transitive members for group $($group.displayName): $_"
+                    break
+                }
+            }
+        }
+    }
+
     Write-BlobBuffer -Buffer ([ref]$jsonL) @flushParams
-    Write-Verbose "Transitive group memberships complete: $($stats.GroupMembershipsTransitive)"
+    Write-Information "[BATCH-MEMBERS] Transitive group memberships complete: $($stats.GroupMembershipsTransitive) edges, $transitiveBatchApiCalls batch calls, $transitiveIndividualApiCalls pagination calls" -InformationAction Continue
     #endregion
 
     #region Phase 2: Directory Role Members
