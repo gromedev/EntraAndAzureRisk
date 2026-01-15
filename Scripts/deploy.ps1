@@ -1,23 +1,27 @@
-#region V3.5 Deployment Script - Unified Architecture
+#region Alpenglow Alpha Deployment Script
 <#
 .SYNOPSIS
-    Deploys Entra Risk Analysis V3.5 infrastructure
+    Deploys Alpenglow Alpha infrastructure with security-isolated Function Apps
 
 .DESCRIPTION
-    V3.5 Architecture uses 6 unified Cosmos DB containers:
-    - principals: users, groups, SPs, devices
-    - resources: applications, Azure resources
-    - edges: all relationships (with edgeType discriminator)
-    - policies: CA policies, role policies, named locations
-    - events: sign-ins, audits (90 day TTL)
-    - audit: change audit trail (permanent)
+    Alpenglow Alpha Architecture:
+    - Two Function Apps for security isolation:
+      - func-alpenglow-data: Data collection with Graph API permissions
+      - func-alpenglow-www: Dashboard only (minimal permissions)
+    - 6 unified Cosmos DB containers (Serverless mode):
+      - principals: users, groups, SPs, devices
+      - resources: applications, Azure resources
+      - edges: all relationships (with edgeType discriminator)
+      - policies: CA policies, role policies, named locations
+      - events: sign-ins, audits (90 day TTL)
+      - audit: change audit trail (permanent)
 
 .PARAMETER SubscriptionId
     Azure subscription ID
 .PARAMETER TenantId
     Entra ID tenant ID
 .PARAMETER ResourceGroupName
-    Resource group name (default: rg-entrarisk-v35-001)
+    Resource group name (default: rg-alpenglow-dev-001)
 .PARAMETER Location
     Azure region (default: swedencentral)
 .PARAMETER Environment
@@ -25,10 +29,10 @@
 .PARAMETER BlobRetentionDays
     Blob retention in days (default: 7)
 .PARAMETER WorkloadName
-    Workload name for resources (default: entrariskv35)
+    Workload name for resources (default: alpenglow)
 
 .PARAMETER DeployGremlin
-    Deploy Gremlin graph database (default: false, deferred to V3.6)
+    Deploy Gremlin graph database (default: false)
 
 .EXAMPLE
     .\deploy.ps1 -SubscriptionId "xxx" -TenantId "yyy"
@@ -49,7 +53,7 @@ param(
     [string]$TenantId,
     
     [Parameter(Mandatory=$false)]
-    [string]$ResourceGroupName = "rg-entrarisk-v35-001",
+    [string]$ResourceGroupName = "rg-alpenglow-dev-001",
     
     [Parameter(Mandatory=$false)]
     [string]$Location = "swedencentral",
@@ -63,7 +67,7 @@ param(
     [int]$BlobRetentionDays = 7,
     
     [Parameter(Mandatory=$false)]
-    [string]$WorkloadName = "entrariskv35",
+    [string]$WorkloadName = "alpenglow",
 
     [Parameter(Mandatory=$false)]
     [bool]$DeployGremlin = $false
@@ -137,10 +141,10 @@ try {
         $rg = New-AzResourceGroup -Name $ResourceGroupName -Location $Location -Tag @{
             Environment = $Environment
             Workload = $WorkloadName
-            Project = 'EntraRiskAnalysis-V3.5'
+            Project = 'Alpenglow-Alpha'
             DeployedBy = $env:USERNAME
             DeployedDate = (Get-Date -Format 'yyyy-MM-dd')
-            Architecture = 'V3.5-Unified'
+            Architecture = 'Alpenglow-Alpha'
         } -ErrorAction Stop
         
         Write-DeploymentSuccess "Resource group created"
@@ -330,17 +334,20 @@ Write-Host "    5. $($deployment.Outputs.cosmosContainerEvents.Value) - Sign-ins
 Write-Host "    6. $($deployment.Outputs.cosmosContainerAudit.Value) - Change audit trail"
 Write-Host ""
 
-# Function App
-Write-Host "FUNCTION APP:" -ForegroundColor Yellow
-Write-DeploymentInfo "Name" $deployment.Outputs.functionAppName.Value
-Write-DeploymentInfo "URL" "https://$($deployment.Outputs.functionAppName.Value).azurewebsites.net"
-Write-DeploymentInfo "Plan" "Consumption (Dynamic)"
-Write-DeploymentInfo "Features" "Delta detection enabled"
+# Function Apps (Security Isolated)
+Write-Host "FUNCTION APPS (Security Isolated):" -ForegroundColor Yellow
 Write-Host ""
-
-# AI Foundry removed in V3
-Write-Host "AI FOUNDRY:" -ForegroundColor Yellow
-Write-Host "  (Removed in V3 architecture)" -ForegroundColor Gray
+Write-Host "  Data Collection App:" -ForegroundColor Cyan
+Write-DeploymentInfo "    Name" $deployment.Outputs.functionAppName.Value
+Write-DeploymentInfo "    URL" "https://$($deployment.Outputs.functionAppName.Value).azurewebsites.net"
+Write-DeploymentInfo "    Permissions" "Graph API (15), Cosmos DB, Storage"
+Write-Host ""
+Write-Host "  Dashboard App (www):" -ForegroundColor Cyan
+Write-DeploymentInfo "    Name" $deployment.Outputs.functionAppWwwName.Value
+Write-DeploymentInfo "    Dashboard" "https://$($deployment.Outputs.functionAppWwwName.Value).azurewebsites.net/api/dashboard"
+Write-DeploymentInfo "    Permissions" "Cosmos DB connection string only (NO Graph API)"
+Write-Host ""
+Write-DeploymentInfo "Plan" "Shared Consumption (Y1 Dynamic)"
 Write-Host ""
 
 # Monitoring
@@ -358,60 +365,83 @@ Write-Host ""
 Write-Host ""
 Write-Host "Deploying Function App code..." -ForegroundColor Yellow
 
-# Manual deployment:
-# func azure functionapp publish func-entrarisk-data-dev-36jut3xd6y2so --powershell --no-build
-
 try {
     # Check if Azure Functions Core Tools is installed
     $funcVersion = func --version 2>$null
-    
+
     if (-not $funcVersion) {
         Write-Warning "Azure Functions Core Tools not found - skipping code deployment"
         Write-Host "  Install with: npm install -g azure-functions-core-tools@4"
-        Write-Host "  Then deploy manually: cd FunctionApp && func azure functionapp publish $($deployment.Outputs.functionAppName.Value) --powershell"
+        Write-Host "  Then deploy manually:"
+        Write-Host "    cd FunctionApp-Data && func azure functionapp publish $($deployment.Outputs.functionAppName.Value) --powershell"
+        Write-Host "    cd FunctionApp-www && func azure functionapp publish $($deployment.Outputs.functionAppWwwName.Value) --powershell"
     }
     else {
-        # Verify FunctionApp directory exists
-        $functionAppPath = Join-Path $PSScriptRoot "..\FunctionApp"
-        
-        if (-not (Test-Path $functionAppPath)) {
-            throw "FunctionApp directory not found at: $functionAppPath"
+        # ===== Deploy Data Function App =====
+        $dataAppPath = Join-Path $PSScriptRoot "..\FunctionApp-Data"
+
+        if (-not (Test-Path $dataAppPath)) {
+            throw "FunctionApp-Data directory not found at: $dataAppPath"
         }
-        
-        # Deploy function app
-        Write-Host "  Source: $functionAppPath"
-        Write-Host "  Target: $($deployment.Outputs.functionAppName.Value)"
-        
-        Push-Location $functionAppPath
+
+        Write-Host ""
+        Write-Host "  [1/2] Data Function App:" -ForegroundColor Cyan
+        Write-Host "    Source: $dataAppPath"
+        Write-Host "    Target: $($deployment.Outputs.functionAppName.Value)"
+
+        Push-Location $dataAppPath
         try {
-            # Deploy with --no-build flag to skip sync triggers during deployment
-            # Triggers will sync automatically when function app starts
             func azure functionapp publish $($deployment.Outputs.functionAppName.Value) --powershell --no-build | Out-Host
-            
+
             if ($LASTEXITCODE -eq 0) {
-                Write-DeploymentSuccess "Function App code deployed"
-                Write-DeploymentInfo "Endpoint" "https://$($deployment.Outputs.functionAppName.Value).azurewebsites.net"
-                Write-Host ""
-                Write-Host "  Note: Function triggers will sync automatically when the app starts (may take 1-2 minutes)" -ForegroundColor Gray
+                Write-DeploymentSuccess "    Data Function App deployed"
             }
             else {
-                # Exit code 1 often means sync triggers failed but deployment succeeded
-                # Check if it's just the sync triggers error
-                Write-Warning "Deployment completed with warnings (sync triggers may have failed)"
-                Write-Host "  This is often a timing issue - triggers will sync when the function app fully starts"
-                Write-Host "  Verify in 2-3 minutes at: https://$($deployment.Outputs.functionAppName.Value).azurewebsites.net"
+                Write-Warning "    Data app deployment completed with warnings"
             }
         }
         finally {
             Pop-Location
         }
+
+        # ===== Deploy www Function App (Dashboard) =====
+        $wwwAppPath = Join-Path $PSScriptRoot "..\FunctionApp-www"
+
+        if (-not (Test-Path $wwwAppPath)) {
+            throw "FunctionApp-www directory not found at: $wwwAppPath"
+        }
+
+        Write-Host ""
+        Write-Host "  [2/2] www Function App (Dashboard):" -ForegroundColor Cyan
+        Write-Host "    Source: $wwwAppPath"
+        Write-Host "    Target: $($deployment.Outputs.functionAppWwwName.Value)"
+
+        Push-Location $wwwAppPath
+        try {
+            func azure functionapp publish $($deployment.Outputs.functionAppWwwName.Value) --powershell --no-build | Out-Host
+
+            if ($LASTEXITCODE -eq 0) {
+                Write-DeploymentSuccess "    www Function App deployed"
+            }
+            else {
+                Write-Warning "    www app deployment completed with warnings"
+            }
+        }
+        finally {
+            Pop-Location
+        }
+
+        Write-Host ""
+        Write-DeploymentSuccess "Both Function Apps deployed successfully"
+        Write-DeploymentInfo "Data App" "https://$($deployment.Outputs.functionAppName.Value).azurewebsites.net"
+        Write-DeploymentInfo "Dashboard" "https://$($deployment.Outputs.functionAppWwwName.Value).azurewebsites.net/api/dashboard"
     }
 }
 catch {
     Write-Warning "Function App code deployment failed: $($_.Exception.Message)"
     Write-Host "  Deploy manually with:" -ForegroundColor Gray
-    Write-Host "    cd FunctionApp"
-    Write-Host "    func azure functionapp publish $($deployment.Outputs.functionAppName.Value) --powershell --no-build"
+    Write-Host "    cd FunctionApp-Data && func azure functionapp publish $($deployment.Outputs.functionAppName.Value) --powershell --no-build"
+    Write-Host "    cd FunctionApp-www && func azure functionapp publish $($deployment.Outputs.functionAppWwwName.Value) --powershell --no-build"
 }
 #endregion
 #endregion
@@ -442,11 +472,12 @@ $deploymentInfo = @{
     Location = $Location
     Environment = $Environment
     BlobRetentionDays = $BlobRetentionDays
-    Architecture = 'V3.5-Unified'
+    Architecture = 'Alpenglow-Alpha'
 
     Resources = @{
         StorageAccount = $deployment.Outputs.storageAccountName.Value
-        FunctionApp = $deployment.Outputs.functionAppName.Value
+        FunctionAppData = $deployment.Outputs.functionAppName.Value
+        FunctionAppWww = $deployment.Outputs.functionAppWwwName.Value
         CosmosDBAccount = $deployment.Outputs.cosmosDbAccountName.Value
         CosmosDatabase = $deployment.Outputs.cosmosDatabaseName.Value
         CosmosContainers = @{
@@ -462,17 +493,22 @@ $deploymentInfo = @{
     }
 
     ManagedIdentities = @{
-        FunctionApp = $deployment.Outputs.functionAppIdentityPrincipalId.Value
+        FunctionAppData = $deployment.Outputs.functionAppIdentityPrincipalId.Value
+        FunctionAppWww = $deployment.Outputs.functionAppWwwPrincipalId.Value
+    }
+
+    Endpoints = @{
+        DataApp = "https://$($deployment.Outputs.functionAppName.Value).azurewebsites.net"
+        Dashboard = "https://$($deployment.Outputs.functionAppWwwName.Value).azurewebsites.net/api/dashboard"
     }
 
     NextSteps = @{
-        GraphAPIPermissions = "Required - See steps above"
-        ModulePublishing = "Required - Run publish-module.yml"
-        AppDeployment = "Required - Run pilot-pipeline.yml"
+        GraphAPIPermissions = "Auto-assigned to Data app only"
+        SecurityIsolation = "www app has NO Graph API permissions"
     }
 }
 
-$infoPath = Join-Path $PSScriptRoot "deployment-info-v35-$(Get-Date -Format 'yyyyMMdd-HHmmss').json"
+$infoPath = Join-Path $PSScriptRoot "deployment-info-alpenglow-$(Get-Date -Format 'yyyyMMdd-HHmmss').json"
 $deploymentInfo | ConvertTo-Json -Depth 10 | Set-Content -Path $infoPath
 
 Write-Host ""

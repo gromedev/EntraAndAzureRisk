@@ -20,7 +20,7 @@
   },
   "extensions": {
     "durableTask": {
-      "hubName": "EntraRiskHub",
+      "hubName": "AlpenglowHub",
       "storageProvider": {
         "connectionStringName": "AzureWebJobsStorage"
       }

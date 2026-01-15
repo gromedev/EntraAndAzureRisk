@@ -1,5 +1,5 @@
 @description('The workload name used for naming resources')
-param workloadName string = 'entrarisk'
+param workloadName string = 'alpenglow'
 
 @description('The environment name (dev, test, prod)')
 @allowed([
@@ -27,8 +27,8 @@ param tags object = {
   Workload: workloadName
   ManagedBy: 'Bicep'
   CostCenter: 'IT-Security'
-  Project: 'EntraRiskAnalysis-V3.1'
-  Version: '3.5'
+  Project: 'Alpenglow-Alpha'
+  Version: '1.0-alpha'
 }
 
 // Generate unique suffix for globally unique names
@@ -39,6 +39,7 @@ var storageAccountName = take('st${workloadName}${environment}${uniqueSuffix}', 
 var cosmosDbAccountName = 'cosno-${workloadName}-${environment}-${uniqueSuffix}'
 var cosmosGremlinAccountName = 'cosgr-${workloadName}-${environment}-${uniqueSuffix}'  // V3.1: Gremlin for graph queries
 var functionAppName = 'func-${workloadName}-data-${environment}-${uniqueSuffix}'
+var functionAppWwwName = 'func-${workloadName}-www-${environment}-${uniqueSuffix}'
 var appServicePlanName = 'asp-${workloadName}-${environment}-001'
 var keyVaultName = take('keyvault${workloadName}${environment}${uniqueSuffix}', 24)
 var appInsightsName = 'appi-${workloadName}-${environment}-001'
@@ -147,12 +148,17 @@ resource cosmosDbAccount 'Microsoft.DocumentDB/databaseAccounts@2023-04-15' = {
         isZoneRedundant: false
       }
     ]
-    capabilities: [] 
-    enableFreeTier: false 
+    capabilities: [
+      {
+        name: 'EnableServerless'  // Serverless capacity mode (~$8/month vs ~$120/month provisioned)
+      }
+    ]
+    enableFreeTier: false
     backupPolicy: {
-      type: 'Continuous'
-      continuousModeProperties: {
-        tier: 'Continuous7Days'
+      type: 'Periodic'  // Serverless doesn't support Continuous backup
+      periodicModeProperties: {
+        backupIntervalInMinutes: 240
+        backupRetentionIntervalInHours: 8
       }
     }
   }
@@ -718,6 +724,60 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
 
 // AI Foundry removed in V3 - TestAIFoundry feature deleted
 
+// ===== WWW FUNCTION APP (Dashboard Only - Minimal Permissions) =====
+
+resource functionAppWww 'Microsoft.Web/sites@2022-09-01' = {
+  name: functionAppWwwName
+  location: location
+  tags: tags
+  kind: 'functionapp'
+  identity: {
+    type: 'SystemAssigned'  // Separate identity from Data app for security isolation
+  }
+  properties: {
+    serverFarmId: appServicePlan.id  // Shared consumption plan
+    httpsOnly: true
+    siteConfig: {
+      powerShellVersion: '7.4'
+      appSettings: [
+        {
+          name: 'AzureWebJobsStorage'
+          value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccount.listKeys().keys[0].value};EndpointSuffix=${az.environment().suffixes.storage}'
+        }
+        {
+          name: 'WEBSITE_CONTENTAZUREFILECONNECTIONSTRING'
+          value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccount.listKeys().keys[0].value};EndpointSuffix=${az.environment().suffixes.storage}'
+        }
+        {
+          name: 'WEBSITE_CONTENTSHARE'
+          value: toLower(functionAppWwwName)
+        }
+        {
+          name: 'FUNCTIONS_EXTENSION_VERSION'
+          value: '~4'
+        }
+        {
+          name: 'FUNCTIONS_WORKER_RUNTIME'
+          value: 'powershell'
+        }
+        {
+          name: 'APPINSIGHTS_INSTRUMENTATIONKEY'
+          value: appInsights.properties.InstrumentationKey
+        }
+        {
+          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+          value: appInsights.properties.ConnectionString
+        }
+        // Dashboard only needs Cosmos DB connection string - NO Graph API, NO Storage write access
+        {
+          name: 'CosmosDbConnectionString'
+          value: cosmosDbAccount.listConnectionStrings().connectionStrings[0].connectionString
+        }
+      ]
+    }
+  }
+}
+
 // RBAC ASSIGNMENTS
 
 resource functionAppStorageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
@@ -763,6 +823,10 @@ output keyVaultName string = keyVault.name
 output appInsightsName string = appInsights.name
 output functionAppIdentityPrincipalId string = functionApp.identity.principalId
 output blobRetentionDays int = blobRetentionDays
+// Alpenglow www Function App Outputs
+output functionAppWwwName string = functionAppWww.name
+output functionAppWwwDefaultHostName string = functionAppWww.properties.defaultHostName
+output functionAppWwwPrincipalId string = functionAppWww.identity.principalId
 // V3.6 Gremlin Outputs (only when deployGremlin=true)
 output cosmosGremlinAccountName string = deployGremlin ? cosmosGremlinAccount.name : 'not-deployed'
 output cosmosGremlinEndpoint string = deployGremlin ? 'wss://${cosmosGremlinAccount.name}.gremlin.cosmos.azure.com:443/' : 'not-deployed'

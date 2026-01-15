@@ -5,13 +5,13 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "3252119851166592119"
+      "templateHash": "8326638059690697889"
     }
   },
   "parameters": {
     "workloadName": {
       "type": "string",
-      "defaultValue": "entrarisk",
+      "defaultValue": "alpenglow",
       "metadata": {
         "description": "The workload name used for naming resources"
       }
@@ -62,8 +62,8 @@
         "Workload": "[parameters('workloadName')]",
         "ManagedBy": "Bicep",
         "CostCenter": "IT-Security",
-        "Project": "EntraRiskAnalysis-V3.1",
-        "Version": "3.5"
+        "Project": "Alpenglow-Alpha",
+        "Version": "1.0-alpha"
       },
       "metadata": {
         "description": "Tags to apply to all resources"
@@ -76,6 +76,7 @@
     "cosmosDbAccountName": "[format('cosno-{0}-{1}-{2}', parameters('workloadName'), parameters('environment'), variables('uniqueSuffix'))]",
     "cosmosGremlinAccountName": "[format('cosgr-{0}-{1}-{2}', parameters('workloadName'), parameters('environment'), variables('uniqueSuffix'))]",
     "functionAppName": "[format('func-{0}-data-{1}-{2}', parameters('workloadName'), parameters('environment'), variables('uniqueSuffix'))]",
+    "functionAppWwwName": "[format('func-{0}-www-{1}-{2}', parameters('workloadName'), parameters('environment'), variables('uniqueSuffix'))]",
     "appServicePlanName": "[format('asp-{0}-{1}-001', parameters('workloadName'), parameters('environment'))]",
     "keyVaultName": "[take(format('keyvault{0}{1}{2}', parameters('workloadName'), parameters('environment'), variables('uniqueSuffix')), 24)]",
     "appInsightsName": "[format('appi-{0}-{1}-001', parameters('workloadName'), parameters('environment'))]",
@@ -199,12 +200,17 @@
             "isZoneRedundant": false
           }
         ],
-        "capabilities": [],
+        "capabilities": [
+          {
+            "name": "EnableServerless"
+          }
+        ],
         "enableFreeTier": false,
         "backupPolicy": {
-          "type": "Continuous",
-          "continuousModeProperties": {
-            "tier": "Continuous7Days"
+          "type": "Periodic",
+          "periodicModeProperties": {
+            "backupIntervalInMinutes": 240,
+            "backupRetentionIntervalInHours": 8
           }
         }
       }
@@ -900,6 +906,64 @@
       ]
     },
     {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2022-09-01",
+      "name": "[variables('functionAppWwwName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "kind": "functionapp",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]",
+        "httpsOnly": true,
+        "siteConfig": {
+          "powerShellVersion": "7.4",
+          "appSettings": [
+            {
+              "name": "AzureWebJobsStorage",
+              "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix={2}', variables('storageAccountName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-01-01').keys[0].value, environment().suffixes.storage)]"
+            },
+            {
+              "name": "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING",
+              "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix={2}', variables('storageAccountName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-01-01').keys[0].value, environment().suffixes.storage)]"
+            },
+            {
+              "name": "WEBSITE_CONTENTSHARE",
+              "value": "[toLower(variables('functionAppWwwName'))]"
+            },
+            {
+              "name": "FUNCTIONS_EXTENSION_VERSION",
+              "value": "~4"
+            },
+            {
+              "name": "FUNCTIONS_WORKER_RUNTIME",
+              "value": "powershell"
+            },
+            {
+              "name": "APPINSIGHTS_INSTRUMENTATIONKEY",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').InstrumentationKey]"
+            },
+            {
+              "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').ConnectionString]"
+            },
+            {
+              "name": "CosmosDbConnectionString",
+              "value": "[listConnectionStrings(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosDbAccountName')), '2023-04-15').connectionStrings[0].connectionString]"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Insights/components', variables('appInsightsName'))]",
+        "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('cosmosDbAccountName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    },
+    {
       "type": "Microsoft.Authorization/roleAssignments",
       "apiVersion": "2022-04-01",
       "scope": "[format('Microsoft.Storage/storageAccounts/{0}', variables('storageAccountName'))]",
@@ -990,6 +1054,18 @@
     "blobRetentionDays": {
       "type": "int",
       "value": "[parameters('blobRetentionDays')]"
+    },
+    "functionAppWwwName": {
+      "type": "string",
+      "value": "[variables('functionAppWwwName')]"
+    },
+    "functionAppWwwDefaultHostName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppWwwName')), '2022-09-01').defaultHostName]"
+    },
+    "functionAppWwwPrincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppWwwName')), '2022-09-01', 'full').identity.principalId]"
     },
     "cosmosGremlinAccountName": {
       "type": "string",

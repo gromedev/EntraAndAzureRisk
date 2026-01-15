@@ -1,0 +1,12 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "powershell",
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "CosmosDbConnectionString": "AccountEndpoint=https://YOUR-COSMOS-ACCOUNT.documents.azure.com:443/;AccountKey=YOUR-KEY;",
+    "COSMOS_DB_ENDPOINT": "https://YOUR-COSMOS-ACCOUNT.documents.azure.com:443/",
+    "COSMOS_DB_DATABASE": "EntraData",
+    "TENANT_ID": "your-tenant-id"
+  },
+  "ConnectionStrings": {}
+}

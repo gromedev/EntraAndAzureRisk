@@ -418,7 +418,7 @@ try {
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Debug Dashboard - Entra Risk</title>
+    <title>Alpenglow Dashboard (Alpha)</title>
     <style>
         * { box-sizing: border-box; }
         body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 20px; background: #f0f2f5; }
@@ -597,7 +597,7 @@ try {
     </script>
 </head>
 <body>
-    <h1>Debug Dashboard <small style="font-size:0.5em;color:#666;">(Entra Risk v3.5)</small></h1>
+    <h1>Alpenglow Dashboard <small style="font-size:0.5em;color:#666;">(Alpha)</small></h1>
     <div class="summary">
         <b>Container Counts</b> |
         Principals: <b>$($allPrincipals.Count)</b> (U:$($users.Count) G:$($groups.Count) SP:$($sps.Count) D:$($devices.Count) AU:$($adminUnits.Count)) |

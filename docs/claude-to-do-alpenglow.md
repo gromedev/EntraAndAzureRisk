@@ -1,5 +1,20 @@
 # Alpenglow Alpha Migration To-Do List
 
+## Migration Status: COMPLETE (Ready for Deployment)
+
+**Last Updated:** 2026-01-15
+**Completed Phases:** 6/6 (Phase 6.2 - manual GitHub repo creation - pending)
+
+### Summary of Changes
+- Created `FunctionApp-www/` with Dashboard (security-isolated)
+- Renamed `FunctionApp/` to `FunctionApp-Data/`
+- Updated Bicep: serverless Cosmos DB, added www function app, updated naming
+- Updated deploy.ps1: dual function app deployment, Alpenglow branding
+- Updated VSCode settings and created local.settings.json templates
+- Created `docs/README-Alpenglow-Alpha.md`
+
+---
+
 ## Overview
 Migrating EntraAndAzureRisk (v3.5) to Alpenglow Alpha with separate Function Apps for security isolation.
 
@@ -14,18 +29,18 @@ Migrating EntraAndAzureRisk (v3.5) to Alpenglow Alpha with separate Function App
 ## Phase 1: Project Structure Changes
 
 ### 1.1 Separate Dashboard into its own Function App
-- [ ] Create `/FunctionApp-www/` directory structure
-  - [ ] Create `host.json` (minimal - no DurableTask needed)
-  - [ ] Create `profile.ps1` (simplified - no module loading needed)
-  - [ ] Create `requirements.psd1`
-  - [ ] Copy `Dashboard/` function to `/FunctionApp-www/Dashboard/`
-  - [ ] Update Dashboard branding to "Alpenglow Dashboard (Alpha)"
-  - [ ] The www function app does NOT need Modules/ (Dashboard uses Cosmos bindings only)
+- [x] Create `/FunctionApp-www/` directory structure
+  - [x] Create `host.json` (minimal - no DurableTask needed)
+  - [x] Create `profile.ps1` (simplified - no module loading needed)
+  - [x] Create `requirements.psd1`
+  - [x] Copy `Dashboard/` function to `/FunctionApp-www/Dashboard/`
+  - [x] Update Dashboard branding to "Alpenglow Dashboard (Alpha)"
+  - [x] The www function app does NOT need Modules/ (Dashboard uses Cosmos bindings only)
 
 ### 1.2 Rename FunctionApp to FunctionApp-Data
-- [ ] Rename `/FunctionApp/` to `/FunctionApp-Data/`
-- [ ] Remove Dashboard folder from `/FunctionApp-Data/`
-- [ ] Update hubName in host.json from `'EntraRiskHub'` to `'AlpenglowHub'`
+- [x] Rename `/FunctionApp/` to `/FunctionApp-Data/`
+- [x] Remove Dashboard folder from `/FunctionApp-Data/`
+- [x] Update hubName in host.json from `'EntraRiskHub'` to `'AlpenglowHub'`
 
 ### 1.3 Directory Structure Verification
 Verify final structure:
@@ -64,51 +79,76 @@ Verify final structure:
 
 ## Phase 2: Infrastructure (Bicep) Updates
 
+### 2.0 Fix Cosmos DB Capacity Mode (Cost Bug)
+- [x] Update `main.bicep` line 150:
+  - **Current:** `capabilities: []` (deploys as provisioned, ~$120/month)
+  - **Required:** Add `EnableServerless` capability (~$8/month)
+  ```bicep
+  capabilities: [
+    {
+      name: 'EnableServerless'
+    }
+  ]
+  ```
+- [x] Change backup policy from `Continuous` to `Periodic` (serverless doesn't support continuous backup)
+  ```bicep
+  backupPolicy: {
+    type: 'Periodic'
+    periodicModeProperties: {
+      backupIntervalInMinutes: 240
+      backupRetentionIntervalInHours: 8
+    }
+  }
+  ```
+- [x] Remove throughput settings from containers (serverless manages this automatically)
+
+**Note:** This cannot be changed on an existing account. The Alpenglow migration will deploy a new account, fixing this automatically.
+
 ### 2.1 Naming Convention Changes
-- [ ] Update `main.bicep`:
-  - [ ] Change `workloadName` default from `'entrarisk'` to `'alpenglow'`
-  - [ ] Update Project tag to `'Alpenglow-Alpha'`
-  - [ ] Update Version tag to `'1.0-alpha'`
-  - [ ] Add new variable: `functionAppWwwName = 'func-${workloadName}-www-${environment}-${uniqueSuffix}'`
+- [x] Update `main.bicep`:
+  - [x] Change `workloadName` default from `'entrarisk'` to `'alpenglow'`
+  - [x] Update Project tag to `'Alpenglow-Alpha'`
+  - [x] Update Version tag to `'1.0-alpha'`
+  - [x] Add new variable: `functionAppWwwName = 'func-${workloadName}-www-${environment}-${uniqueSuffix}'`
 
 ### 2.2 Second Function App Resource
-- [ ] Add new Function App resource for www (`functionAppWww`)
-  - [ ] Use same App Service Plan (shared consumption plan)
-  - [ ] System-assigned managed identity (separate from data app!)
-  - [ ] Configure with PowerShell runtime 7.4
-  - [ ] Link to App Insights
-  - [ ] Configure Cosmos DB connection string
-  - [ ] Minimal app settings (no Graph, no Storage env vars)
+- [x] Add new Function App resource for www (`functionAppWww`)
+  - [x] Use same App Service Plan (shared consumption plan)
+  - [x] System-assigned managed identity (separate from data app!)
+  - [x] Configure with PowerShell runtime 7.4
+  - [x] Link to App Insights
+  - [x] Configure Cosmos DB connection string
+  - [x] Minimal app settings (no Graph, no Storage env vars)
 
 ### 2.3 RBAC Changes
-- [ ] Data Function App (`func-alpenglow-data-dev-*`):
-  - [ ] Keep all existing Graph permissions (15 permissions)
-  - [ ] Keep Cosmos DB read/write RBAC
-  - [ ] Keep Storage Blob Data Contributor
-- [ ] www Function App (`func-alpenglow-www-dev-*`):
-  - [ ] Cosmos DB connection string (inherent read/write via string)
-  - [ ] NO Graph API permissions needed
-  - [ ] NO Storage permissions needed
+- [x] Data Function App (`func-alpenglow-data-dev-*`):
+  - [x] Keep all existing Graph permissions (15 permissions)
+  - [x] Keep Cosmos DB read/write RBAC
+  - [x] Keep Storage Blob Data Contributor
+- [x] www Function App (`func-alpenglow-www-dev-*`):
+  - [x] Cosmos DB connection string (inherent read/write via string)
+  - [x] NO Graph API permissions needed
+  - [x] NO Storage permissions needed
 
 ### 2.4 Update Outputs
-- [ ] Add www function app outputs:
-  - [ ] `functionAppWwwName`
-  - [ ] `functionAppWwwDefaultHostName`
-  - [ ] `functionAppWwwPrincipalId`
+- [x] Add www function app outputs:
+  - [x] `functionAppWwwName`
+  - [x] `functionAppWwwDefaultHostName`
+  - [x] `functionAppWwwPrincipalId`
 
 ---
 
 ## Phase 3: Deployment Script Updates
 
 ### 3.1 Update `deploy.ps1`
-- [ ] Change default `$ResourceGroupName` from `"rg-entrarisk-v35-001"` to `"rg-alpenglow-dev-001"`
-- [ ] Change default `$WorkloadName` from `"entrariskv35"` to `"alpenglow"`
-- [ ] Update Project tag to `'Alpenglow-Alpha'`
-- [ ] Update Architecture tag to `'Alpenglow-Alpha'`
-- [ ] Update banner/messaging to Alpenglow branding
+- [x] Change default `$ResourceGroupName` from `"rg-entrarisk-v35-001"` to `"rg-alpenglow-dev-001"`
+- [x] Change default `$WorkloadName` from `"entrariskv35"` to `"alpenglow"`
+- [x] Update Project tag to `'Alpenglow-Alpha'`
+- [x] Update Architecture tag to `'Alpenglow-Alpha'`
+- [x] Update banner/messaging to Alpenglow branding
 
 ### 3.2 Dual Function App Deployment
-- [ ] Add logic to deploy both function apps:
+- [x] Add logic to deploy both function apps:
   ```powershell
   # Deploy Data Function App
   Push-Location "$PSScriptRoot/../FunctionApp-Data"
@@ -122,41 +162,43 @@ Verify final structure:
   ```
 
 ### 3.3 Graph Permission Assignment
-- [ ] Modify Graph permission assignment to ONLY target Data function app
-- [ ] www function app gets NO Graph permissions (security isolation!)
+- [x] Modify Graph permission assignment to ONLY target Data function app
+- [x] www function app gets NO Graph permissions (security isolation!)
 
 ---
 
 ## Phase 4: Configuration Updates
 
 ### 4.1 VSCode Settings
-- [ ] Update `.vscode/settings.json`:
-  - [ ] Update `azureFunctions.deploySubpath` to `FunctionApp-Data`
+- [x] Update `.vscode/settings.json`:
+  - [x] Update `azureFunctions.deploySubpath` to `FunctionApp-Data`
 
 ### 4.2 Local Settings Templates
-- [ ] Create `FunctionApp-Data/local.settings.json.template`
-- [ ] Create `FunctionApp-www/local.settings.json.template`
+- [x] Create `FunctionApp-Data/local.settings.json.template`
+- [x] Create `FunctionApp-www/local.settings.json.template`
 
 ---
 
 ## Phase 5: Documentation Updates
 
 ### 5.1 Update README
-- [ ] Update README-v3.5.md or create new README for Alpenglow
-- [ ] Document the two-function-app architecture
-- [ ] Document security isolation benefits
+- [x] Update README-v3.5.md or create new README for Alpenglow
+- [x] Document the two-function-app architecture
+- [x] Document security isolation benefits
+
+**Created:** `docs/README-Alpenglow-Alpha.md`
 
 ---
 
 ## Phase 6: New GitHub Repository
 
 ### 6.1 Prepare for New Repo
-- [ ] Verify `.gitignore` is complete
-- [ ] Clean any sensitive data from tracked files
-- [ ] Review/update documentation for Alpenglow branding
+- [x] Verify `.gitignore` is complete
+- [x] Clean any sensitive data from tracked files
+- [x] Review/update documentation for Alpenglow branding
 
 ### 6.2 Create New Repository
-- [ ] Create `github.com/gromedev/alpenglow` repository
+- [ ] Create `github.com/gromedev/alpenglow` repository (manual)
 - [ ] Push project to new repo (including .gitignore)
 - [ ] Verify all files present
 
@@ -165,9 +207,9 @@ Verify final structure:
 ## Testing Checklist
 
 ### Pre-Deployment Verification
-- [ ] Bicep validates without errors: `az bicep build --file main.bicep`
-- [ ] Both FunctionApp directories have valid structure
-- [ ] local.settings.json templates are correct
+- [x] Bicep validates without errors: `az bicep build --file main.bicep`
+- [x] Both FunctionApp directories have valid structure
+- [x] local.settings.json templates are correct
 
 ### Post-Deployment Verification
 - [ ] Both function apps are created in Azure
@@ -232,13 +274,15 @@ If Dashboard (www) is compromised:
 - Old EntraRisk naming
 - Single-function-app architecture
 
-### Files to Modify
-| File | Changes |
-|------|---------|
-| `Infrastructure/main.bicep` | Naming, tags, add www function app resource, outputs |
-| `Scripts/deploy.ps1` | Defaults, tags, dual deployment logic |
-| `.vscode/settings.json` | Update deploy subpath |
-| `FunctionApp/host.json` | Rename hubName to AlpenglowHub |
+### Files Modified
+| File | Changes | Status |
+|------|---------|--------|
+| `Infrastructure/main.bicep` | Naming, tags, serverless Cosmos, add www function app resource, outputs | Done |
+| `Scripts/deploy.ps1` | Defaults, tags, dual deployment logic | Done |
+| `.vscode/settings.json` | Update deploy subpath to FunctionApp-Data | Done |
+| `FunctionApp-Data/host.json` | Rename hubName to AlpenglowHub | Done |
+| `FunctionApp-www/*` | New directory with Dashboard only | Done |
+| `docs/README-Alpenglow-Alpha.md` | New architecture documentation | Done |
 
 ---
 

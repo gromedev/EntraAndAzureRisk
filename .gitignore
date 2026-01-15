@@ -7,6 +7,11 @@ Test/
 # Ignore local secrets and settings (Crucial for safety)
 local.settings.json
 settings.local.json
+# But do NOT ignore templates
+!local.settings.json.template
+
+# Ignore deployment info files with secrets
+deployment-info-*.json
 
 # Ignore Azurite runtime data (the local storage files)
 __blobstorage__/
